@@ -1,0 +1,51 @@
+{
+    "personen": [
+        {
+            "Name": "Tom",
+            "Nachname": "Pinter",
+            "Freibetrag": {},
+            "Banken": [
+                "Deutsche Bank",
+                "Commerzbank"
+            ],
+            "Konten": [
+                {
+                    "Kontotyp": "Girokonto",
+                    "Bank": "Deutsche Bank",
+                    "BIC": "DEUTDEFF",
+                    "BLZ": "50070010",
+                    "Kontonummer": "1245",
+                    "Erstellungsdatum": "2025-02-16",
+                    "Kontostaende": [
+                        "2025-02-16: 1000"
+                    ]
+                },
+                {
+                    "Kontotyp": "Festgeldkonto",
+                    "Bank": "Deutsche Bank",
+                    "BIC": "DEUTDEFF",
+                    "BLZ": "50070010",
+                    "Kontonummer": "1223",
+                    "Laufzeit_in_Tagen": "180",
+                    "Anlagedatum": "2025-02-16",
+                    "Zinsintervall": "monatlich",
+                    "Auszahlungskonto": "DE00500700101245",
+                    "Anlagebetrag": "1000",
+                    "Zinssatz": "10",
+                    "Kontostaende": [
+                        "2025-02-16: 1000",
+                        "2025-02-25: 1002.50"
+                    ]
+                },
+                {
+                    "Kontotyp": "Depot",
+                    "Bank": "Deutsche Bank",
+                    "BIC": "DEUTDEFF",
+                    "BLZ": "50070010",
+                    "Deponummer": "12234",
+                    "Verrechnungskonto": "DE00500700101245"
+                }
+            ]
+        }
+    ]
+}
