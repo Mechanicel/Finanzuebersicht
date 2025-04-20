@@ -1,6 +1,7 @@
-# main.py
 import customtkinter
 from navigator import Navigator
+
+
 
 # Systemeinstellungen
 customtkinter.set_appearance_mode("System")
@@ -14,11 +15,11 @@ app.title("Finanzübersicht")
 # Initialisiere den Navigator, der die Navigation zwischen Screens übernimmt
 navigator = Navigator(app)
 
-# Starte mit dem Hauptmenü
-navigator.navigate("main_screen")
+# Starte mit dem MainScreen
+navigator.navigate("MainScreen")
 
-def schließenMain():
+def close_app():
     app.destroy()
 
-app.protocol("WM_DELETE_WINDOW", schließenMain)
+app.protocol("WM_DELETE_WINDOW", close_app)
 app.mainloop()

@@ -1,20 +1,34 @@
-# screens/screen_new_bank.py
-import json
 import customtkinter
-from classen import Bank
-from helper.universalMethoden import clear_ui, zentrieren
+import json
+from src.helpers.UniversalMethoden import clear_ui, zentrieren
+from src.data.DataManager import DataManager
 
-def new_bank_screen(app, navigator, **kwargs):
+def create_screen(app, navigator, **kwargs):
     clear_ui(app)
+    data_manager = DataManager()
 
     def add_bank():
         name = entry_name.get().strip()
         bic = entry_bic.get().strip()
         if name and bic:
-            neue_bank = Bank(name, bic)
-            save_bank(neue_bank)
-            entry_name.delete(0, "end")
-            entry_bic.delete(0, "end")
+            bank_data = data_manager.load_bank_data()
+            banks = bank_data.get("Banken", [])
+            # Überprüfe, ob die Bank bereits existiert
+            for bank in banks:
+                if bank.get("Name") == name:
+                    if bic not in bank.get("BIC", []):
+                        bank["BIC"].append(bic)
+                    break
+            else:
+                banks.append({"Name": name, "BIC": [bic]})
+            try:
+                with open(data_manager.banken_file, "w", encoding="utf-8") as f:
+                    json.dump({"Banken": banks}, f, indent=4)
+                print(f"Bank '{name}' hinzugefügt.")
+                entry_name.delete(0, "end")
+                entry_bic.delete(0, "end")
+            except Exception as e:
+                print("Fehler beim Speichern der Bankdaten:", e)
         else:
             print("Bitte füllen Sie alle Felder aus!")
             if not name:
@@ -27,25 +41,7 @@ def new_bank_screen(app, navigator, **kwargs):
         entry_bic.configure(fg_color="white")
 
     def back():
-        navigator.navigate("main_screen")
-
-    def save_bank(bank):
-        try:
-            with open("banken.json", "r") as file:
-                data = json.load(file)
-                banks = data.get("Banken", [])
-                for b in banks:
-                    if b["Name"] == bank.name:
-                        if bank.bic not in b["BIC"]:
-                            b["BIC"].append(bank.bic)
-                        break
-                else:
-                    banks.append({"Name": bank.name, "BIC": [bank.bic]})
-            with open("banken.json", "w") as file:
-                json.dump({"Banken": banks}, file, indent=4)
-        except FileNotFoundError:
-            with open("banken.json", "w") as file:
-                json.dump({"Banken": [{"Name": bank.name, "BIC": [bank.bic]}]}, file, indent=4)
+        navigator.navigate("MainScreen")
 
     label_name = customtkinter.CTkLabel(app, text="Name:")
     label_name.grid(row=0, column=0, padx=20, pady=10)
@@ -66,3 +62,4 @@ def new_bank_screen(app, navigator, **kwargs):
     btn_back.grid(row=3, column=0, columnspan=2, padx=20, pady=10)
 
     zentrieren(app)
+

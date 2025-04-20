@@ -1,16 +1,11 @@
-# screens/screen_new_person.py
-import json
 import customtkinter
-from helper.universalMethoden import clear_ui, zentrieren
+from src.helpers.UniversalMethoden import clear_ui, zentrieren
+from src.data.DataManager import DataManager
 
-def new_person_screen(app, navigator, **kwargs):
+def create_screen(app, navigator, **kwargs):
     clear_ui(app)
-    try:
-        with open("personen.json", "r") as file:
-            data = json.load(file)
-            persons = data.get("personen", [])
-    except:
-        persons = []
+    data_manager = DataManager()
+    persons = data_manager.load_personen()
 
     def proceed():
         name = entry_name.get().strip()
@@ -21,14 +16,21 @@ def new_person_screen(app, navigator, **kwargs):
             if not nachname:
                 entry_nachname.configure(fg_color="lightcoral")
             return
-        if any(p.get("Name") == name and p.get("Nachname") == nachname for p in persons):
-            print("Diese Person existiert bereits.")
-            return
-        neue_person = {"Name": name, "Nachname": nachname, "Freibetrag": {}, "Banken": []}
-        persons.append(neue_person)
-        with open("personen.json", "w") as file:
-            json.dump({"personen": persons}, file, indent=4)
-        navigator.navigate("main_screen")
+        # Prüfen, ob die Person bereits existiert
+        for p in persons:
+            if p.get("Name") == name and p.get("Nachname") == nachname:
+                print("Diese Person existiert bereits.")
+                return
+        new_person = {
+            "Name": name,
+            "Nachname": nachname,
+            "Freibetrag": {},
+            "Banken": [],
+            "Konten": []
+        }
+        persons.append(new_person)
+        data_manager.save_personen(persons)
+        navigator.navigate("MainScreen")
 
     def reset_bg(event):
         entry_name.configure(fg_color="white")
@@ -49,7 +51,8 @@ def new_person_screen(app, navigator, **kwargs):
     btn_proceed = customtkinter.CTkButton(app, text="Fortfahren", command=proceed)
     btn_proceed.grid(row=2, column=0, columnspan=2, padx=20, pady=10)
 
-    btn_back = customtkinter.CTkButton(app, text="Zurück", command=lambda: navigator.navigate("main_screen"))
+    btn_back = customtkinter.CTkButton(app, text="Zurück", command=lambda: navigator.navigate("MainScreen"))
     btn_back.grid(row=3, column=0, columnspan=2, padx=20, pady=10)
 
     zentrieren(app)
+
