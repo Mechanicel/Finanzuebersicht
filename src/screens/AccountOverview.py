@@ -1,98 +1,140 @@
-import customtkinter
+import customtkinter as ctk
 from tkcalendar import DateEntry
-from datetime import datetime
-from helpers.UniversalMethoden import clear_ui, zentrieren
+from datetime import datetime, time
 from data.DataManager import DataManager
 from controllers.AccountController import AccountController
+from src.helpers.UniversalMethoden import clear_ui
 
-def create_screen(app, navigator, selected_person, **kwargs):
+
+def create_screen(app, navigator, selected_person):
     clear_ui(app)
-    data_manager = DataManager()
-    account_controller = AccountController()
-    person_data = data_manager.get_person_data(selected_person) or {}
-    konten = person_data.get("Konten", [])
+    dm = DataManager()
+    ac = AccountController()
+    person_data = dm.get_person_data(selected_person) or {}
+    # Alle Festgeldkonten überspringen
+    konten = [k for k in person_data.get("Konten", []) if k.get("Kontotyp") != "Festgeldkonto"]
 
-    index = [0]  # Zähler für aktuelles Konto
+    inputs = []
+    index = -1
+    selected_date = None
 
-    # Zurück‑Button
-    customtkinter.CTkButton(
-        app, text="Zurück",
-        command=lambda: navigator.navigate("PersonInfo", selected_person=selected_person)
-    ).grid(row=0, column=0, columnspan=2, padx=20, pady=10, sticky="w")
+    # Widgets für wiederverwendbare Referenzen
+    entry_date = None
+    entry_balance = None
+    frame_details = None
+    rows = []
+    btn_add = None
 
-    # Kontoinfo-Label
-    label_acct = customtkinter.CTkLabel(app, text="Konto:")
-    label_acct.grid(row=1, column=0, columnspan=2, padx=20, pady=10)
+    # Schriftarten definieren
+    TITLE_FONT = ("Arial", 20, "bold")
+    SUBTITLE_FONT = ("Arial", 16)
 
-    # Eingabe Kontostand
-    customtkinter.CTkLabel(app, text="Kontostand:").grid(row=2, column=0, padx=20, pady=10)
-    entry_balance = customtkinter.CTkEntry(app)
-    entry_balance.grid(row=2, column=1, padx=20, pady=10)
+    def show_date():
+        nonlocal entry_date, index
+        clear_ui(app)
+        # Header
+        header_frame = ctk.CTkFrame(app)
+        header_frame.grid(row=0, column=0, columnspan=2, sticky="we", pady=(20,10))
+        header_label = ctk.CTkLabel(header_frame, text="Kontoübersicht", font=TITLE_FONT)
+        header_label.pack(padx=20, pady=10)
+        # Stichtag-Auswahl
+        date_label = ctk.CTkLabel(app, text="Wähle Stichtag:", font=SUBTITLE_FONT)
+        date_label.grid(row=1, column=0, padx=20, pady=10, sticky="e")
+        entry_date = DateEntry(app, date_pattern='yyyy-mm-dd', width=12)
+        entry_date.grid(row=1, column=1, padx=20, pady=10, sticky="w")
+        # Weiter-Button
+        btn_next = ctk.CTkButton(app, text="Weiter", width=12, command=on_next)
+        btn_next.grid(row=2, column=0, columnspan=2, pady=(0,20))
+        # Spalten konfigurieren
+        app.grid_columnconfigure(0, weight=1)
+        app.grid_columnconfigure(1, weight=1)
 
-    # Datumsauswahl
-    customtkinter.CTkLabel(app, text="Datum:").grid(row=3, column=0, padx=20, pady=10)
-    entry_date = DateEntry(app, date_pattern='yyyy-mm-dd')
-    entry_date.grid(row=3, column=1, padx=20, pady=10)
+    def show_account():
+        nonlocal entry_balance, frame_details, rows, btn_add, index
+        clear_ui(app)
+        konto = konten[index]
+        # Kontoinfo-Header
+        header = ctk.CTkLabel(
+            app,
+            text=f"{konto.get('Kontotyp')} – {konto.get('Bank','')} {konto.get('Kontonummer', konto.get('Deponummer',''))}",
+            font=SUBTITLE_FONT
+        )
+        header.grid(row=0, column=0, columnspan=2, pady=(20,10))
 
-    # Navigation Buttons
-    btn_next = customtkinter.CTkButton(app, text="Weiter")
-    btn_next.grid(row=4, column=0, columnspan=2, padx=20, pady=10)
-    btn_finish = customtkinter.CTkButton(app, text="Fertig", state="disabled")
-    btn_finish.grid(row=5, column=0, columnspan=2, padx=20, pady=10)
+        if konto.get('Kontotyp') == 'Depot':
+            # Depot-Details-Frame
+            frame_details = ctk.CTkFrame(app)
+            frame_details.grid(row=1, column=0, columnspan=2, padx=20, pady=10, sticky="nsew")
+            frame_details.columnconfigure((0,1), weight=1)
+            # Spaltenüberschriften
+            ctk.CTkLabel(frame_details, text="ISIN", font=("Arial", 12, "underline")).grid(row=0, column=0, padx=5)
+            ctk.CTkLabel(frame_details, text="Menge", font=("Arial", 12, "underline")).grid(row=0, column=1, padx=5)
+            rows = []
 
-    def update_ui():
-        # Skip Festgeld- & Depotkonten
-        while index[0] < len(konten) and konten[index[0]].get("Kontotyp") in ["Festgeldkonto", "Depot"]:
-            index[0] += 1
+            def make_add_row():
+                r = len(rows) + 1
+                e_isin = ctk.CTkEntry(frame_details, placeholder_text="DE000...")
+                e_menge = ctk.CTkEntry(frame_details, placeholder_text="0.0")
+                e_isin.grid(row=r, column=0, padx=5, pady=2, sticky="ew")
+                e_menge.grid(row=r, column=1, padx=5, pady=2, sticky="ew")
+                rows.append((e_isin, e_menge))
+                btn_add.grid(row=len(rows)+1, column=0, columnspan=2, pady=(10,5))
 
-        if index[0] < len(konten):
-            acct = konten[index[0]]
-            lines = []
-            for f in ("Kontotyp", "Bank", "BIC", "Kontonummer", "Deponummer"):
-                if f in acct:
-                    lines.append(f"{f}: {acct[f]}")
-            label_acct.configure(text="\n".join(lines))
+            btn_add = ctk.CTkButton(frame_details, text="Position hinzufügen", command=make_add_row)
+            # Vorbefüllung
+            for detail in konto.get('DepotDetails', []):
+                make_add_row()
+                rows[-1][0].insert(0, detail.get('ISIN',''))
+                rows[-1][1].insert(0, str(detail.get('Menge','')))
+            btn_add.grid(row=len(rows)+1, column=0, columnspan=2, pady=(10,5))
 
-            entry_balance.configure(state="normal")
-            entry_balance.delete(0, customtkinter.END)
-            entry_date.set_date(datetime.today())
-            entry_date.configure(state="normal")
-            btn_next.configure(state="normal")
-            btn_finish.configure(state="disabled")
         else:
-            # Am Ende: Festgeld UND Depot berechnen
-            account_controller.calculate(selected_person)
+            # Manuelle Saldo-Eingabe für Nicht-Depot
+            entry_balance = ctk.CTkEntry(app, placeholder_text="z.B. 1000.00")
+            entry_balance.grid(row=1, column=0, columnspan=2, padx=20, pady=10, sticky="ew")
+
+        # Weiter oder Fertig
+        btn_label = "Weiter" if index < len(konten)-1 else "Fertig"
+        btn_next = ctk.CTkButton(app, text=btn_label, width=12, command=on_next)
+        btn_next.grid(row=2, column=0, columnspan=2, pady=(0,20))
+        app.grid_columnconfigure(0, weight=1)
+        app.grid_columnconfigure(1, weight=1)
+
+    def on_next():
+        nonlocal index, selected_date, entry_balance, rows
+        if index == -1:
+            # Datum übernehmen
+            d = entry_date.get_date()
+            selected_date = datetime.combine(d, time.min)
+            index = 0
+            show_account()
+            return
+
+        konto = konten[index]
+        if konto.get('Kontotyp') == 'Depot':
+            details = []
+            for e_isin, e_menge in rows:
+                isin_val = e_isin.get().strip()
+                try:
+                    menge_val = float(e_menge.get())
+                except:
+                    menge_val = 0.0
+                if isin_val:
+                    details.append({'ISIN': isin_val, 'Menge': menge_val})
+            inputs.append({'konto': konto, 'details': details})
+        else:
+            try:
+                bal = float(entry_balance.get())
+            except:
+                bal = 0.0
+            inputs.append({'konto': konto, 'balance': bal})
+
+        index += 1
+        if index < len(konten):
+            show_account()
+        else:
+            ac.update_account_overview(selected_person, selected_date, inputs)
             navigator.navigate("PersonInfo", selected_person=selected_person)
 
-    def save_account():
-        acct = konten[index[0]]
-        val = entry_balance.get().strip()
-        try:
-            saldo = float(val)
-        except ValueError:
-            print(f"Ungültiger Kontostand: '{val}'")
-            return False
-        data_manager.save_account_balance(
-            selected_person,
-            acct,
-            saldo,
-            entry_date.get_date()
-        )
-        return True
-
-    def next_account():
-        # Speichern, falls erlaubt
-        if konten[index[0]].get("Kontotyp") not in ["Festgeldkonto", "Depot"]:
-            if not save_account():
-                return
-        index[0] += 1
-        update_ui()
-
-    # Bindings
-    btn_next.configure(command=next_account)
-    btn_finish.configure(command=lambda: navigator.navigate("PersonInfo", selected_person=selected_person))
-    entry_balance.bind("<KeyRelease>", lambda e: btn_finish.configure(state="normal"))
-
     # Start
-    update_ui()
-    zentrieren(app)
+    show_date()

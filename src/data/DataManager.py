@@ -1,8 +1,15 @@
 import json
-from datetime import datetime
-import yfinance as yf
+from datetime import datetime, timedelta
+import requests
 
 class DataManager:
+    """
+    DataManager zum Laden, Speichern und Berechnen von Kontodaten.
+    Nutzt freie Yahoo-Finance-REST-APIs ohne API-Key und unterstützt historische Kurse.
+    """
+    _isin_to_ticker_cache = {}
+    _price_cache = {}
+
     def __init__(self,
                  personen_file="data/personen.json",
                  banken_file="data/banken.json",
@@ -42,38 +49,35 @@ class DataManager:
                 personen[i] = updated_person
                 self.save_personen(personen)
                 return
-        print("[save_person_data] Person nicht gefunden, keine Daten gespeichert.")
+        print(f"[save_person_data] Person {updated_person.get('Name')} nicht gefunden.")
 
     def update_account(self, selected_person, account_type, account_data):
         personen = self.load_personen()
-        for i, person in enumerate(personen):
-            if (person.get("Name") == selected_person.get("Name")
-                    and person.get("Nachname") == selected_person.get("Nachname")):
-                if "Konten" not in person:
-                    person["Konten"] = []
-                new_account = {"Kontotyp": account_type}
-                new_account.update(account_data)
-                person["Konten"].append(new_account)
+        for person in personen:
+            if (person.get("Name") == selected_person.get("Name") and
+                person.get("Nachname") == selected_person.get("Nachname")):
+                account = {"Kontotyp": account_type}
+                account.update(account_data)
+                person.setdefault("Konten", []).append(account)
                 self.save_personen(personen)
                 return
-        print("[update_account] Person nicht gefunden.")
+        print(f"[update_account] Person {selected_person.get('Name')} nicht gefunden.")
 
     def duplicate_account(self, selected_person, account_type, account_data):
         for person in self.load_personen():
-            if (person.get("Name") == selected_person.get("Name")
-                    and person.get("Nachname") == selected_person.get("Nachname")):
+            if (person.get("Name") == selected_person.get("Name") and
+                person.get("Nachname") == selected_person.get("Nachname")):
                 for acct in person.get("Konten", []):
-                    if acct.get("Kontotyp") == account_type and acct.get("Bank") == account_data.get("Bank"):
-                        key = "Kontonummer" if "Kontonummer" in account_data else "Deponummer"
-                        if key in acct and key in account_data and acct[key] == account_data[key]:
-                            return True
+                    if (acct.get("Kontotyp") == account_type and
+                        acct.get("Bank") == account_data.get("Bank") and
+                        acct.get("Kontonummer", acct.get("Deponummer")) ==
+                        account_data.get("Kontonummer", account_data.get("Deponummer"))):
+                        return True
         return False
 
     def update_kontostaende(self, konto, datum_str, wert):
-        if "Kontostaende" not in konto:
-            konto["Kontostaende"] = []
         existing = {}
-        for entry in konto["Kontostaende"]:
+        for entry in konto.get("Kontostaende", []):
             parts = entry.split(": ")
             if len(parts) == 2:
                 existing[parts[0]] = parts[1]
@@ -84,13 +88,17 @@ class DataManager:
         personen = self.load_personen()
         updated = False
         for i, person in enumerate(personen):
-            if (person.get("Name") == selected_person.get("Name")
-                    and person.get("Nachname") == selected_person.get("Nachname")):
+            if (person.get("Name") == selected_person.get("Name") and
+                person.get("Nachname") == selected_person.get("Nachname")):
                 for acct in person.get("Konten", []):
-                    if (acct.get("BIC", "") == account.get("BIC", "")
-                            and acct.get("Kontonummer", acct.get("Deponummer", ""))
-                                == account.get("Kontonummer", account.get("Deponummer", ""))):
-                        self.update_kontostaende(acct, date_value.strftime("%Y-%m-%d"), balance)
+                    if (acct.get("BIC", "") == account.get("BIC", "") and
+                        acct.get("Kontonummer", acct.get("Deponummer", "")) ==
+                        account.get("Kontonummer", account.get("Deponummer", ""))):
+                        self.update_kontostaende(
+                            acct,
+                            date_value.strftime("%Y-%m-%d"),
+                            balance
+                        )
                         updated = True
                         break
                 personen[i] = person
@@ -98,17 +106,17 @@ class DataManager:
         if updated:
             self.save_personen(personen)
         else:
-            print("[save_account_balance] Kein passendes Konto gefunden.")
+            print(f"[save_account_balance] Konto {account} nicht gefunden.")
 
     def update_depot_details(self, selected_person, account, depot_details):
         personen = self.load_personen()
         updated = False
         for i, person in enumerate(personen):
-            if (person.get("Name") == selected_person.get("Name")
-                    and person.get("Nachname") == selected_person.get("Nachname")):
+            if (person.get("Name") == selected_person.get("Name") and
+                person.get("Nachname") == selected_person.get("Nachname")):
                 for j, acct in enumerate(person.get("Konten", [])):
-                    if (acct.get("BIC", "") == account.get("BIC", "")
-                            and acct.get("Deponummer", "") == account.get("Deponummer", "")):
+                    if (acct.get("BIC", "") == account.get("BIC", "") and
+                        acct.get("Deponummer", "") == account.get("Deponummer", "")):
                         acct["DepotDetails"] = depot_details
                         updated = True
                         break
@@ -117,7 +125,7 @@ class DataManager:
         if updated:
             self.save_personen(personen)
         else:
-            print("[update_depot_details] Kein passendes Depot gefunden.")
+            print(f"[update_depot_details] Depot {account} nicht gefunden.")
 
     def load_bank_data(self):
         try:
@@ -135,63 +143,95 @@ class DataManager:
             print(f"[load_kontotypen] Fehler beim Laden von {self.kontotypen_file}: {e}")
             return {}
 
-    def get_company_name_by_isin(self, isin: str) -> str:
-        """
-        Fragt über yahooquery.search nach dem Unternehmen zur gegebenen ISIN.
-        Liefert longname oder shortname, oder 'Unbekannt'.
-        """
-        print(f"[DEBUG] get_company_name_by_isin: Erstelle Ticker für ISIN '{isin}'")
+    def get_ticker_by_isin(self, isin: str) -> str:
+        if isin in self._isin_to_ticker_cache:
+            return self._isin_to_ticker_cache[isin]
+        url = f"https://query2.finance.yahoo.com/v1/finance/search?q={isin}"
+        headers = {"User-Agent": "Mozilla/5.0"}
         try:
-            ticker = yf.Ticker(isin)
-            info = ticker.info
-            print(f"[DEBUG] get_company_name_by_isin: ticker.info keys: {list(info.keys())}")
-            name = info.get("longName") or info.get("shortName")
-            print(f"[DEBUG] get_company_name_by_isin: Gefundener Name für ISIN {isin}: {name}")
-            return name or "Unbekannt"
+            r = requests.get(url, headers=headers, timeout=5)
+            r.raise_for_status()
+            data = r.json()
+            for q in data.get("quotes", []):
+                if q.get("symbol"):
+                    ticker = q["symbol"]
+                    self._isin_to_ticker_cache[isin] = ticker
+                    return ticker
         except Exception as e:
-            print(f"[ERROR] get_company_name_by_isin fehlgeschlagen für {isin}: {e}")
-            return "Unbekannt"
+            print(f"[ERROR] get_ticker_by_isin für {isin}: {e}")
+        self._isin_to_ticker_cache[isin] = None
+        return None
 
-    def get_price_by_isin(self, isin: str) -> float:
+    def get_price_by_isin(self, isin: str, date: datetime) -> float:
         """
-        Ermittelt mit yfinance das aktuelle Close oder regularMarketPrice.
+        Holt den Schlusskurs für `date` via Yahoo Chart API.
         """
-        print(f"[DEBUG] get_price_by_isin: Erstelle Ticker für ISIN '{isin}'")
+        ticker = self.get_ticker_by_isin(isin)
+        if not ticker:
+            return 0.0
+        key = (ticker, date.strftime("%Y-%m-%d"))
+        if key in self._price_cache:
+            return self._price_cache[key]
+        period1 = int(date.replace(hour=0, minute=0, second=0).timestamp())
+        period2 = int((date + timedelta(days=1)).replace(hour=0, minute=0, second=0).timestamp())
+        url = (
+            f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}"
+            f"?period1={period1}&period2={period2}&interval=1d"
+        )
+        headers = {"User-Agent": "Mozilla/5.0"}
         try:
-            ticker = yf.Ticker(isin)
-            info = ticker.info
-            # Versuche regularMarketPrice, sonst previousClose
-            price = info.get("regularMarketPrice") or info.get("previousClose")
-            if price is not None:
-                price = float(price)
-                print(f"[DEBUG] get_price_by_isin: Preis aus info für '{isin}': {price}")
-                return price
-            # Fallback auf Tages-Chart
-            hist = ticker.history(period="1d")
-            if not hist.empty:
-                close = float(hist["Close"].iloc[-1])
-                print(f"[DEBUG] get_price_by_isin: Preis aus history für '{isin}': {close}")
-                return close
-            print(f"[WARN] get_price_by_isin: Keine Preisdaten für ISIN '{isin}' gefunden")
-            return 0.0
+            r = requests.get(url, headers=headers, timeout=5)
+            r.raise_for_status()
+            data = r.json()
+            result = data.get("chart", {}).get("result")
+            if result:
+                meta = result[0].get("meta", {})
+                price = meta.get("chartPreviousClose") or meta.get("regularMarketPrice")
+                if price is None:
+                    inds = result[0].get("indicators", {}).get("quote", [])
+                    if inds and inds[0].get("close"):
+                        price = inds[0]["close"][-1]
+                if price is not None:
+                    price = float(price)
+                    self._price_cache[key] = price
+                    return price
         except Exception as e:
-            print(f"[ERROR] get_price_by_isin fehlgeschlagen für {isin}: {e}")
-            return 0.0
+            print(f"[ERROR] get_price_by_isin fehlgeschlagen für {isin} am {date}: {e}")
+        self._price_cache[key] = 0.0
+        return 0.0
 
-    def get_depot_value(self, depot_account: dict) -> float:
-        """
-        Summiert price_by_isin * Menge für alle DepotDetails.
-        """
+    def get_depot_value(self, depot_account: dict, date: datetime) -> float:
         total = 0.0
         for detail in depot_account.get("DepotDetails", []):
-            isin = detail.get("ISIN", "").strip()
             try:
                 menge = float(detail.get("Menge", 0))
-            except Exception:
+            except:
                 menge = 0.0
-            price = self.get_price_by_isin(isin)
-            product = price * menge
-            print(f"[DEBUG] get_depot_value: ISIN={isin}, Menge={menge}, Preis={price}, Produkt={product}")
-            total += product
-        print(f"[DEBUG] get_depot_value: Gesamtwert={total}")
+            price = self.get_price_by_isin(detail.get("ISIN", "").strip(), date)
+            total += price * menge
         return total
+
+    def calculate_festgeld_for_date(self, konto: dict, date: datetime) -> float:
+        try:
+            anlagebetrag = float(konto.get("Anlagebetrag", 0))
+        except:
+            anlagebetrag = 0.0
+        try:
+            zinssatz = float(konto.get("Zinssatz", 0))
+        except:
+            zinssatz = 0.0
+        try:
+            anlagedatum = datetime.strptime(konto.get("Anlagedatum", ""), "%Y-%m-%d").date()
+        except:
+            anlagedatum = date.date()
+        try:
+            laufzeit = int(konto.get("Laufzeit_in_Tagen", 0))
+        except:
+            laufzeit = 0
+        end_date = anlagedatum + timedelta(days=laufzeit)
+        if date.date() < anlagedatum:
+            return anlagebetrag
+        ende = min(date.date(), end_date)
+        tage = (ende - anlagedatum).days
+        zinsen = anlagebetrag * (zinssatz / 100.0) * (tage / 360.0)
+        return anlagebetrag + zinsen
