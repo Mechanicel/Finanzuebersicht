@@ -1,5 +1,11 @@
+# src/controllers/AccountController.py
+
+import logging
 from datetime import datetime, time
 from data.DataManager import DataManager
+
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 class AccountController:
     """
@@ -8,32 +14,28 @@ class AccountController:
     """
     def __init__(self):
         self.data_manager = DataManager()
+        logger.debug("AccountController initialized")
 
     def add_account(self, selected_person: dict, account_type: str, account_data: dict) -> bool:
-        """
-        Legt ein neues Konto an, sofern es nicht bereits existiert.
-        """
+        logger.debug(f"add_account: {selected_person}, Typ {account_type}, Data {account_data}")
         if self.is_duplicate_account(selected_person, account_type, account_data):
-            print("Dieses Konto wurde bereits angelegt.")
+            logger.warning("add_account: Duplikat erkannt")
             return False
         self.data_manager.update_account(selected_person, account_type, account_data)
+        logger.debug("add_account: Konto hinzugefügt")
         return True
 
     def is_duplicate_account(self, selected_person: dict, account_type: str, account_data: dict) -> bool:
-        """
-        Prüft, ob ein Konto mit gleichem Typ und Nummer/BIC bereits existiert.
-        """
+        logger.debug(f"is_duplicate_account: Prüfe für {selected_person}, {account_type}")
         return self.data_manager.duplicate_account(selected_person, account_type, account_data)
 
     def calculate_festgeld(self, selected_person: dict, date: datetime):
-        """
-        Aktualisiert für alle Festgeldkonten den Wert am gegebenen Datum.
-        """
+        logger.debug(f"calculate_festgeld: {selected_person}, Datum {date}")
         data = self.data_manager.load_personen()
         heute_str = date.strftime("%Y-%m-%d")
         updated = False
 
-        for idx, person in enumerate(data):
+        for person in data:
             if (person.get("Name") == selected_person.get("Name")
                     and person.get("Nachname") == selected_person.get("Nachname")):
                 for konto in person.get("Konten", []):
@@ -41,25 +43,23 @@ class AccountController:
                         continue
                     wert = self.data_manager.calculate_festgeld_for_date(konto, date)
                     self.data_manager.update_kontostaende(konto, heute_str, wert)
+                    logger.debug(f"calculate_festgeld: {konto} -> {wert:.2f}")
                     updated = True
-                data[idx] = person
                 break
 
         if updated:
             self.data_manager.save_personen(data)
-            print(f"[Calculate Festgeld] Festgeldwerte für {heute_str} aktualisiert.")
+            logger.info(f"[Calculate Festgeld] Festgeldwerte für {heute_str} aktualisiert.")
         else:
-            print("[Calculate Festgeld] Keine Festgeldkonten gefunden.")
+            logger.info("[Calculate Festgeld] Keine Festgeldkonten gefunden.")
 
     def calculate_depot(self, selected_person: dict, date: datetime):
-        """
-        Berechnet für jedes Depotkonto den Gesamtwert am gegebenen Datum.
-        """
+        logger.debug(f"calculate_depot: {selected_person}, Datum {date}")
         data = self.data_manager.load_personen()
         heute_str = date.strftime("%Y-%m-%d")
         updated = False
 
-        for idx, person in enumerate(data):
+        for person in data:
             if (person.get("Name") == selected_person.get("Name")
                     and person.get("Nachname") == selected_person.get("Nachname")):
                 for konto in person.get("Konten", []):
@@ -67,37 +67,33 @@ class AccountController:
                         continue
                     wert = self.data_manager.get_depot_value(konto, date)
                     self.data_manager.update_kontostaende(konto, heute_str, wert)
+                    logger.debug(f"calculate_depot: {konto} -> {wert:.2f}")
                     updated = True
-                data[idx] = person
                 break
 
         if updated:
             self.data_manager.save_personen(data)
-            print(f"[Calculate Depot] Depotwerte für {heute_str} aktualisiert.")
+            logger.info(f"[Calculate Depot] Depotwerte für {heute_str} aktualisiert.")
         else:
-            print("[Calculate Depot] Keine Depotkonten gefunden.")
+            logger.info("[Calculate Depot] Keine Depotkonten gefunden.")
 
     def calculate(self, selected_person: dict, date: datetime):
-        """
-        Führt die Berechnung aller Kontotypen für das gegebene Datum durch.
-        """
+        logger.debug(f"calculate: Starte Gesamtberechnung für {selected_person} am {date}")
         self.calculate_festgeld(selected_person, date)
         self.calculate_depot(selected_person, date)
-        print(f"[Calculate] Alle Konto-Berechnungen für {date.strftime('%Y-%m-%d')} abgeschlossen.")
+        logger.info(f"[Calculate] Alle Konto-Berechnungen für {date.strftime('%Y-%m-%d')} abgeschlossen.")
 
     def update_account_overview(self, selected_person: dict, date: datetime, inputs: list):
-        """
-        Speichert manuelle Eingaben für Konten (non-Depot) und Depots am gewählten Datum.
-        """
-        # Datum sicher in datetime umwandeln, falls nur date übergeben wurde
+        logger.debug(f"update_account_overview: {selected_person}, Datum {date}, Inputs {inputs}")
         if not isinstance(date, datetime):
             date = datetime.combine(date, time.min)
+            logger.debug(f"update_account_overview: Datum in datetime umgewandelt: {date}")
 
         for item in inputs:
             konto = item.get('konto')
             if 'details' in item:
-                # Depot: Details und Kontostand aktualisieren
                 details = item.get('details', [])
+                logger.debug(f"update_account_overview: DepotDetails für {konto}: {details}")
                 self.data_manager.update_depot_details(selected_person, konto, details)
                 total = 0.0
                 for det in details:
@@ -107,8 +103,9 @@ class AccountController:
                         menge = 0.0
                     price = self.data_manager.get_price_by_isin(det.get('ISIN', '').strip(), date)
                     total += price * menge
+                logger.debug(f"update_account_overview: Neuer Depotwert {total:.2f}")
                 self.data_manager.save_account_balance(selected_person, konto, total, date)
             else:
-                # Standardkonto: manueller Kontostand
                 balance = item.get('balance', 0.0)
+                logger.debug(f"update_account_overview: Manueller Saldo für {konto}: {balance:.2f}")
                 self.data_manager.save_account_balance(selected_person, konto, balance, date)
