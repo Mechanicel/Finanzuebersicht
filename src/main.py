@@ -11,12 +11,10 @@ app = customtkinter.CTk()
 app.geometry("720x480")
 app.title("Finanzübersicht")
 
-# Initialisiere den AppState und lade Daten
-state = AppState()
-state.load_all()
+
 
 # Initialisiere den Navigator mit App und State
-navigator = Navigator(app, state)
+navigator = Navigator(app)
 
 # Starte mit dem MainScreen
 navigator.navigate("MainScreen")

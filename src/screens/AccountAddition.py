@@ -5,7 +5,7 @@ import customtkinter as ctk
 from tkcalendar import DateEntry
 from datetime import datetime
 from src.helpers.UniversalMethoden import clear_ui, zentrieren
-from src.models.AppState import AppState
+from src.models import AppState
 
 logger = logging.getLogger(__name__)
 
@@ -13,7 +13,6 @@ def compute_iban_de(blz, kontonummer):
     """Erzeugt eine vereinfachte IBAN ohne Prüfziffer."""
     logger.debug(f"compute_iban_de: BLZ={blz}, Kontonummer={kontonummer}")
     return f"DE00{blz}{kontonummer}"
-
 
 def create_screen(app, navigator, state: AppState, **kwargs):
     """Screen zum Hinzufügen eines neuen Kontos für die aktuell ausgewählte Person."""
@@ -41,8 +40,8 @@ def create_screen(app, navigator, state: AppState, **kwargs):
     # Back-Button
     ctk.CTkButton(
         app,
-        text="Zurück",
-        command=lambda: navigator.navigate("PersonInfo")
+        text="← Zurück",
+        command=lambda: navigator.navigate("PersonInfo", selected_person=state.selected_person)
     ).grid(row=0, column=0, columnspan=2, padx=20, pady=10, sticky="w")
 
     def build_form():
@@ -55,9 +54,9 @@ def create_screen(app, navigator, state: AppState, **kwargs):
         # Kontotyp-Auswahl
         ctk.CTkLabel(app, text="Kontotyp:").grid(row=row, column=0, padx=20, pady=5, sticky="e")
         types = [list(item.keys())[0] for item in state.kontotypen]
-        ctk.CTkOptionMenu(app, variable=acct_var, values=types, command=lambda _: build_form()).grid(
-            row=row, column=1, padx=20, pady=5, sticky="w"
-        )
+        ctk.CTkOptionMenu(
+            app, variable=acct_var, values=types, command=lambda _: build_form()
+        ).grid(row=row, column=1, padx=20, pady=5, sticky="w")
         row += 1
 
         # Bank-Auswahl
@@ -195,9 +194,11 @@ def create_screen(app, navigator, state: AppState, **kwargs):
 
         logger.debug(f"add_account: {acct_type}, data={account_data}")
         if ac.add_account(person, acct_type, account_data):
+            # State neu laden und selected_person erneut setzen:
             state.load_all()
+            state.select_person(person["Name"], person["Nachname"])
             logger.info("Konto erfolgreich hinzugefügt")
-            navigator.navigate("PersonInfo")
+            navigator.navigate("PersonInfo", selected_person=state.selected_person)
         else:
             logger.error("Konto konnte nicht hinzugefügt werden (Duplikat?)")
 

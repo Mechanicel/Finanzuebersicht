@@ -1,111 +1,75 @@
 # src/screens/AccountSummary.py
 
-import logging
 import customtkinter as ctk
-from tkcalendar import DateEntry
-from datetime import datetime, time
 from src.helpers.UniversalMethoden import clear_ui, zentrieren
-from src.models.AppState import AppState
+from src.models import AppState
 
-logger = logging.getLogger(__name__)
+from src.screens.accountsummaryinnerScreens.TimeSeriesScreen import create_screen as create_time_series
+from src.screens.accountsummaryinnerScreens.PieChartScreen import create_screen as create_pie_chart
+from src.screens.accountsummaryinnerScreens.MonthlyComparisonScreen import create_screen as create_monthly_comparison
+from src.screens.accountsummaryinnerScreens.MetricsScreen import create_screen as create_metrics
+from src.screens.accountsummaryinnerScreens.HeatmapScreen import create_screen as create_heatmap
+from src.screens.accountsummaryinnerScreens.ForecastScreen import create_screen as create_forecast
 
 def create_screen(app, navigator, state: AppState, **kwargs):
-    """
-    Zeigt die Kontostände aller Kontotypen (einschließlich Festgeld) für ein gewählten Datum an.
-    Führt vorher Berechnungen für Festgeld und Depot durch und lädt die aktualisierten Daten aus dem Store.
-    """
+    # 1) Root leeren
     clear_ui(app)
-    person = state.selected_person
-    ac = state.account_controller
-
-    # Zurück-Button
+    # 2) ← Zurück-Button (fest im Grid)
     ctk.CTkButton(
         app,
-        text="Zurück",
+        text="← Zurück",
         command=lambda: navigator.navigate("PersonInfo")
     ).grid(row=0, column=0, padx=20, pady=10, sticky="w")
 
-    # Titel und Datumsauswahl
-    ctk.CTkLabel(app, text="Kontostände pro Tag", font=("Arial", 16, "bold")) \
-        .grid(row=1, column=0, columnspan=2, padx=20, pady=(0,10))
-    ctk.CTkLabel(app, text="Datum:").grid(row=2, column=0, padx=20, pady=10, sticky="e")
-    de = DateEntry(app, date_pattern='yyyy-mm-dd')
-    de.grid(row=2, column=1, padx=20, pady=10, sticky="w")
+    # 3) Button-Leiste (fest im Grid)
+    btn_frame = ctk.CTkFrame(app, fg_color="transparent")
+    btn_frame.grid(row=1, column=0, sticky="ew", padx=10, pady=(5,0))
+    for i in range(6):
+        btn_frame.grid_columnconfigure(i, weight=1)
 
-    # Platzhalter für Ausgabe
-    output_start_row = 4
+    # 4) Content-Container (fest im Grid)
+    content_frame = ctk.CTkFrame(app)
+    content_frame.grid(row=2, column=0, sticky="nsew", padx=10, pady=10)
 
-    def show():
-        # Lösche alte Ausgaben
-        for w in app.grid_slaves():
-            info = w.grid_info()
-            if info.get('row', 0) >= output_start_row:
-                w.destroy()
 
-        # Gewähltes Datum
-        d = de.get_date()
-        dt = datetime.combine(d, time.min)
-        logger.debug(f"AccountSummary.show: Datum {dt}")
+    # 5) Inner Frame für dynamischen Content
+    inner_frame = ctk.CTkFrame(content_frame)
+    inner_frame.pack(fill="both", expand=True)
 
-        # 1) Neue Berechnung Festgeld + Depot
-        ac.calculate_festgeld(person, dt)
-        ac.calculate_depot(person, dt)
+    # 6) Funktion zum Laden eines Sub-Screens
+    def load_screen(screen_func):
+        # nur inner_frame leeren, content_frame unverändert
+        clear_ui(inner_frame)
+        screen_func(inner_frame, navigator, state)
 
-        # 2) Store neu laden und selected_person aktualisieren
-        prev_name = person.get('Name')
-        prev_nach = person.get('Nachname')
-        state.load_all()
-        state.select_person(prev_name, prev_nach)
-        konten = state.selected_person.get('Konten', [])
-
-        # 3) Ausgabe bauen
-        header = f"{'Kontotyp':<15} | {'Bank':<20} | {'Kontostand':>12}"
-        sep = '-' * len(header)
-        total = 0.0
-        date_str = d.strftime('%Y-%m-%d')
-
-        # Header
-        ctk.CTkLabel(app, text=header, justify="left").grid(
-            row=output_start_row, column=0, columnspan=2, sticky="w", padx=20
-        )
-        ctk.CTkLabel(app, text=sep, justify="left").grid(
-            row=output_start_row+1, column=0, columnspan=2, sticky="w", padx=20
-        )
-
-        # Konten
-        for idx, konto in enumerate(konten):
-            typ = konto.get('Kontotyp', 'Unbekannt')
-            bank = konto.get('Bank', 'Unbekannt')
-            wert = 0.0
-            for entry in konto.get('Kontostaende', []):
-                parts = entry.split(': ')
-                if len(parts) == 2 and parts[0] == date_str:
-                    try:
-                        wert = float(parts[1])
-                    except:
-                        wert = 0.0
-                    break
-            total += wert
-            line = f"{typ:<15} | {bank:<20} | {wert:12.2f}"
-            ctk.CTkLabel(app, text=line, justify="left").grid(
-                row=output_start_row+2+idx, column=0, columnspan=2, sticky="w", padx=20
-            )
-
-        # Summenzeile
-        end_row = output_start_row+2+len(konten)
-        ctk.CTkLabel(app, text=sep, justify="left").grid(
-            row=end_row, column=0, columnspan=2, sticky="w", padx=20
-        )
-        total_line = f"{'':<15} | {'Gesamt':<20} | {total:12.2f}"
-        ctk.CTkLabel(app, text=total_line, justify="left").grid(
-            row=end_row+1, column=0, columnspan=2, sticky="w", padx=20
-        )
-
-    # Button zum Anzeigen
+    # 7) Buttons für die einzelnen Auswertungen
     ctk.CTkButton(
-        app,
-        text="Anzeigen",
-        command=show
-    ).grid(row=3, column=0, columnspan=2, padx=20, pady=10)
+        btn_frame, text="Zeitreihe",
+        command=lambda: load_screen(create_time_series)
+    ).grid(row=0, column=0, padx=5, pady=5, sticky="ew")
+    ctk.CTkButton(
+        btn_frame, text="Tortendiagramm",
+        command=lambda: load_screen(create_pie_chart)
+    ).grid(row=0, column=1, padx=5, pady=5, sticky="ew")
+    ctk.CTkButton(
+        btn_frame, text="Monatsvergleich",
+        command=lambda: load_screen(create_monthly_comparison)
+    ).grid(row=0, column=2, padx=5, pady=5, sticky="ew")
+    ctk.CTkButton(
+        btn_frame, text="Kennzahlen",
+        command=lambda: load_screen(create_metrics)
+    ).grid(row=0, column=3, padx=5, pady=5, sticky="ew")
+    ctk.CTkButton(
+        btn_frame, text="Heatmap",
+        command=lambda: load_screen(create_heatmap)
+    ).grid(row=0, column=4, padx=5, pady=5, sticky="ew")
+    ctk.CTkButton(
+        btn_frame, text="Forecast",
+        command=lambda: load_screen(create_forecast)
+    ).grid(row=0, column=5, padx=5, pady=5, sticky="ew")
 
+    # 8) Starte mit Zeitreihen-Ansicht
+    load_screen(create_time_series)
+
+    # 9) Finales Zentrieren (optional)
     zentrieren(app)

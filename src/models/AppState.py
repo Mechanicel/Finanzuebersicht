@@ -1,3 +1,5 @@
+# src/data/AppState.py
+
 from datetime import date
 from typing import List, Optional
 
@@ -7,8 +9,8 @@ from src.data.DataManager import DataManager
 
 class AppState:
     """
-    Zentrale Store‑Klasse für die Finanzübersicht‑App.
-    Enthält alle persistente Daten und UI‑Kontexte.
+    Zentrale Store-Klasse für die Finanzübersicht-App.
+    Enthält alle persistente Daten und UI-Kontexte.
     """
     def __init__(self):
         # persistente Daten
@@ -29,28 +31,43 @@ class AppState:
 
     # Laden/Speichern
     def load_all(self):
-        self.personen    = self.data_manager.load_personen()
-        self.banken      = self.data_manager.load_bank_data().get("Banken", [])
-        self.kontotypen  = self.data_manager.load_kontotypen().get("Kontotypen", [])
+        """
+        Lädt personen, banken und kontotypen neu aus den Dateien.
+        Wenn vorher eine Person ausgewählt war, wird diese danach automatisch neu referenziert.
+        """
+        # Merke bisherigen Auswahlstand
+        prev = self.selected_person
+
+        # Dateien neu einlesen
+        self.personen   = self.data_manager.load_personen()
+        self.banken     = self.data_manager.load_bank_data().get("Banken", [])
+        self.kontotypen = self.data_manager.load_kontotypen().get("Kontotypen", [])
+
+        # Wähle vorherige Person neu aus, falls vorhanden
+        if prev:
+            name = prev.get("Name")
+            nach = prev.get("Nachname")
+            # select_person setzt self.selected_person korrekt auf das neue Dict
+            self.select_person(name, nach)
 
     def save_person(self, person: dict):
         self.data_manager.save_person_data(person)
         # auch Liste im Store aktualisieren
-        for i,p in enumerate(self.personen):
-            if p["Name"]==person["Name"] and p["Nachname"]==person["Nachname"]:
+        for i, p in enumerate(self.personen):
+            if p["Name"] == person["Name"] and p["Nachname"] == person["Nachname"]:
                 self.personen[i] = person
                 return
 
     # Auswählen
-    def select_person(self, name:str, nachname:str):
+    def select_person(self, name: str, nachname: str):
         for p in self.personen:
-            if p["Name"]==name and p["Nachname"]==nachname:
+            if p["Name"] == name and p["Nachname"] == nachname:
                 self.selected_person = p
                 return p
         self.selected_person = None
         return None
 
-    # Übersicht eingaben sammeln
+    # Übersichtseingaben sammeln
     def reset_overview(self):
         self.selected_date = None
         self.overview_inputs = []
