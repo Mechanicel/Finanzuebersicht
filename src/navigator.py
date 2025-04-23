@@ -1,3 +1,5 @@
+import customtkinter
+
 from screens import (
     MainScreen,
     PersonSelection,
@@ -10,12 +12,15 @@ from screens import (
     AccountAddition,
     AccountOverview,
     AccountSummary,
-    AccountEditing  # Neuer Eintrag für den AccountEditing-Screen
+    AccountEditing
 )
+from src.models.AppState import AppState
+
 
 class Navigator:
-    def __init__(self, app):
+    def __init__(self, app: customtkinter.CTk, state: AppState):
         self.app = app
+        self.state = state
         # Mapping der Screens auf deren Erstellungsfunktionen
         self.routes = {
             "MainScreen": MainScreen.create_screen,
@@ -29,12 +34,12 @@ class Navigator:
             "AccountAddition": AccountAddition.create_screen,
             "AccountOverview": AccountOverview.create_screen,
             "AccountSummary": AccountSummary.create_screen,
-            "AccountEditing": AccountEditing.create_screen  # Neuer Screen
+            "AccountEditing": AccountEditing.create_screen
         }
 
-    def navigate(self, screen_name, **kwargs):
+    def navigate(self, screen_name: str, **kwargs):
         if screen_name in self.routes:
-            # Alle Screens erhalten als Parameter: app, navigator und optionale weitere Parameter.
-            self.routes[screen_name](self.app, self, **kwargs)
+            # screens expect: app, navigator, state, **kwargs
+            self.routes[screen_name](self.app, self, self.state, **kwargs)
         else:
             print(f"Screen '{screen_name}' nicht gefunden.")

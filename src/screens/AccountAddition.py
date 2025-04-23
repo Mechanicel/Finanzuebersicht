@@ -1,330 +1,205 @@
-import customtkinter
+# src/screens/AccountAddition.py
+
+import logging
+import customtkinter as ctk
 from tkcalendar import DateEntry
 from datetime import datetime
 from src.helpers.UniversalMethoden import clear_ui, zentrieren
-from src.data.DataManager import DataManager
-from src.controllers.AccountController import AccountController
+from src.models.AppState import AppState
+
+logger = logging.getLogger(__name__)
 
 def compute_iban_de(blz, kontonummer):
-    """Erzeugt eine vereinfachte IBAN, ohne echte Prüfzifferberechnung."""
+    """Erzeugt eine vereinfachte IBAN ohne Prüfziffer."""
+    logger.debug(f"compute_iban_de: BLZ={blz}, Kontonummer={kontonummer}")
     return f"DE00{blz}{kontonummer}"
 
-def load_own_accounts(selected_person, data_manager):
-    """Lädt eigene Konten aus den Personendaten zur Auswahl (nicht Festgeld/Depot)."""
-    person_data = data_manager.get_person_data(selected_person)
-    own_accounts = []
-    if person_data:
-        for konto in person_data.get("Konten", []):
-            if konto.get("Kontotyp") not in ["Festgeldkonto", "Depot"]:
-                if "Kontonummer" in konto:
-                    own_accounts.append(f"{konto['Kontotyp']} {konto['Kontonummer']}")
-                elif "Deponummer" in konto:
-                    own_accounts.append(f"{konto['Kontotyp']} {konto['Deponummer']}")
-    return own_accounts if own_accounts else ["Bitte wählen"]
 
-def create_screen(app, navigator, selected_person, **kwargs):
+def create_screen(app, navigator, state: AppState, **kwargs):
+    """Screen zum Hinzufügen eines neuen Kontos für die aktuell ausgewählte Person."""
     clear_ui(app)
-    data_manager = DataManager()
-    account_controller = AccountController()
+    person = state.selected_person
+    if not person:
+        navigator.navigate("PersonSelection")
+        return
+    dm = state.data_manager
+    ac = state.account_controller
 
-    # Allgemeine Variablen
-    acct_var = customtkinter.StringVar(value="Bitte wählen")
-    bank_var = customtkinter.StringVar(value="Bitte wählen")
-    bic_var = customtkinter.StringVar(value="")
-    blz_var = customtkinter.StringVar(value="")
+    # Variablen für Eingaben
+    acct_var = ctk.StringVar(value="Bitte wählen")
+    bank_var = ctk.StringVar(value="Bitte wählen")
+    bic_var = ctk.StringVar()
+    blz_var = ctk.StringVar()
     entries = {}
-
-    # Variablen für Festgeld (Auszahlungskonto) und Depot (Verrechnungskonto)
-    checkbox_fremdes_konto_fg = customtkinter.BooleanVar(value=False)
-    fremde_iban_fg_var = customtkinter.StringVar(value="")
-    own_account_fg_var = customtkinter.StringVar(value="Bitte wählen")
-
-    checkbox_fremdes_konto_depot = customtkinter.BooleanVar(value=False)
-    fremde_iban_depot_var = customtkinter.StringVar(value="")
-    own_account_depot_var = customtkinter.StringVar(value="Bitte wählen")
+    checkbox_fg = ctk.BooleanVar(value=False)
+    fremde_iban_fg = ctk.StringVar()
+    own_acc_fg = ctk.StringVar(value="Bitte wählen")
+    checkbox_dp = ctk.BooleanVar(value=False)
+    fremde_iban_dp = ctk.StringVar()
+    own_acc_dp = ctk.StringVar(value="Bitte wählen")
 
     # Back-Button
-    btn_back = customtkinter.CTkButton(
+    ctk.CTkButton(
         app,
         text="Zurück",
-        command=lambda: navigator.navigate("PersonInfo", selected_person=selected_person)
-    )
-    btn_back.grid(row=0, column=0, columnspan=2, padx=20, pady=10, sticky="w")
+        command=lambda: navigator.navigate("PersonInfo")
+    ).grid(row=0, column=0, columnspan=2, padx=20, pady=10, sticky="w")
 
     def build_form():
-        # Alle Widgets ab Zeile 2 entfernen
-        for widget in app.grid_slaves():
-            if int(widget.grid_info()["row"]) >= 2:
-                widget.grid_forget()
-        current_row = 2
+        # Entferne alle Widgets ab Zeile 2
+        for w in app.grid_slaves():
+            if int(w.grid_info().get("row", 0)) >= 2:
+                w.grid_forget()
+        row = 2
 
-        # Kontotyp-Dropdown (Daten aus kontotypen.json)
-        label_acct = customtkinter.CTkLabel(app, text="Kontotyp:")
-        label_acct.grid(row=current_row, column=0, padx=20, pady=10)
-        kt_data = data_manager.load_kontotypen()
-        account_types = [list(item.keys())[0] for item in kt_data.get("Kontotypen", [])]
-        dropdown_acct = customtkinter.CTkOptionMenu(
-            app, variable=acct_var, values=account_types, command=lambda _: build_form()
+        # Kontotyp-Auswahl
+        ctk.CTkLabel(app, text="Kontotyp:").grid(row=row, column=0, padx=20, pady=5, sticky="e")
+        types = [list(item.keys())[0] for item in state.kontotypen]
+        ctk.CTkOptionMenu(app, variable=acct_var, values=types, command=lambda _: build_form()).grid(
+            row=row, column=1, padx=20, pady=5, sticky="w"
         )
-        dropdown_acct.set(acct_var.get())
-        dropdown_acct.grid(row=current_row, column=1, padx=20, pady=10)
-        current_row += 1
+        row += 1
 
-        # Bank-Dropdown (aus den Personendaten)
-        label_bank = customtkinter.CTkLabel(app, text="Bank:")
-        label_bank.grid(row=current_row, column=0, padx=20, pady=10)
-        person_data = data_manager.get_person_data(selected_person)
-        banks = person_data.get("Banken", []) if person_data else []
-        dropdown_bank = customtkinter.CTkOptionMenu(
-            app, variable=bank_var, values=banks, command=lambda _: build_form()
-        )
-        dropdown_bank.set(bank_var.get())
-        dropdown_bank.grid(row=current_row, column=1, padx=20, pady=10)
-        current_row += 1
+        # Bank-Auswahl
+        ctk.CTkLabel(app, text="Bank:").grid(row=row, column=0, padx=20, pady=5, sticky="e")
+        ctk.CTkOptionMenu(
+            app,
+            variable=bank_var,
+            values=person.get("Banken", []),
+            command=lambda _: build_form()
+        ).grid(row=row, column=1, padx=20, pady=5, sticky="w")
+        row += 1
 
-        # BIC (abhängig von ausgewählter Bank)
-        selected_bank = bank_var.get()
-        if selected_bank not in ["", "Bitte wählen"]:
-            bank_data = data_manager.load_bank_data()
-            bics = []
-            for bank in bank_data.get("Banken", []):
-                if bank.get("Name") == selected_bank:
-                    bics = bank.get("BIC", [])
-                    break
-            if len(bics) > 1:
-                label_bic = customtkinter.CTkLabel(app, text="BIC:")
-                label_bic.grid(row=current_row, column=0, padx=20, pady=10)
-                dropdown_bic = customtkinter.CTkOptionMenu(app, variable=bic_var, values=bics)
-                if bic_var.get() not in bics:
-                    bic_var.set(bics[0])
-                dropdown_bic.grid(row=current_row, column=1, padx=20, pady=10)
-                current_row += 1
-            elif len(bics) == 1:
-                bic_var.set(bics[0])
-                label_bic = customtkinter.CTkLabel(app, text=f"BIC: {bics[0]}")
-                label_bic.grid(row=current_row, column=0, columnspan=2, padx=20, pady=10)
-                current_row += 1
-            else:
-                bic_var.set("")
-                label_bic = customtkinter.CTkLabel(app, text="Keine BIC gefunden.")
-                label_bic.grid(row=current_row, column=0, columnspan=2, padx=20, pady=10)
-                current_row += 1
-
-        # BLZ (analog)
-        if selected_bank not in ["", "Bitte wählen"]:
-            bank_data = data_manager.load_bank_data()
-            blzs = []
-            for bank in bank_data.get("Banken", []):
-                if bank.get("Name") == selected_bank:
-                    blzs = bank.get("BLZ", [])
-                    break
-            if len(blzs) > 1:
-                label_blz = customtkinter.CTkLabel(app, text="BLZ:")
-                label_blz.grid(row=current_row, column=0, padx=20, pady=10)
-                dropdown_blz = customtkinter.CTkOptionMenu(app, variable=blz_var, values=blzs)
-                if blz_var.get() not in blzs:
-                    blz_var.set(blzs[0])
-                dropdown_blz.grid(row=current_row, column=1, padx=20, pady=10)
-                current_row += 1
-            elif len(blzs) == 1:
-                blz_var.set(blzs[0])
-                label_blz = customtkinter.CTkLabel(app, text=f"BLZ: {blzs[0]}")
-                label_blz.grid(row=current_row, column=0, columnspan=2, padx=20, pady=10)
-                current_row += 1
-            else:
-                blz_var.set("")
-                label_blz = customtkinter.CTkLabel(app, text="Keine BLZ gefunden.")
-                label_blz.grid(row=current_row, column=0, columnspan=2, padx=20, pady=10)
-                current_row += 1
+        # BIC und BLZ, abhängig von Bank
+        if bank_var.get() not in ["Bitte wählen", ""]:
+            banks = dm.load_bank_data().get("Banken", [])
+            bdata = next((b for b in banks if b.get("Name") == bank_var.get()), {})
+            bics = bdata.get("BIC", [])
+            blzs = bdata.get("BLZ", [])
+            ctk.CTkLabel(app, text="BIC:").grid(row=row, column=0, padx=20, pady=5, sticky="e")
+            ctk.CTkOptionMenu(app, variable=bic_var, values=bics).grid(row=row, column=1, sticky="w")
+            row += 1
+            ctk.CTkLabel(app, text="BLZ:").grid(row=row, column=0, padx=20, pady=5, sticky="e")
+            ctk.CTkOptionMenu(app, variable=blz_var, values=blzs).grid(row=row, column=1, sticky="w")
+            row += 1
 
         # Zusätzliche Felder basierend auf Kontotyp
         acct_type = acct_var.get()
         fields = []
-        for item in kt_data.get("Kontotypen", []):
+        for item in state.kontotypen:
             if acct_type in item:
-                fields = item[acct_type]
+                fields = item.get(acct_type, [])
                 break
 
-        if acct_type != "Bitte wählen":
-            for field in fields:
-                # Felder, die automatisch belegt werden, überspringen wir
-                if field in ["Bank", "BIC", "Erstellungsdatum"]:
+        if acct_type and acct_type != "Bitte wählen":
+            for f in fields:
+                if f in ["Bank", "BIC", "Erstellungsdatum"]:
                     continue
-
-                # Behandlung für Festgeldkonto: Auszahlungskonto
-                if acct_type == "Festgeldkonto" and field == "Auszahlungskonto":
-                    label_aus = customtkinter.CTkLabel(app, text="Auszahlungskonto:")
-                    label_aus.grid(row=current_row, column=0, padx=20, pady=10)
-                    check_fg = customtkinter.CTkCheckBox(
+                # Festgeldkonto: Auszahlungskonto
+                if acct_type == "Festgeldkonto" and f == "Auszahlungskonto":
+                    ctk.CTkLabel(app, text="Auszahlungskonto:").grid(
+                        row=row, column=0, padx=20, pady=5, sticky="e"
+                    )
+                    ctk.CTkCheckBox(
                         app,
                         text="Fremdes Konto?",
-                        variable=checkbox_fremdes_konto_fg,
+                        variable=checkbox_fg,
                         command=lambda: build_form()
-                    )
-                    check_fg.grid(row=current_row, column=1, padx=20, pady=10)
-                    current_row += 1
-
-                    if checkbox_fremdes_konto_fg.get():
-                        label_iban = customtkinter.CTkLabel(app, text="IBAN:")
-                        label_iban.grid(row=current_row, column=0, padx=20, pady=10)
-                        entry_iban = customtkinter.CTkEntry(app, textvariable=fremde_iban_fg_var)
-                        entry_iban.grid(row=current_row, column=1, padx=20, pady=10)
-                        current_row += 1
-                    else:
-                        label_ok = customtkinter.CTkLabel(app, text="Eigenes Konto:")
-                        label_ok.grid(row=current_row, column=0, padx=20, pady=10)
-                        own_acc_list = load_own_accounts(selected_person, data_manager)
-                        dropdown_ok = customtkinter.CTkOptionMenu(
-                            app,
-                            variable=own_account_fg_var,
-                            values=own_acc_list
+                    ).grid(row=row, column=1, sticky="w")
+                    row += 1
+                    if checkbox_fg.get():
+                        ctk.CTkEntry(app, textvariable=fremde_iban_fg).grid(
+                            row=row, column=1, padx=20, pady=5, sticky="w"
                         )
-                        dropdown_ok.grid(row=current_row, column=1, padx=20, pady=10)
-                        current_row += 1
+                    else:
+                        own = [
+                            f"{k['Kontotyp']} {k.get('Kontonummer', k.get('Deponummer',''))}"
+                            for k in person.get('Konten', [])
+                            if k.get('Kontotyp') not in ('Festgeldkonto','Depot')
+                        ] or ["Bitte wählen"]
+                        ctk.CTkOptionMenu(
+                            app, variable=own_acc_fg, values=own
+                        ).grid(row=row, column=1, padx=20, pady=5, sticky="w")
+                    row += 1
                     continue
-
-                # Behandlung für Depot: Verrechnungskonto
-                if acct_type == "Depot" and field == "Verrechnungskonto":
-                    label_vk = customtkinter.CTkLabel(app, text="Verrechnungskonto:")
-                    label_vk.grid(row=current_row, column=0, padx=20, pady=10)
-                    check_depot = customtkinter.CTkCheckBox(
+                # Depotkonto: Verrechnungskonto
+                if acct_type == "Depot" and f == "Verrechnungskonto":
+                    ctk.CTkLabel(app, text="Verrechnungskonto:").grid(
+                        row=row, column=0, padx=20, pady=5, sticky="e"
+                    )
+                    ctk.CTkCheckBox(
                         app,
                         text="Fremdes Konto?",
-                        variable=checkbox_fremdes_konto_depot,
+                        variable=checkbox_dp,
                         command=lambda: build_form()
-                    )
-                    check_depot.grid(row=current_row, column=1, padx=20, pady=10)
-                    current_row += 1
-
-                    if checkbox_fremdes_konto_depot.get():
-                        label_iban = customtkinter.CTkLabel(app, text="IBAN:")
-                        label_iban.grid(row=current_row, column=0, padx=20, pady=10)
-                        entry_iban = customtkinter.CTkEntry(app, textvariable=fremde_iban_depot_var)
-                        entry_iban.grid(row=current_row, column=1, padx=20, pady=10)
-                        current_row += 1
-                    else:
-                        label_ok = customtkinter.CTkLabel(app, text="Eigenes Konto:")
-                        label_ok.grid(row=current_row, column=0, padx=20, pady=10)
-                        own_acc_list = load_own_accounts(selected_person, data_manager)
-                        dropdown_ok = customtkinter.CTkOptionMenu(
-                            app,
-                            variable=own_account_depot_var,
-                            values=own_acc_list
+                    ).grid(row=row, column=1, sticky="w")
+                    row += 1
+                    if checkbox_dp.get():
+                        ctk.CTkEntry(app, textvariable=fremde_iban_dp).grid(
+                            row=row, column=1, padx=20, pady=5, sticky="w"
                         )
-                        dropdown_ok.grid(row=current_row, column=1, padx=20, pady=10)
-                        current_row += 1
+                    else:
+                        own = [
+                            f"{k['Kontotyp']} {k.get('Kontonummer', k.get('Deponummer',''))}"
+                            for k in person.get('Konten', [])
+                            if k.get('Kontotyp') not in ('Festgeldkonto','Depot')
+                        ] or ["Bitte wählen"]
+                        ctk.CTkOptionMenu(
+                            app, variable=own_acc_dp, values=own
+                        ).grid(row=row, column=1, padx=20, pady=5, sticky="w")
+                    row += 1
                     continue
-
                 # Standardfelder
-                label_f = customtkinter.CTkLabel(app, text=f"{field}:")
-                label_f.grid(row=current_row, column=0, padx=20, pady=10)
-                if field not in entries:
-                    entries[field] = customtkinter.CTkEntry(app)
-                entries[field].grid(row=current_row, column=1, padx=20, pady=10)
-                current_row += 1
+                ctk.CTkLabel(app, text=f"{f}:").grid(
+                    row=row, column=0, padx=20, pady=5, sticky="e"
+                )
+                entry = ctk.CTkEntry(app)
+                entry.grid(row=row, column=1, padx=20, pady=5, sticky="w")
+                entries[f] = entry
+                row += 1
 
-        btn_add.grid(row=current_row, column=0, columnspan=2, padx=20, pady=10)
+        # Hinzufügen-Button
+        ctk.CTkButton(app, text="Hinzufügen", command=add_account).grid(
+            row=row, column=0, columnspan=2, pady=(10,20)
+        )
+        app.grid_columnconfigure(0, weight=1)
+        app.grid_columnconfigure(1, weight=1)
 
     def add_account():
         acct_type = acct_var.get()
-        if acct_type == "Bitte wählen":
-            print("Bitte wählen Sie einen Kontotyp aus.")
-            return
-        selected_bank = bank_var.get()
-        if selected_bank in ["", "Bitte wählen"]:
-            print("Bitte wählen Sie eine Bank aus.")
-            return
-
-        selected_bic = bic_var.get() if bic_var.get() else ""
-        selected_blz = blz_var.get()
-
-        acct_data = {"Bank": selected_bank, "BIC": selected_bic}
-        if selected_blz:
-            acct_data["BLZ"] = selected_blz
-
-        for field in entries:
-            val = entries[field].get().strip()
-            if not val:
-                print(f"Bitte füllen Sie das Feld '{field}' aus!")
-                return
-            acct_data[field] = val
-
-        # Spezielle Verarbeitung für Festgeldkonto
+        account_data = {"Bank": bank_var.get(), "BIC": bic_var.get()}
+        if blz_var.get():
+            account_data["BLZ"] = blz_var.get()
+        for f, entry in entries.items():
+            account_data[f] = entry.get().strip()
+        # Festgeldkonto
         if acct_type == "Festgeldkonto":
-            if checkbox_fremdes_konto_fg.get():
-                iban = fremde_iban_fg_var.get().strip()
-                if not iban:
-                    print("Bitte IBAN für fremdes Konto eingeben!")
-                    return
-                acct_data["Auszahlungskonto"] = iban
+            if checkbox_fg.get():
+                account_data["Auszahlungskonto"] = fremde_iban_fg.get().strip()
             else:
-                auswahl = own_account_fg_var.get()
-                if auswahl in ["", "Bitte wählen"]:
-                    print("Bitte ein eigenes Konto auswählen!")
-                    return
-                parts = auswahl.split()
-                if len(parts) == 2:
-                    kontonummer = parts[1]
-                    if selected_blz:
-                        iban_eigen = compute_iban_de(selected_blz, kontonummer)
-                        acct_data["Auszahlungskonto"] = iban_eigen
-                    else:
-                        print("Keine BLZ ausgewählt, IBAN kann nicht berechnet werden!")
-                        return
-                else:
-                    print("Auszahlungskonto konnte nicht geparst werden!")
-                    return
-        # Spezielle Verarbeitung für Depot
-        elif acct_type == "Depot":
-            if checkbox_fremdes_konto_depot.get():
-                iban = fremde_iban_depot_var.get().strip()
-                if not iban:
-                    print("Bitte IBAN für fremdes Verrechnungskonto eingeben!")
-                    return
-                acct_data["Verrechnungskonto"] = iban
+                parts = own_acc_fg.get().split()
+                if len(parts) == 2 and blz_var.get():
+                    account_data["Auszahlungskonto"] = compute_iban_de(
+                        blz_var.get(), parts[1]
+                    )
+        # Depotkonto
+        if acct_type == "Depot":
+            if checkbox_dp.get():
+                account_data["Verrechnungskonto"] = fremde_iban_dp.get().strip()
             else:
-                auswahl = own_account_depot_var.get()
-                if auswahl in ["", "Bitte wählen"]:
-                    print("Bitte ein eigenes Konto auswählen!")
-                    return
-                parts = auswahl.split()
-                if len(parts) == 2:
-                    kontonummer = parts[1]
-                    if selected_blz:
-                        iban_eigen = compute_iban_de(selected_blz, kontonummer)
-                        acct_data["Verrechnungskonto"] = iban_eigen
-                    else:
-                        print("Keine BLZ ausgewählt, IBAN kann nicht berechnet werden!")
-                        return
-                else:
-                    print("Verrechnungskonto konnte nicht geparst werden!")
-                    return
+                parts = own_acc_dp.get().split()
+                if len(parts) == 2 and blz_var.get():
+                    account_data["Verrechnungskonto"] = compute_iban_de(
+                        blz_var.get(), parts[1]
+                    )
 
-        acct_data["Kontotyp"] = acct_type
-
-        # Hier wird das Konto über den AccountController in die JSON hinzugefügt
-        if account_controller.add_account(selected_person, acct_type, acct_data):
-            print(f"Konto vom Typ {acct_type} hinzugefügt.")
-            reset_form()
-            navigator.navigate("PersonInfo", selected_person=selected_person)
+        logger.debug(f"add_account: {acct_type}, data={account_data}")
+        if ac.add_account(person, acct_type, account_data):
+            state.load_all()
+            logger.info("Konto erfolgreich hinzugefügt")
+            navigator.navigate("PersonInfo")
         else:
-            print("Konto konnte nicht hinzugefügt werden (Duplikat vorhanden oder Fehler).")
-
-    def reset_form():
-        acct_var.set("Bitte wählen")
-        bank_var.set("Bitte wählen")
-        bic_var.set("")
-        blz_var.set("")
-        checkbox_fremdes_konto_fg.set(False)
-        fremde_iban_fg_var.set("")
-        own_account_fg_var.set("Bitte wählen")
-        checkbox_fremdes_konto_depot.set(False)
-        fremde_iban_depot_var.set("")
-        own_account_depot_var.set("Bitte wählen")
-        for e in entries.values():
-            e.delete(0, "end")
-
-    btn_add = customtkinter.CTkButton(app, text="Hinzufügen", command=add_account)
+            logger.error("Konto konnte nicht hinzugefügt werden (Duplikat?)")
 
     build_form()
     zentrieren(app)

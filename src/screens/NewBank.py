@@ -1,65 +1,46 @@
 import customtkinter
-import json
 from src.helpers.UniversalMethoden import clear_ui, zentrieren
-from src.data.DataManager import DataManager
+from src.models.AppState import AppState
 
-def create_screen(app, navigator, **kwargs):
+
+def create_screen(app, navigator, state: AppState, **kwargs):
     clear_ui(app)
-    data_manager = DataManager()
+
+    name_var = customtkinter.StringVar()
+    bic_var = customtkinter.StringVar()
 
     def add_bank():
-        name = entry_name.get().strip()
-        bic = entry_bic.get().strip()
+        name = name_var.get().strip()
+        bic = bic_var.get().strip()
         if name and bic:
-            bank_data = data_manager.load_bank_data()
-            banks = bank_data.get("Banken", [])
-            # Überprüfe, ob die Bank bereits existiert
+            banks = state.banken
             for bank in banks:
-                if bank.get("Name") == name:
-                    if bic not in bank.get("BIC", []):
-                        bank["BIC"].append(bic)
+                if bank['Name']==name:
+                    if bic not in bank.get('BIC',[]): bank['BIC'].append(bic)
                     break
             else:
-                banks.append({"Name": name, "BIC": [bic]})
-            try:
-                with open(data_manager.banken_file, "w", encoding="utf-8") as f:
-                    json.dump({"Banken": banks}, f, indent=4)
-                print(f"Bank '{name}' hinzugefügt.")
-                entry_name.delete(0, "end")
-                entry_bic.delete(0, "end")
-            except Exception as e:
-                print("Fehler beim Speichern der Bankdaten:", e)
+                banks.append({'Name':name,'BIC':[bic]})
+            state.data_manager.save_bank_data({'Banken':banks})
+            state.banken = banks
+            entry_name.delete(0,'end'); entry_bic.delete(0,'end')
         else:
             print("Bitte füllen Sie alle Felder aus!")
-            if not name:
-                entry_name.configure(fg_color="red")
-            if not bic:
-                entry_bic.configure(fg_color="red")
+            if not name: entry_name.configure(fg_color="red")
+            if not bic: entry_bic.configure(fg_color="red")
 
-    def reset_bg(event):
+    def reset_bg(_):
         entry_name.configure(fg_color="white")
         entry_bic.configure(fg_color="white")
 
-    def back():
-        navigator.navigate("MainScreen")
+    customtkinter.CTkLabel(app, text="Name:").grid(row=0,column=0,padx=20,pady=10)
+    entry_name = customtkinter.CTkEntry(app, textvariable=name_var)
+    entry_name.grid(row=0,column=1,padx=20,pady=10); entry_name.bind("<FocusIn>",reset_bg)
 
-    label_name = customtkinter.CTkLabel(app, text="Name:")
-    label_name.grid(row=0, column=0, padx=20, pady=10)
-    entry_name = customtkinter.CTkEntry(app)
-    entry_name.grid(row=0, column=1, padx=20, pady=10)
-    entry_name.bind("<FocusIn>", reset_bg)
+    customtkinter.CTkLabel(app, text="BIC:").grid(row=1,column=0,padx=20,pady=10)
+    entry_bic = customtkinter.CTkEntry(app, textvariable=bic_var)
+    entry_bic.grid(row=1,column=1,padx=20,pady=10); entry_bic.bind("<FocusIn>",reset_bg)
 
-    label_bic = customtkinter.CTkLabel(app, text="BIC:")
-    label_bic.grid(row=1, column=0, padx=20, pady=10)
-    entry_bic = customtkinter.CTkEntry(app)
-    entry_bic.grid(row=1, column=1, padx=20, pady=10)
-    entry_bic.bind("<FocusIn>", reset_bg)
-
-    btn_add = customtkinter.CTkButton(app, text="Hinzufügen", command=add_bank)
-    btn_add.grid(row=2, column=0, columnspan=2, padx=20, pady=10)
-
-    btn_back = customtkinter.CTkButton(app, text="Zurück", command=back)
-    btn_back.grid(row=3, column=0, columnspan=2, padx=20, pady=10)
+    customtkinter.CTkButton(app, text="Hinzufügen", command=add_bank).grid(row=2,column=0,columnspan=2,padx=20,pady=10)
+    customtkinter.CTkButton(app, text="Zurück", command=lambda: navigator.navigate("MainScreen")).grid(row=3,column=0,columnspan=2,padx=20,pady=10)
 
     zentrieren(app)
-

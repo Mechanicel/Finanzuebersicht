@@ -248,8 +248,26 @@ class DataManager:
         logger.debug(f"get_depot_value: Gesamtwert {total:.2f}")
         return total
 
-    def calculate_festgeld_for_date(self, konto: dict, date: datetime) -> float:
-        logger.debug(f"calculate_festgeld_for_date: {konto} am {date}")
+    def calculate_festgeld_for_date(self, konto: dict, date) -> float:
+        """
+        Berechnet den Festgeldwert am gegebenen Datum.
+        Unterstützt Datumsformate 'YYYY-MM-DD' und 'DD.MM.YYYY'.
+        """
+        # Datum in date-Objekt
+        if isinstance(date, datetime):
+            dt = date.date()
+        else:
+            dt = date
+        # Anlagedatum parsen
+        anlagedatum_str = konto.get("Anlagedatum", "")
+        try:
+            anlagedatum = datetime.strptime(anlagedatum_str, "%Y-%m-%d").date()
+        except ValueError:
+            try:
+                anlagedatum = datetime.strptime(anlagedatum_str, "%d.%m.%Y").date()
+            except Exception:
+                anlagedatum = dt
+        # Laufzeit und Zinssatz
         try:
             anlagebetrag = float(konto.get("Anlagebetrag", 0))
         except:
@@ -259,19 +277,18 @@ class DataManager:
         except:
             zinssatz = 0.0
         try:
-            anlagedatum = datetime.strptime(konto.get("Anlagedatum", ""), "%Y-%m-%d").date()
-        except:
-            anlagedatum = date.date()
-        try:
             laufzeit = int(konto.get("Laufzeit_in_Tagen", 0))
         except:
             laufzeit = 0
         end_date = anlagedatum + timedelta(days=laufzeit)
-        if date.date() < anlagedatum:
+        # Wenn Stichtag vor Anlagedatum: ursprünglicher Betrag
+        if dt < anlagedatum:
             return anlagebetrag
-        ende = min(date.date(), end_date)
+        # Berechne Zinsen bis Stichtag (oder bis Laufzeitende)
+        ende = min(dt, end_date)
         tage = (ende - anlagedatum).days
         zinsen = anlagebetrag * (zinssatz / 100.0) * (tage / 360.0)
         wert = anlagebetrag + zinsen
-        logger.debug(f"calculate_festgeld_for_date: Berechneter Wert {wert:.2f}")
+        logger.debug(
+            f"calculate_festgeld_for_date: Konto={konto.get('Kontotyp')} Anlagedatum={anlagedatum}, Stichtag={dt}, Wert={wert:.2f}")
         return wert

@@ -1,140 +1,157 @@
+# src/screens/AccountOverview.py
+
 import customtkinter as ctk
 from tkcalendar import DateEntry
-from datetime import datetime, time
-from data.DataManager import DataManager
-from controllers.AccountController import AccountController
-from src.helpers.UniversalMethoden import clear_ui
+from datetime import datetime
+from src.helpers.UniversalMethoden import clear_ui, zentrieren
+from src.models.AppState import AppState
 
-
-def create_screen(app, navigator, selected_person):
+def create_screen(app, navigator, state: AppState, **kwargs):
     clear_ui(app)
-    dm = DataManager()
-    ac = AccountController()
-    person_data = dm.get_person_data(selected_person) or {}
-    # Alle Festgeldkonten überspringen
-    konten = [k for k in person_data.get("Konten", []) if k.get("Kontotyp") != "Festgeldkonto"]
+    person = state.selected_person
+    ac = state.account_controller
+    konten = [k for k in person.get('Konten', []) if k.get('Kontotyp') != 'Festgeldkonto']
 
-    inputs = []
-    index = -1
-    selected_date = None
+    # Haupt-Container
+    container = ctk.CTkFrame(app, corner_radius=8)
+    container.grid(row=0, column=0, sticky="nsew", padx=16, pady=16)
 
-    # Widgets für wiederverwendbare Referenzen
-    entry_date = None
-    entry_balance = None
-    frame_details = None
-    rows = []
-    btn_add = None
+    container.grid_columnconfigure(0, weight=1)
+    container.grid_rowconfigure(0, weight=1)
+    container.grid_columnconfigure(0, weight=1)
+    # Datumsauswahl
+    date_frame = ctk.CTkFrame(container)
+    date_frame.grid(row=0, column=0, sticky="ew", pady=(0,16))
+    date_frame.grid_columnconfigure((0,1), weight=1)
+    ctk.CTkLabel(date_frame, text="Stichtag wählen", font=("Arial", 16, "bold"))\
+        .grid(row=0, column=0, columnspan=2, pady=(0,8))
+    date_entry = DateEntry(date_frame, date_pattern='yyyy-mm-dd', width=20)
+    date_entry.grid(row=1, column=0, sticky="e", padx=(0,8))
+    ctk.CTkButton(date_frame, text="Weiter", command=lambda: on_date_selected())\
+        .grid(row=1, column=1, sticky="w")
 
-    # Schriftarten definieren
-    TITLE_FONT = ("Arial", 20, "bold")
-    SUBTITLE_FONT = ("Arial", 16)
+    # dynamische Frames
+    content_frame = ctk.CTkFrame(container, fg_color="transparent")
+    nav_frame     = ctk.CTkFrame(container, fg_color="transparent")
 
-    def show_date():
-        nonlocal entry_date, index
-        clear_ui(app)
-        # Header
-        header_frame = ctk.CTkFrame(app)
-        header_frame.grid(row=0, column=0, columnspan=2, sticky="we", pady=(20,10))
-        header_label = ctk.CTkLabel(header_frame, text="Kontoübersicht", font=TITLE_FONT)
-        header_label.pack(padx=20, pady=10)
-        # Stichtag-Auswahl
-        date_label = ctk.CTkLabel(app, text="Wähle Stichtag:", font=SUBTITLE_FONT)
-        date_label.grid(row=1, column=0, padx=20, pady=10, sticky="e")
-        entry_date = DateEntry(app, date_pattern='yyyy-mm-dd', width=12)
-        entry_date.grid(row=1, column=1, padx=20, pady=10, sticky="w")
-        # Weiter-Button
-        btn_next = ctk.CTkButton(app, text="Weiter", width=12, command=on_next)
-        btn_next.grid(row=2, column=0, columnspan=2, pady=(0,20))
-        # Spalten konfigurieren
-        app.grid_columnconfigure(0, weight=1)
-        app.grid_columnconfigure(1, weight=1)
+    current_index   = 0
+    detail_widgets  = []
+    add_button      = None  # Referenz auf den "Position hinzufügen"-Button
 
-    def show_account():
-        nonlocal entry_balance, frame_details, rows, btn_add, index
-        clear_ui(app)
-        konto = konten[index]
-        # Kontoinfo-Header
-        header = ctk.CTkLabel(
-            app,
-            text=f"{konto.get('Kontotyp')} – {konto.get('Bank','')} {konto.get('Kontonummer', konto.get('Deponummer',''))}",
-            font=SUBTITLE_FONT
-        )
-        header.grid(row=0, column=0, columnspan=2, pady=(20,10))
+    def on_date_selected():
+        state.selected_date   = date_entry.get_date()
+        state.overview_inputs = [None] * len(konten)
+        date_frame.destroy()
+        content_frame.grid(row=0, column=0, sticky="nsew")
+        nav_frame.grid(row=1, column=0, sticky="ew", pady=(16,0))
+        show_account(0)
 
+    def show_account(idx: int):
+        nonlocal current_index, detail_widgets, add_button
+        current_index = idx
+        # clear content
+        for w in content_frame.winfo_children():
+            w.destroy()
+        detail_widgets = []
+
+        konto = konten[idx]
+        # Meta-Info
+        meta = ctk.CTkFrame(content_frame)
+        meta.grid(row=0, column=0, sticky="ew", pady=(0,8))
+        meta.grid_columnconfigure((0,1), weight=1)
+        ctk.CTkLabel(meta, text=f"{konto.get('Kontotyp')}", font=("Arial", 14, "bold"))\
+            .grid(row=0, column=0, sticky="w")
+        num = konto.get("Kontonummer", konto.get("Deponummer", "–"))
+        ctk.CTkLabel(meta, text=f"Nummer: {num}")\
+            .grid(row=1, column=0, sticky="w", pady=(4,0))
+        ctk.CTkLabel(meta, text=f"BIC: {konto.get('BIC','–')}")\
+            .grid(row=1, column=1, sticky="e", pady=(4,0))
+
+        if konto.get('Kontotyp') == 'Depot' and konto.get("Verrechnungskonto"):
+            ctk.CTkLabel(meta, text=f"Verrechnungskonto: {konto.get('Verrechnungskonto')}")\
+                .grid(row=2, column=0, columnspan=2, sticky="w", pady=(4,0))
+
+        # Eingabe-Bereich
         if konto.get('Kontotyp') == 'Depot':
-            # Depot-Details-Frame
-            frame_details = ctk.CTkFrame(app)
-            frame_details.grid(row=1, column=0, columnspan=2, padx=20, pady=10, sticky="nsew")
-            frame_details.columnconfigure((0,1), weight=1)
-            # Spaltenüberschriften
-            ctk.CTkLabel(frame_details, text="ISIN", font=("Arial", 12, "underline")).grid(row=0, column=0, padx=5)
-            ctk.CTkLabel(frame_details, text="Menge", font=("Arial", 12, "underline")).grid(row=0, column=1, padx=5)
-            rows = []
-
-            def make_add_row():
-                r = len(rows) + 1
-                e_isin = ctk.CTkEntry(frame_details, placeholder_text="DE000...")
-                e_menge = ctk.CTkEntry(frame_details, placeholder_text="0.0")
-                e_isin.grid(row=r, column=0, padx=5, pady=2, sticky="ew")
-                e_menge.grid(row=r, column=1, padx=5, pady=2, sticky="ew")
-                rows.append((e_isin, e_menge))
-                btn_add.grid(row=len(rows)+1, column=0, columnspan=2, pady=(10,5))
-
-            btn_add = ctk.CTkButton(frame_details, text="Position hinzufügen", command=make_add_row)
-            # Vorbefüllung
-            for detail in konto.get('DepotDetails', []):
-                make_add_row()
-                rows[-1][0].insert(0, detail.get('ISIN',''))
-                rows[-1][1].insert(0, str(detail.get('Menge','')))
-            btn_add.grid(row=len(rows)+1, column=0, columnspan=2, pady=(10,5))
-
+            for r, det in enumerate(konto.get('DepotDetails', [])):
+                e_isin = ctk.CTkEntry(content_frame, placeholder_text="ISIN", width=240)
+                e_isin.insert(0, det.get('ISIN',''))
+                e_isin.grid(row=r+1, column=0, sticky="ew", padx=5, pady=4)
+                e_qty = ctk.CTkEntry(content_frame, placeholder_text="Menge", width=80)
+                e_qty.insert(0, str(det.get('Menge','')))
+                e_qty.grid(row=r+1, column=1, sticky="ew", padx=5, pady=4)
+                detail_widgets.append((e_isin, e_qty))
+            # Button dynamisch positionieren
+            if add_button:
+                add_button.destroy()
+            add_button = ctk.CTkButton(
+                content_frame, text="Position hinzufügen", width=200, command=add_row
+            )
+            add_button.grid(row=len(detail_widgets)+1, column=0, columnspan=2, pady=(8,0))
         else:
-            # Manuelle Saldo-Eingabe für Nicht-Depot
-            entry_balance = ctk.CTkEntry(app, placeholder_text="z.B. 1000.00")
-            entry_balance.grid(row=1, column=0, columnspan=2, padx=20, pady=10, sticky="ew")
+            e_bal = ctk.CTkEntry(content_frame, placeholder_text="Saldo", width=240)
+            e_bal.grid(row=1, column=0, columnspan=2, pady=(4,0))
+            detail_widgets = [e_bal]
+            # keinen add_button für andere Kontotypen
+            if add_button:
+                add_button.destroy()
+                add_button = None
 
-        # Weiter oder Fertig
-        btn_label = "Weiter" if index < len(konten)-1 else "Fertig"
-        btn_next = ctk.CTkButton(app, text=btn_label, width=12, command=on_next)
-        btn_next.grid(row=2, column=0, columnspan=2, pady=(0,20))
-        app.grid_columnconfigure(0, weight=1)
-        app.grid_columnconfigure(1, weight=1)
+        # Navigation Buttons
+        for w in nav_frame.winfo_children():
+            w.destroy()
+        if idx > 0:
+            ctk.CTkButton(
+                nav_frame, text="← Zurück", width=100,
+                command=lambda: save_and_navigate(idx-1)
+            ).grid(row=0, column=0, padx=(0,8))
+        btn_text = "Fertig" if idx == len(konten)-1 else "Weiter →"
+        ctk.CTkButton(
+            nav_frame, text=btn_text, width=100,
+            command=lambda: save_and_navigate(idx+1)
+        ).grid(row=0, column=1, padx=(8,0))
 
-    def on_next():
-        nonlocal index, selected_date, entry_balance, rows
-        if index == -1:
-            # Datum übernehmen
-            d = entry_date.get_date()
-            selected_date = datetime.combine(d, time.min)
-            index = 0
-            show_account()
-            return
+        zentrieren(container)
 
-        konto = konten[index]
+    def save_and_navigate(next_idx: int):
+        konto = konten[current_index]
         if konto.get('Kontotyp') == 'Depot':
             details = []
-            for e_isin, e_menge in rows:
-                isin_val = e_isin.get().strip()
+            for e_isin, e_qty in detail_widgets:
+                isin = e_isin.get().strip()
                 try:
-                    menge_val = float(e_menge.get())
+                    menge = float(e_qty.get())
                 except:
-                    menge_val = 0.0
-                if isin_val:
-                    details.append({'ISIN': isin_val, 'Menge': menge_val})
-            inputs.append({'konto': konto, 'details': details})
+                    menge = 0.0
+                if isin:
+                    details.append({'ISIN': isin, 'Menge': menge})
+            state.overview_inputs[current_index] = {'konto': konto, 'details': details}
         else:
             try:
-                bal = float(entry_balance.get())
+                bal = float(detail_widgets[0].get())
             except:
                 bal = 0.0
-            inputs.append({'konto': konto, 'balance': bal})
+            state.overview_inputs[current_index] = {'konto': konto, 'balance': bal}
 
-        index += 1
-        if index < len(konten):
-            show_account()
+        if next_idx < len(konten):
+            show_account(next_idx)
         else:
-            ac.update_account_overview(selected_person, selected_date, inputs)
-            navigator.navigate("PersonInfo", selected_person=selected_person)
+            ac.calculate_festgeld(person, state.selected_date)
+            ac.update_account_overview(person, state.selected_date, state.overview_inputs)
+            state.load_all()
+            navigator.navigate("PersonInfo")
+
+    def add_row():
+        """Fügt neue Depot-Zeile hinzu und schiebt den Button nach unten."""
+        row = len(detail_widgets) + 1
+        e_isin = ctk.CTkEntry(content_frame, placeholder_text="ISIN", width=240)
+        e_isin.grid(row=row, column=0, padx=5, pady=4, sticky="ew")
+        e_qty = ctk.CTkEntry(content_frame, placeholder_text="Menge", width=80)
+        e_qty.grid(row=row, column=1, padx=5, pady=4, sticky="ew")
+        detail_widgets.append((e_isin, e_qty))
+        # Button neu positionieren
+        if add_button:
+            add_button.grid_configure(row=len(detail_widgets)+1)
 
     # Start
-    show_date()
+    zentrieren(app)

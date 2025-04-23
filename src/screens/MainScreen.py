@@ -2,7 +2,7 @@ import customtkinter
 from src.helpers.UniversalMethoden import clear_ui, zentrieren
 
 
-def create_screen(app, navigator, **kwargs):
+def create_screen(app, navigator, state, **kwargs):
     clear_ui(app)
 
     title = customtkinter.CTkLabel(app, text="Person Wählen")

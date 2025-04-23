@@ -1,7 +1,6 @@
 import customtkinter
 from navigator import Navigator
-
-
+from src.models.AppState import AppState
 
 # Systemeinstellungen
 customtkinter.set_appearance_mode("System")
@@ -12,8 +11,12 @@ app = customtkinter.CTk()
 app.geometry("720x480")
 app.title("Finanzübersicht")
 
-# Initialisiere den Navigator, der die Navigation zwischen Screens übernimmt
-navigator = Navigator(app)
+# Initialisiere den AppState und lade Daten
+state = AppState()
+state.load_all()
+
+# Initialisiere den Navigator mit App und State
+navigator = Navigator(app, state)
 
 # Starte mit dem MainScreen
 navigator.navigate("MainScreen")

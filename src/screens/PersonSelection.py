@@ -1,20 +1,23 @@
 import customtkinter
 from src.helpers.UniversalMethoden import clear_ui, zentrieren
-from src.data.DataManager import DataManager
+from src.models.AppState import AppState
 
 
-def create_screen(app, navigator, **kwargs):
+def create_screen(app, navigator, state: AppState, **kwargs):
     clear_ui(app)
-    data_manager = DataManager()
-    persons = data_manager.load_personen()
-    person_list = [f"{p.get('Name', '')} {p.get('Nachname', '')}" for p in persons]
+    # Lade Personen aus dem zentralen Store
+    persons = state.personen
+    person_list = [f"{p['Name']} {p['Nachname']}" for p in persons]
 
     def confirm():
         selected = selected_person_var.get()
         if " " in selected:
             vorname, nachname = selected.split(" ", 1)
-            person = {"Name": vorname, "Nachname": nachname}
-            navigator.navigate("PersonInfo", selected_person=person)
+            person = state.select_person(vorname, nachname)
+            if person:
+                navigator.navigate("PersonInfo")
+            else:
+                print("Person nicht gefunden.")
         else:
             print("Bitte eine gültige Person auswählen!")
 

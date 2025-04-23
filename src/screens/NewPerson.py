@@ -1,58 +1,46 @@
 import customtkinter
 from src.helpers.UniversalMethoden import clear_ui, zentrieren
-from src.data.DataManager import DataManager
+from src.models.AppState import AppState
 
-def create_screen(app, navigator, **kwargs):
+
+def create_screen(app, navigator, state: AppState, **kwargs):
     clear_ui(app)
-    data_manager = DataManager()
-    persons = data_manager.load_personen()
+
+    name_var = customtkinter.StringVar()
+    nach_var = customtkinter.StringVar()
 
     def proceed():
-        name = entry_name.get().strip()
-        nachname = entry_nachname.get().strip()
-        if not name or not nachname:
-            if not name:
-                entry_name.configure(fg_color="lightcoral")
-            if not nachname:
-                entry_nachname.configure(fg_color="lightcoral")
+        n = name_var.get().strip()
+        nn = nach_var.get().strip()
+        if not n or not nn:
+            if not n: entry_name.configure(fg_color="lightcoral")
+            if not nn: entry_nach.configure(fg_color="lightcoral")
             return
-        # Prüfen, ob die Person bereits existiert
-        for p in persons:
-            if p.get("Name") == name and p.get("Nachname") == nachname:
+        # Existenz prüfen
+        for p in state.personen:
+            if p['Name']==n and p['Nachname']==nn:
                 print("Diese Person existiert bereits.")
                 return
-        new_person = {
-            "Name": name,
-            "Nachname": nachname,
-            "Freibetrag": {},
-            "Banken": [],
-            "Konten": []
-        }
-        persons.append(new_person)
-        data_manager.save_personen(persons)
+        new = {'Name':n,'Nachname':nn,'Freibetrag':{},'Banken':[], 'Konten':[]}
+        state.personen.append(new)
+        state.data_manager.save_personen(state.personen)
         navigator.navigate("MainScreen")
 
-    def reset_bg(event):
+    def reset_bg(_):
         entry_name.configure(fg_color="white")
-        entry_nachname.configure(fg_color="white")
+        entry_nach.configure(fg_color="white")
 
-    label_name = customtkinter.CTkLabel(app, text="Name:")
-    label_name.grid(row=0, column=0, padx=20, pady=10)
-    entry_name = customtkinter.CTkEntry(app)
-    entry_name.grid(row=0, column=1, padx=20, pady=10)
+    customtkinter.CTkLabel(app, text="Name:").grid(row=0,column=0,padx=20,pady=10)
+    entry_name = customtkinter.CTkEntry(app, textvariable=name_var)
+    entry_name.grid(row=0,column=1,padx=20,pady=10)
     entry_name.bind("<FocusIn>", reset_bg)
 
-    label_nachname = customtkinter.CTkLabel(app, text="Nachname:")
-    label_nachname.grid(row=1, column=0, padx=20, pady=10)
-    entry_nachname = customtkinter.CTkEntry(app)
-    entry_nachname.grid(row=1, column=1, padx=20, pady=10)
-    entry_nachname.bind("<FocusIn>", reset_bg)
+    customtkinter.CTkLabel(app, text="Nachname:").grid(row=1,column=0,padx=20,pady=10)
+    entry_nach = customtkinter.CTkEntry(app, textvariable=nach_var)
+    entry_nach.grid(row=1,column=1,padx=20,pady=10)
+    entry_nach.bind("<FocusIn>", reset_bg)
 
-    btn_proceed = customtkinter.CTkButton(app, text="Fortfahren", command=proceed)
-    btn_proceed.grid(row=2, column=0, columnspan=2, padx=20, pady=10)
-
-    btn_back = customtkinter.CTkButton(app, text="Zurück", command=lambda: navigator.navigate("MainScreen"))
-    btn_back.grid(row=3, column=0, columnspan=2, padx=20, pady=10)
+    customtkinter.CTkButton(app, text="Fortfahren", command=proceed).grid(row=2, column=0, columnspan=2, padx=20,pady=10)
+    customtkinter.CTkButton(app, text="Zurück", command=lambda: navigator.navigate("MainScreen")).grid(row=3,column=0,columnspan=2,padx=20,pady=10)
 
     zentrieren(app)
-
