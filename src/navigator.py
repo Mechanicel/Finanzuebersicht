@@ -1,4 +1,5 @@
 # src/navigator.py
+
 from src.models.AppState import AppState
 from src.screens.MainScreen import create_screen as main_screen
 from src.screens.PersonSelection import create_screen as person_selection
@@ -13,14 +14,16 @@ from src.screens.AccountOverview import create_screen as account_overview
 from src.screens.AccountSummary import create_screen as account_summary
 from src.screens.AccountEditing import create_screen as account_editing
 
+# Die inneren Screens:
+from src.screens.accountsummaryinnerScreens.PieChartScreen import create_screen as create_pie_chart
+from src.screens.accountsummaryinnerScreens.PieChartinnerScreens.DepoAnalyse import create_screen as create_depo_analyse
+from src.screens.accountsummaryinnerScreens.PieChartinnerScreens.DepoAnalyseScreens.AktienAnalyseScreen import create_screen as create_stock_analysis
+
 class Navigator:
     def __init__(self, app):
         self.app = app
-        # Einmaliges Initialisieren und Laden des globalen State
         self.state = AppState()
         self.state.load_all()
-        # Alle Routen referenzieren Funktionen mit Signatur:
-        # (app, navigator, state, **kwargs)
         self.routes = {
             "MainScreen": main_screen,
             "PersonSelection": person_selection,
@@ -34,11 +37,17 @@ class Navigator:
             "AccountOverview": account_overview,
             "AccountSummary": account_summary,
             "AccountEditing": account_editing,
+            # Übersicht: Tortendiagramm aller Konten
+            "PieChart": create_pie_chart,
+            # Parent-Screen für Depot-Detail + Aktien-Analyse
+            "DepoAnalyse": create_depo_analyse,
+            # Screen für einzelne Aktie
+            "AktienAnalyse": create_stock_analysis,
         }
 
     def navigate(self, screen_name, **kwargs):
         if screen_name not in self.routes:
             print(f"Screen '{screen_name}' nicht gefunden.")
             return
-        # Immer den selben state weitergeben
+        # app, navigator, state plus beliebige kwargs
         self.routes[screen_name](self.app, self, self.state, **kwargs)
