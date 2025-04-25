@@ -10,7 +10,7 @@ class YFinanceService:
       • Earnings-Kalender
       • Analysten-Price Targets
       • Quartalsweise GuV
-      • Historische Kurse (1M)
+      • Historische Kurse (1 Jahr inkl. Dividenden & Splits)
       • Option Chains (erste Laufzeit)
       • Jahres-Financials, Bilanz, Cashflow, Earnings
     """
@@ -25,8 +25,8 @@ class YFinanceService:
           - ticker.calendar
           - ticker.analyst_price_targets
           - ticker.quarterly_income_stmt
-          - ticker.history(period='1mo')
-          - ticker.option_chain(first expiration)
+          - ticker.history(period='1y', actions=True)
+          - ticker.options / option_chain
           - ticker.financials, balance_sheet, cashflow, earnings
         """
         logger.debug(f"YFinanceService.get_info: Sammle alle Daten für {symbol}")
@@ -42,7 +42,7 @@ class YFinanceService:
                 "trailingPE": info.get("trailingPE"),
                 "epsTrailingTwelveMonths": info.get("epsTrailingTwelveMonths"),
                 "dividendYield": info.get("dividendYield"),
-                # du kannst hier gerne weitere info-Keys hinzufügen...
+                # weitere info-Keys nach Bedarf...
             }
 
             # 2) Earnings-Kalender
@@ -71,15 +71,25 @@ class YFinanceService:
                 logger.exception(f"YFinanceService.get_info: Fehler quarterly_income_stmt für {symbol}")
                 result['quarterly_income_stmt'] = []
 
-            # 5) Historische Kurse (1 Monat)
+            # 5) Historische Kurse (1 Jahr inkl. Dividenden & Aktiensplits)
             try:
-                hist = ticker.history(period="1mo")
-                result['history_1mo'] = (
+                hist = ticker.history(period="20y", actions=True)
+                result['history_20y'] = (
                     hist.reset_index().to_dict("records") if hist is not None else []
                 )
+                # Separate Dividendendaten
+                try:
+                    divs = ticker.dividends
+                    result['dividends'] = (
+                        divs.reset_index().to_dict("records") if divs is not None else []
+                    )
+                except Exception:
+                    logger.exception(f"YFinanceService.get_info: Fehler dividends für {symbol}")
+                    result['dividends'] = []
             except Exception:
-                logger.exception(f"YFinanceService.get_info: Fehler history für {symbol}")
-                result['history_1mo'] = []
+                logger.exception(f"YFinanceService.get_info: Fehler history/dividends für {symbol}")
+                result['history_1y'] = []
+                result['dividends'] = []
 
             # 6) Option Chain (erste Ablaufzeit)
             try:
@@ -102,30 +112,21 @@ class YFinanceService:
 
             # 7) Jahres-Finanzzahlen
             try:
-                # Income Statement, Balance Sheet, Cashflow, Earnings
-                fin  = ticker.financials
-                bs   = ticker.balance_sheet
-                cf   = ticker.cashflow
-                er   = ticker.earnings
+                fin = ticker.financials
+                bs  = ticker.balance_sheet
+                cf  = ticker.cashflow
+                er  = ticker.earnings
 
-                result['annual_financials'] = (
-                    fin.to_dict() if fin is not None else {}
-                )
-                result['balance_sheet'] = (
-                    bs.to_dict() if bs is not None else {}
-                )
-                result['cashflow'] = (
-                    cf.to_dict() if cf is not None else {}
-                )
-                result['earnings'] = (
-                    er.reset_index().to_dict("records") if er is not None else []
-                )
+                result['annual_financials'] = fin.to_dict() if fin is not None else {}
+                result['balance_sheet']    = bs.to_dict()  if bs  is not None else {}
+                result['cashflow']         = cf.to_dict()  if cf  is not None else {}
+                result['earnings']         = er.reset_index().to_dict("records") if er is not None else []
             except Exception:
-                logger.exception(f"YFinanceService.get_info: Fehler annual financials für {symbol}")
+                logger.exception(f"YFinanceService.get_info: Fehler annual_financials für {symbol}")
                 result['annual_financials'] = {}
-                result['balance_sheet']   = {}
-                result['cashflow']        = {}
-                result['earnings']        = []
+                result['balance_sheet'] = {}
+                result['cashflow'] = {}
+                result['earnings'] = []
 
             logger.debug(f"YFinanceService.get_info: Vollständiges Ergebnis für {symbol} gesammelt")
             return result
