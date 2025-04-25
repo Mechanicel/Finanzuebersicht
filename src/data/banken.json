@@ -1,0 +1,842 @@
+{
+    "Banken": [
+        {
+            "Name": "Deutsche Bank",
+            "BIC": [
+                "DEUTDEFF"
+            ],
+            "BLZ": [
+                "50070010"
+            ]
+        },
+        {
+            "Name": "Commerzbank",
+            "BIC": [
+                "COBADEFF",
+                "12454"
+            ],
+            "BLZ": [
+                "50080000"
+            ]
+        },
+        {
+            "Name": "DZ Bank",
+            "BIC": [
+                "GENODEF1DZB"
+            ],
+            "BLZ": [
+                "50060400"
+            ]
+        },
+        {
+            "Name": "KfW Bank",
+            "BIC": [
+                "KFWIDEFF"
+            ],
+            "BLZ": [
+                "50330000"
+            ]
+        },
+        {
+            "Name": "HypoVereinsbank",
+            "BIC": [
+                "HYVEDEMMXXX"
+            ],
+            "BLZ": [
+                "70020270"
+            ]
+        },
+        {
+            "Name": "Landesbank Baden-W\u00fcrttemberg",
+            "BIC": [
+                "SOLADESTXXX"
+            ],
+            "BLZ": [
+                "60050101"
+            ]
+        },
+        {
+            "Name": "Nord/LB",
+            "BIC": [
+                "NOLADE21"
+            ],
+            "BLZ": [
+                "25050000"
+            ]
+        },
+        {
+            "Name": "ING-DiBa",
+            "BIC": [
+                "INGDDEFFXXX"
+            ],
+            "BLZ": [
+                "50010517"
+            ]
+        },
+        {
+            "Name": "Santander Consumer Bank",
+            "BIC": [
+                "COBADEFFXXX"
+            ],
+            "BLZ": [
+                "31010833"
+            ]
+        },
+        {
+            "Name": "Postbank",
+            "BIC": [
+                "PBNKDEFF"
+            ],
+            "BLZ": [
+                "10010010"
+            ]
+        },
+        {
+            "Name": "Sparkasse K\u00f6lnBonn",
+            "BIC": [
+                "COLSDE33"
+            ],
+            "BLZ": [
+                "37050198"
+            ]
+        },
+        {
+            "Name": "Volksbank Raiffeisenbank",
+            "BIC": [
+                "GENODEF1VWV"
+            ],
+            "BLZ": [
+                "76090000"
+            ]
+        },
+        {
+            "Name": "Bank of America",
+            "BIC": [
+                "BOFAUS3N"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "Citibank",
+            "BIC": [
+                "CITIUS33"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "Wells Fargo",
+            "BIC": [
+                "WFBIUS6S"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "HSBC",
+            "BIC": [
+                "HBUKGB4B"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "Barclays",
+            "BIC": [
+                "BARCGB22"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "Royal Bank of Scotland",
+            "BIC": [
+                "RSBSGB2L"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "BNP Paribas",
+            "BIC": [
+                "BNPAFRPP"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "Soci\u00e9t\u00e9 G\u00e9n\u00e9rale",
+            "BIC": [
+                "SOGEFRPP"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "Cr\u00e9dit Agricole",
+            "BIC": [
+                "AGRIFRPP"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "UBS",
+            "BIC": [
+                "UBSWCHZH80A"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "Credit Suisse",
+            "BIC": [
+                "CRESCHZZ80A"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "JPMorgan Chase",
+            "BIC": [
+                "CHASUS33"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "Morgan Stanley",
+            "BIC": [
+                "MSNYUS33"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "Goldman Sachs",
+            "BIC": [
+                "GSCMUS33"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "Standard Chartered",
+            "BIC": [
+                "SCBLGB2L"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "ANZ",
+            "BIC": [
+                "ANZBAU2S"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "Westpac",
+            "BIC": [
+                "WPACAU2S"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "National Australia Bank",
+            "BIC": [
+                "NATAAU2S"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "Bank of China",
+            "BIC": [
+                "BKCHCNBJ"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "Industrial and Commercial Bank of China",
+            "BIC": [
+                "ICBKCNBJ"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "China Construction Bank",
+            "BIC": [
+                "PCBCCNBJ"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "Agricultural Bank of China",
+            "BIC": [
+                "ABOCCNBJ"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "Bank of Communications",
+            "BIC": [
+                "COMMCNBJ"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "Mitsubishi UFJ Financial Group",
+            "BIC": [
+                "BOTKJPJT"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "Sumitomo Mitsui Banking Corporation",
+            "BIC": [
+                "SMBCJPJT"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "Mizuho Bank",
+            "BIC": [
+                "MHCBJPJT"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "Sberbank",
+            "BIC": [
+                "SABRRUMM"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "VTB Bank",
+            "BIC": [
+                "VTBMRUMM"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "Intesa Sanpaolo",
+            "BIC": [
+                "PSITITMM"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "Banco Santander",
+            "BIC": [
+                "BSCHESMM"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "Royal Bank of Canada",
+            "BIC": [
+                "ROYCCAT2"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "Toronto-Dominion Bank",
+            "BIC": [
+                "TDOMCAT"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "Scotiabank",
+            "BIC": [
+                "NOSCCATT"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "Bank of Montreal",
+            "BIC": [
+                "BOFMCAM2"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "National Bank of Canada",
+            "BIC": [
+                "NBCCCAT2"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "Banco do Brasil",
+            "BIC": [
+                "BBASBRRJ"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "Ita\u00fa Unibanco",
+            "BIC": [
+                "ITAUBRSP"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "Caixa Econ\u00f4mica Federal",
+            "BIC": [
+                "CEFIBRSP"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "Banco Bradesco",
+            "BIC": [
+                "BBDEBRRJ"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "Santander Brasil",
+            "BIC": [
+                "BSCHBRSP"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "Banco de Chile",
+            "BIC": [
+                "CHILECLX"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "Cr\u00e9dit Mutuel",
+            "BIC": [
+                "CMRIFRPP"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "UniCredit",
+            "BIC": [
+                "UNCRITMM"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "Raiffeisen Bank International",
+            "BIC": [
+                "RZBAATWW"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "ING",
+            "BIC": [
+                "INGBNL2A"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "Nordea",
+            "BIC": [
+                "NDEAFIHH"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "Danske Bank",
+            "BIC": [
+                "DABADKKK"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "SEB",
+            "BIC": [
+                "ESSESESS"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "Swedbank",
+            "BIC": [
+                "SWEDSESS"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "Handelsbanken",
+            "BIC": [
+                "HANDSESS"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "ABN AMRO",
+            "BIC": [
+                "ABNANL2A"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "Rabobank",
+            "BIC": [
+                "RABONL2U"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "Caixa Geral de Dep\u00f3sitos",
+            "BIC": [
+                "CGDIPTPL"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "Banco Santander Totta",
+            "BIC": [
+                "BSCHPTPL"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "Banque Populaire",
+            "BIC": [
+                "BPPAFRPP"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "Cr\u00e9dit Lyonnais",
+            "BIC": [
+                "CRLYFRPP"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "La Banque Postale",
+            "BIC": [
+                "PSSTFRPP"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "Banca Monte dei Paschi di Siena",
+            "BIC": [
+                "BMPSITMM"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "Banco Sabadell",
+            "BIC": [
+                "BSABESMM"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "Banco Popular Espa\u00f1ol",
+            "BIC": [
+                "POPUESMM"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "Bank of Ireland",
+            "BIC": [
+                "BOFIIE2D"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "Allied Irish Banks",
+            "BIC": [
+                "AIBKIE2D"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "Permanent TSB",
+            "BIC": [
+                "PTSBIE2D"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "OTP Bank",
+            "BIC": [
+                "OTPVHUHB"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "Erste Group Bank",
+            "BIC": [
+                "GIBACATT"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "CIB Bank",
+            "BIC": [
+                "CIBDDEFF"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "Shinhan Bank",
+            "BIC": [
+                "SHBKKRSE"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "Kookmin Bank",
+            "BIC": [
+                "CZNBKRSE"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "Hana Bank",
+            "BIC": [
+                "HABKKRSE"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "Woori Bank",
+            "BIC": [
+                "HVBKKRSE"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "National Westminster Bank",
+            "BIC": [
+                "NWBKGB2L"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "Lloyds Bank",
+            "BIC": [
+                "LOYDGB2L"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "Metro Bank",
+            "BIC": [
+                "METBGB2L"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "TSB Bank",
+            "BIC": [
+                "TSBDGB2L"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "Clydesdale Bank",
+            "BIC": [
+                "CLYDGB2L"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "Ulster Bank",
+            "BIC": [
+                "ULSTGB2L"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "CIBC",
+            "BIC": [
+                "CIBCCATT"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "Scotiabank (Canada)",
+            "BIC": [
+                "NOSCCATT"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "Rabobank (Netherlands)",
+            "BIC": [
+                "RABONL2U"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "ABN AMRO (Netherlands)",
+            "BIC": [
+                "ABNANL2A"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        },
+        {
+            "Name": "Deutsche Bank (USA)",
+            "BIC": [
+                "DEUTUS33"
+            ],
+            "BLZ": [
+                "00000000"
+            ]
+        }
+    ]
+}
