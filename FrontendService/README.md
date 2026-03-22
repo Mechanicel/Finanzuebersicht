@@ -31,9 +31,11 @@
 - In der Navigation sind Routen auf tiefere Screen-Pfade referenziert, die nicht vollständig in der sichtbaren Struktur auf erster Ebene verifiziert werden können.
 - Datenhaltung erfolgt dateibasiert (JSON), was bei Parallelzugriffen oder Mehrbenutzerbetrieb funktionale Grenzen haben kann.
 
-## Lokaler Start (sichtbarer Ist-Stand)
+## Lokaler Start (zentraler Startweg)
 Aus dem Repository-Root:
 
 ```bash
-python -m FrontendService.src.main
+uv run finanzuebersicht
 ```
+
+Der zentrale Entry-Point liegt in `FrontendService.src.launcher:main`.

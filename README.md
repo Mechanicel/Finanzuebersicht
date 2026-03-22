@@ -37,28 +37,28 @@ Aus dem Repository-Root:
 
 ```bash
 uv venv .venv
-source .venv/bin/activate
-uv sync --group frontend --group markedataservice
+uv sync
 ```
 
-Optional für pip-basierte Workflows:
+## One-Click-Start (empfohlen)
+Es gibt genau einen zentralen Startweg für die Anwendung (GUI):
 
 ```bash
-pip install -r requirements.txt
+uv run finanzuebersicht
 ```
 
-## Startanleitung
-> Hinweis: Die folgenden Befehle bilden den im Code sichtbaren Startpunkt ab. Zusätzliche Laufzeitvoraussetzungen (z. B. Umgebungsvariablen) sind nur dort dokumentiert, wo sie im Repository explizit erkennbar sind.
+Der Befehl nutzt den zentralen Entry-Point aus `pyproject.toml` (`[project.gui-scripts]`) und startet intern den Launcher `FrontendService.src.launcher:main`.
 
-### Marktdatenservice starten
-```bash
-python markedataservice/src/main.py
-```
+### Optionale Komfort-Launcher (Root)
+- macOS/Linux: `./start.sh`
+- Windows: `start.bat`
 
-### Frontend starten
-```bash
-python -m FrontendService.src.main
-```
+Beide Dateien sind dünne Wrapper um denselben zentralen Python-Entry-Point.
+
+### Typische Fehlerfälle
+- **`.venv` fehlt**: führe `uv venv .venv && uv sync` aus.
+- **Abhängigkeit fehlt** (`ModuleNotFoundError`): führe `uv sync` erneut aus.
+- **Konfigurationsdateien fehlen**: prüfe, ob `FrontendService/personen.json` sowie die JSON-Dateien unter `FrontendService/src/data/` vorhanden sind.
 
 ## High-Level-Struktur des Repositories
 
