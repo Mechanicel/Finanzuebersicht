@@ -23,7 +23,11 @@ frontend = [
 dev = []
 
 [tool.uv]
-default-groups = ["dev"]
+default-groups = ["frontend"]
+
+
+[project.gui-scripts]
+finanzuebersicht = "FrontendService.src.launcher:main"
 
 [build-system]
 requires = ["setuptools>=68", "wheel"]
