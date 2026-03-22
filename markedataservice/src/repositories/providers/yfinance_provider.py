@@ -2,7 +2,7 @@ import yfinance as yf
 import datetime
 from typing import Dict, List, Any
 
-from markedataservice.src.repositories.providers.base_provider import BaseProvider, logger
+from src.repositories.providers.base_provider import BaseProvider, logger
 
 class YFinanceProvider(BaseProvider):
     """

@@ -2,11 +2,11 @@ import logging
 import datetime
 from typing import List, Dict, Any
 
-from markedataservice.src.builders.Etfs.MsciWorld import bewerte_msciworld
-from markedataservice.src.builders.Etfs.MsciEmergingMarkets import bewerte_msciemergingmarkets
-from markedataservice.src.builders.Etfs.VanguardSp500 import bewerte_voo
-from markedataservice.src.builders.Etfs.FTSEGlobalAllCap import bewerte_ftseglobalallcap
-from markedataservice.src.models.stock_model import StockModel, ModelNotFoundError
+from src.builders.Etfs.MsciWorld import bewerte_msciworld
+from src.builders.Etfs.MsciEmergingMarkets import bewerte_msciemergingmarkets
+from src.builders.Etfs.VanguardSp500 import bewerte_voo
+from src.builders.Etfs.FTSEGlobalAllCap import bewerte_ftseglobalallcap
+from src.models.stock_model import StockModel, ModelNotFoundError
 
 logger = logging.getLogger(__name__)
 

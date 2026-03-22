@@ -2,13 +2,13 @@ import logging
 import os
 import customtkinter as ctk
 
-from FrontendService.src.screens.accountsummaryinnerScreens.PieChartinnerScreens.DepoAnalyseScreens.DepotPositionPieScreen import (
+from src.screens.accountsummaryinnerScreens.PieChartinnerScreens.DepoAnalyseScreens.DepotPositionPieScreen import (
     create_screen as create_depot_pie
 )
-from FrontendService.src.helpers.UniversalMethoden import clear_ui
-from FrontendService.src.screens.accountsummaryinnerScreens.PieChartinnerScreens.DepoAnalyseScreens.TableScreen import create_screen as create_table_screen
-from FrontendService.src.screens.accountsummaryinnerScreens.PieChartinnerScreens.DepoAnalyseScreens.ChartScreen  import create_screen as create_chart_screen
-from FrontendService.src.screens.accountsummaryinnerScreens.PieChartinnerScreens.DepoAnalyseScreens.GaugeScreen  import create_screen as create_gauge_screen
+from src.helpers.UniversalMethoden import clear_ui
+from src.screens.accountsummaryinnerScreens.PieChartinnerScreens.DepoAnalyseScreens.TableScreen import create_screen as create_table_screen
+from src.screens.accountsummaryinnerScreens.PieChartinnerScreens.DepoAnalyseScreens.ChartScreen  import create_screen as create_chart_screen
+from src.screens.accountsummaryinnerScreens.PieChartinnerScreens.DepoAnalyseScreens.GaugeScreen  import create_screen as create_gauge_screen
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.DEBUG)

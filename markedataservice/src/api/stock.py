@@ -5,7 +5,7 @@ from typing import Any, Optional
 from datetime import date, datetime as dt
 
 from flask import Blueprint, jsonify, request
-from markedataservice.src.services.stock_service import StockService
+from src.services.stock_service import StockService
 
 # Blueprint für Stock-Endpoints
 stock_bp = Blueprint('stock', __name__)

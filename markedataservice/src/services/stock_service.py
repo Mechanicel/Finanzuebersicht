@@ -1,11 +1,11 @@
 import logging
 from typing import Any, Optional
 
-from markedataservice.src.repositories.providers.yfinance_provider import YFinanceProvider
-from markedataservice.src.repositories.file_repository import FileRepository
-from markedataservice.src.services.base_service import BaseService, handle_errors
-from markedataservice.src.builders.stock_builder import StockBuilder
-from markedataservice.src.models.stock_model import StockModel
+from src.repositories.providers.yfinance_provider import YFinanceProvider
+from src.repositories.file_repository import FileRepository
+from src.services.base_service import BaseService, handle_errors
+from src.builders.stock_builder import StockBuilder
+from src.models.stock_model import StockModel
 
 logger = logging.getLogger(__name__)
 

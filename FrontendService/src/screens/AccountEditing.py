@@ -1,8 +1,8 @@
 # src/screens/AccountEditing.py
 
 import customtkinter as ctk
-from FrontendService.src.helpers.UniversalMethoden import clear_ui, zentrieren
-from FrontendService.src.models.AppState import AppState
+from src.helpers.UniversalMethoden import clear_ui, zentrieren
+from src.models.AppState import AppState
 
 
 def create_screen(app, navigator, state: AppState, selected_index: int = 0, **kwargs):

@@ -2,8 +2,8 @@ import logging
 
 import customtkinter
 
-from FrontendService.src.logging_config import configure_logging
-from FrontendService.src.navigator import Navigator
+from src.logging_config import configure_logging
+from src.navigator import Navigator
 
 logger = logging.getLogger(__name__)
 

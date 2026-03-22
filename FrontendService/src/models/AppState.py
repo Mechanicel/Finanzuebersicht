@@ -2,8 +2,8 @@ import logging
 from datetime import date
 from typing import List, Optional
 
-from FrontendService.src.controllers.AccountController import AccountController
-from FrontendService.src.data.DataManager import DataManager
+from src.controllers.AccountController import AccountController
+from src.data.DataManager import DataManager
 
 logger = logging.getLogger(__name__)
 

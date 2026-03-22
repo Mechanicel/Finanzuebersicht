@@ -3,9 +3,9 @@ import logging
 import datetime
 from typing import Any, Dict, List
 
-from markedataservice.src.models.ETFData import ETFData
-from markedataservice.src.models.stock_model import StockModel
-from markedataservice.src.builders.Etfs.MsciWorld import default_score
+from src.models.ETFData import ETFData
+from src.models.stock_model import StockModel
+from src.builders.Etfs.MsciWorld import default_score
 
 logger = logging.getLogger(__name__)
 

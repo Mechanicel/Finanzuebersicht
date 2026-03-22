@@ -1,15 +1,15 @@
 # src/screens/AccountSummary.py
 
 import customtkinter as ctk
-from FrontendService.src.helpers.UniversalMethoden import clear_ui, zentrieren
-from FrontendService.src.models.AppState import AppState
+from src.helpers.UniversalMethoden import clear_ui, zentrieren
+from src.models.AppState import AppState
 
-from FrontendService.src.screens.accountsummaryinnerScreens.TimeSeriesScreen import create_screen as create_time_series
-from FrontendService.src.screens.accountsummaryinnerScreens.PieChartScreen import create_screen as create_pie_chart
-from FrontendService.src.screens.accountsummaryinnerScreens.MonthlyComparisonScreen import create_screen as create_monthly_comparison
-from FrontendService.src.screens.accountsummaryinnerScreens.MetricsScreen import create_screen as create_metrics
-from FrontendService.src.screens.accountsummaryinnerScreens.HeatmapScreen import create_screen as create_heatmap
-from FrontendService.src.screens.accountsummaryinnerScreens.ForecastScreen import create_screen as create_forecast
+from src.screens.accountsummaryinnerScreens.TimeSeriesScreen import create_screen as create_time_series
+from src.screens.accountsummaryinnerScreens.PieChartScreen import create_screen as create_pie_chart
+from src.screens.accountsummaryinnerScreens.MonthlyComparisonScreen import create_screen as create_monthly_comparison
+from src.screens.accountsummaryinnerScreens.MetricsScreen import create_screen as create_metrics
+from src.screens.accountsummaryinnerScreens.HeatmapScreen import create_screen as create_heatmap
+from src.screens.accountsummaryinnerScreens.ForecastScreen import create_screen as create_forecast
 
 def create_screen(app, navigator, state: AppState, selected_tab: str = None, **kwargs):
     # Root leeren
