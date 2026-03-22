@@ -26,7 +26,7 @@ dev = []
 default-groups = ["frontend"]
 
 
-[project.gui-scripts]
+[project.scripts]
 finanzuebersicht = "FrontendService.src.launcher:main"
 
 [build-system]
@@ -35,4 +35,3 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 include = ["FrontendService*", "markedataservice*"]
-
