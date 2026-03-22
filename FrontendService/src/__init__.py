@@ -1,0 +1,1 @@
+"""FrontendService application package."""

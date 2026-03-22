@@ -6,7 +6,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolb
 from tkcalendar import DateEntry
 from datetime import datetime, date
 from FrontendService.src.helpers.UniversalMethoden import clear_ui
-from FrontendService.src.models import AppState
+from FrontendService.src.models.AppState import AppState
 
 
 def create_screen(app, navigator, state: AppState, **kwargs):

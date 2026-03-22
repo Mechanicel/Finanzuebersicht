@@ -1,7 +1,7 @@
 import customtkinter as ctk
 from FrontendService.src.helpers.UniversalMethoden import clear_ui
 import statistics
-from FrontendService.src.models import AppState
+from FrontendService.src.models.AppState import AppState
 
 
 def create_screen(app, navigator, state: AppState, **kwargs):

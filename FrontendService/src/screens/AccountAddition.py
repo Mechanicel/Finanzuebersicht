@@ -3,7 +3,7 @@
 import logging
 import customtkinter as ctk
 from FrontendService.src.helpers.UniversalMethoden import clear_ui, zentrieren
-from FrontendService.src.models import AppState
+from FrontendService.src.models.AppState import AppState
 
 logger = logging.getLogger(__name__)
 
