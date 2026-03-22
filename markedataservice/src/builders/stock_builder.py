@@ -1,9 +1,11 @@
-# stock_builder.py
 import logging
 import datetime
 from typing import List, Dict, Any
 
 from markedataservice.src.builders.Etfs.MsciWorld import bewerte_msciworld
+from markedataservice.src.builders.Etfs.MsciEmergingMarkets import bewerte_msciemergingmarkets
+from markedataservice.src.builders.Etfs.VanguardSp500 import bewerte_voo
+from markedataservice.src.builders.Etfs.FTSEGlobalAllCap import bewerte_ftseglobalallcap
 from markedataservice.src.models.stock_model import StockModel, ModelNotFoundError
 
 logger = logging.getLogger(__name__)
@@ -12,7 +14,6 @@ class StockBuilder:
     """
     Erzeugt und ergänzt das StockModel mit Basic-Daten, History und ETF-spezifischen Kennzahlen.
     """
-
     def __init__(self, provider):
         self.provider = provider
 
@@ -38,9 +39,7 @@ class StockBuilder:
                 dt = datetime.datetime.fromisoformat(date_str).date()
             except Exception:
                 continue
-            if dt.month not in (3, 6, 9, 12):
-                continue
-            if dt < cutoff:
+            if dt.month not in (3, 6, 9, 12) or dt < cutoff:
                 continue
 
             entry: Dict[str, Any] = {'date': date_str}
@@ -56,15 +55,18 @@ class StockBuilder:
 
     def bewerte_etf(self, model: StockModel, etf_key: str) -> StockModel:
         """
-        Leitet je nach etf_key per If-/Elif-Kaskade an die spezifische Bewertungsmethode weiter.
+        Leitet über eine If-/Elif-Kaskade an die passende Bewertungsmethode
+        je nach etf_key (inkl. Aliase).
         """
         key = etf_key.lower()
         if key == 'msciworld':
             return bewerte_msciworld(self, model)
-        # elif key == 'emergingmarkets':
-        #     return self.bewerte_emergingmarkets(model)
+        elif key == 'msciemergingmarkets':
+            return bewerte_msciemergingmarkets(self, model)
+        elif key == 'voo':
+            return bewerte_voo(self, model)
+        elif key == 'ftseglobalallcap':
+            return bewerte_ftseglobalallcap(self, model)
         else:
             logger.error(f"Unbekannter ETF-Key: {etf_key}")
             raise ModelNotFoundError(f"Kein Bewertungskonfig für ETF '{etf_key}'")
-
-

@@ -1,3 +1,5 @@
+# markedataservice/src/api/stock.py
+
 import logging
 from typing import Any, Optional
 from datetime import date, datetime as dt
@@ -13,8 +15,25 @@ service = StockService()
 def get_stock(isin: str):
     """Historischer Modus oder ETF-Modus je nach Query-Parameter"""
     etf = request.args.get('etf')
-    model = service.build(isin, etf_key=etf) if etf else service.build(isin)
-    return jsonify(model.to_dict())
+    if etf:
+        # ETF-Modus: baue das vollständige Modell, gebe aber nur die Entries zurück
+        model = service.build(isin, etf_key=etf)
+        key = etf.lower()
+        etf_data = model.etf.get(key)
+
+        # ETFData-Objekt oder Dict in entries-List umwandeln
+        if hasattr(etf_data, "to_dict") and callable(etf_data.to_dict):
+            payload = etf_data.to_dict().get("entries", [])
+        elif isinstance(etf_data, dict):
+            payload = etf_data.get("entries", [])
+        else:
+            payload = getattr(etf_data, "entries", [])
+
+        return jsonify(payload)
+    else:
+        # Historischer Modus: liefere das komplette Modell zurück
+        model = service.build(isin)
+        return jsonify(model.to_dict())
 
 @stock_bp.route('/price/<isin>', methods=['GET'])
 def get_price(isin: str):

@@ -19,6 +19,7 @@ class YFinanceProvider(BaseProvider):
             "sector": info.get("sector"),
             "industry": info.get("industry"),
             "country": info.get("country"),
+            "exchange": info.get("exchange"),
         }
         logger.debug(f"[YFinance] Basic data: {basic}")
         return basic
