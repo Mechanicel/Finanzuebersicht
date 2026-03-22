@@ -1,0 +1,15 @@
+# Web-Framework
+Flask>=2.0
+
+# Datenbeschaffung
+yfinance>=0.2.18
+pandas>=1.5
+
+# Utilities
+python-dotenv>=0.21  # falls Umgebungsvariablen genutzt werden
+
+# Logging
+# kein externes Paket erforderlich, Standard-library logging wird verwendet
+
+# Sonstige
+# requests>=2.28  # falls zukünftige Provider HTTP-Requests benötigen
