@@ -1,5 +1,10 @@
 from FrontendService.src.FrontendSerivce import run
 
 
-if __name__ == "__main__":
+def main() -> int:
     run()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

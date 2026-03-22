@@ -1,0 +1,21 @@
+[project]
+name = "markedataservice"
+version = "0.1.0"
+description = "Flask market data service for Finanzuebersicht"
+readme = "README.md"
+requires-python = ">=3.10,<3.13"
+dependencies = [
+  "flask>=2.3,<4",
+  "yfinance>=0.2.18,<1",
+  "pandas>=1.5,<3",
+]
+
+[project.scripts]
+markedataservice = "markedataservice.src.main:main"
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["markedataservice*"]

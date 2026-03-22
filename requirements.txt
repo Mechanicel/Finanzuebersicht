@@ -1,6 +1,7 @@
-# Compatibility file for pip-based workflows.
-# Source of truth: pyproject.toml (dependency groups: frontend + markedataservice)
-# Preferred install: uv sync --group frontend --group markedataservice
+# Legacy compatibility requirements for running both components in one environment.
+# Preferred setup now: install each component independently via
+#   uv sync --project FrontendService
+#   uv sync --project markedataservice
 
 customtkinter>=5.2,<6
 flask>=2.3,<4
