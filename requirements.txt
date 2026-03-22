@@ -1,0 +1,13 @@
+# Compatibility file for pip-based workflows.
+# Source of truth: pyproject.toml (dependency groups: frontend + markedataservice)
+# Preferred install: uv sync --group frontend --group markedataservice
+
+customtkinter>=5.2,<6
+flask>=2.3,<4
+matplotlib>=3.8,<4
+numpy>=1.26,<3
+pandas>=1.5,<3
+python-dotenv>=1.0,<2
+requests>=2.31,<3
+tkcalendar>=1.6,<2
+yfinance>=0.2.18,<1
