@@ -23,7 +23,7 @@ frontend = [
 dev = []
 
 [tool.uv]
-default-groups = ["frontend"]
+default-groups = ["frontend", "markedataservice"]
 
 
 [project.scripts]
