@@ -1,54 +1,85 @@
-# Finanzuebersicht – Python Setup
+# Finanzübersicht
 
-Dieses Repository enthält zwei Python-Teile:
+## Projektüberblick
+Dieses Repository enthält eine Python-basierte Finanzübersicht als Monorepo mit zwei Hauptbereichen:
 
-- `FrontendService` (Desktop-UI)
-- `markedataservice` (Flask-API)
+- **`FrontendService`**: Desktop-Oberfläche auf Basis von `customtkinter` zur Pflege und Anzeige von Personen-, Konto- und Depotdaten.
+- **`markedataservice`**: Flask-basierter Service für Kurs- und Unternehmensdaten (u. a. per ISIN), inklusive lokalem JSON-Caching.
 
-Das Dependency-Management ist zentral in `pyproject.toml` definiert.
+Das zentrale Dependency-Management erfolgt im Repository-Root über `pyproject.toml` und `uv`.
+
+## Ziel der Anwendung
+Ziel ist es, Finanzdaten von Personen/Konten strukturiert zu erfassen und auszuwerten. Das Frontend verarbeitet lokale Stammdaten und ruft für Wertpapierdaten den Marktdatenservice auf.
+
+## Wichtigste Hauptfunktionen (aus dem Ist-Zustand ableitbar)
+- Verwaltung von Personen und Konten in der Desktop-Anwendung.
+- Navigation über mehrere UI-Screens (z. B. Auswahl, Anlage, Übersicht, Bearbeitung).
+- Berechnung und Aktualisierung von Depot- und Festgeldwerten im Frontend-Controller.
+- Bereitstellung von API-Endpunkten für:
+  - historische/ETF-bezogene Bestandsdaten (`/stock/<isin>`)
+  - Preisabfragen (`/price/<isin>?date=YYYY-MM-DD`)
+  - Unternehmensnamen (`/company/<isin>`)
+- Dateibasiertes Caching von Marktdaten im `markedataservice`.
+
+## Tech-Stack
+- **Sprache:** Python 3.10+
+- **UI:** `customtkinter`, `matplotlib`, `numpy`, `tkcalendar`
+- **Backend/API:** `Flask`
+- **Marktdaten:** `yfinance`, `pandas`
+- **Umgebung/Dependencies:** `uv`, optional `pip` über exportierte `requirements.txt`
 
 ## Voraussetzungen
+- Python `>=3.10,<3.13`
+- `uv` (empfohlen)
 
-- Python **3.10** (unterstützt: `>=3.10,<3.13`)
-- [`uv`](https://docs.astral.sh/uv/)
-
-## Lokales Setup in `.venv`
+## Installation
+Aus dem Repository-Root:
 
 ```bash
-# im Repo-Root ausführen
 uv venv .venv
 source .venv/bin/activate
-
-# alle Runtime-Abhängigkeiten (Frontend + Marktdatenservice) installieren
 uv sync --group frontend --group markedataservice
 ```
 
-## Reproduzierbares Versionsmanagement (Lockfile)
-
-Das Projekt verwendet `pyproject.toml` als Source of Truth.
+Optional für pip-basierte Workflows:
 
 ```bash
-# Lockfile aktualisieren
-uv lock
-
-# Danach reproduzierbar synchronisieren
-uv sync --frozen --group frontend --group markedataservice
+pip install -r requirements.txt
 ```
 
-## Kompatibilitätsdatei `requirements.txt`
+## Startanleitung
+> Hinweis: Die folgenden Befehle bilden den im Code sichtbaren Startpunkt ab. Zusätzliche Laufzeitvoraussetzungen (z. B. Umgebungsvariablen) sind nur dort dokumentiert, wo sie im Repository explizit erkennbar sind.
 
-`requirements.txt` ist eine **abgeleitete Kompatibilitätsdatei** (z. B. für Tools, die noch `pip install -r` erwarten).
-
+### Marktdatenservice starten
 ```bash
-# aus dem Lockfile neu exportieren
-uv export --frozen --no-emit-project --group frontend --group markedataservice -o requirements.txt
+python markedataservice/src/main.py
 ```
 
-## Abhängigkeits-Updates
-
+### Frontend starten
 ```bash
-# Constraints in pyproject.toml anpassen, dann:
-uv lock
-uv sync --frozen --group frontend --group markedataservice
-uv export --frozen --no-emit-project --group frontend --group markedataservice -o requirements.txt
+python -m FrontendService.src.main
 ```
+
+## High-Level-Struktur des Repositories
+
+```text
+.
+├── FrontendService/        # Desktop-UI und lokale Datenhaltung
+├── markedataservice/       # Flask-API und Marktdatenlogik
+├── pyproject.toml          # zentrale Projekt- und Dependency-Definition
+├── requirements.txt        # abgeleitete Kompatibilitätsdatei für pip
+└── README.md               # diese Übersicht
+```
+
+## Relevante Verzeichnisse auf erster Ebene
+- [`FrontendService/`](FrontendService/README.md) – Desktop-Anwendung, Screen-Navigation, lokale Datenstrukturen.
+- [`markedataservice/`](markedataservice/README.md) – API-Endpunkte, Datenbeschaffung, Caching.
+
+## Verweise auf README-Dateien der ersten Ebene
+- [`FrontendService/README.md`](FrontendService/README.md)
+- [`markedataservice/README.md`](markedataservice/README.md)
+
+## Bekannte Einschränkungen / offene Punkte (transparent)
+- Die vorhandene Quellstruktur enthält Hinweise auf teilweise inkonsistente oder unvollständige Modulpfade/Signaturen; diese wurden in diesem Dokumentationsschritt **nicht** korrigiert.
+- Für produktive Deployments (z. B. WSGI-Setup, Service-Orchestrierung, Monitoring) sind im aktuellen Repository keine belastbaren Vorgaben dokumentiert.
+- Automatisierte Testsuites oder verbindliche Qualitätspipelines sind auf Root-Ebene nicht erkennbar dokumentiert.
