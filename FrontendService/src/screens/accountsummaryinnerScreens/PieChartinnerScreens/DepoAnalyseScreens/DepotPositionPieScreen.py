@@ -7,7 +7,7 @@ import customtkinter
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from FrontendService.src.helpers.UniversalMethoden import clear_ui
-from FrontendService.src.models import AppState
+from FrontendService.src.models.AppState import AppState
 from dotenv import load_dotenv
 
 load_dotenv()

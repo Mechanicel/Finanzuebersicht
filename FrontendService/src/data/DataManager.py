@@ -1,12 +1,9 @@
-# src/data/DataManager.py
-
 import json
 import logging
 from datetime import datetime, timedelta
 
-
-logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
+
 
 class DataManager:
     """
@@ -15,30 +12,36 @@ class DataManager:
     in FileGetStockInfos ausgelagert.
     """
 
-    def __init__(self,
-                 personen_file="data/personen.json",
-                 banken_file="data/banken.json",
-                 kontotypen_file="data/kontotypen.json"):
+    def __init__(
+        self,
+        personen_file="data/personen.json",
+        banken_file="data/banken.json",
+        kontotypen_file="data/kontotypen.json",
+    ):
         self.personen_file = personen_file
         self.banken_file = banken_file
         self.kontotypen_file = kontotypen_file
-        logger.debug(f"DataManager initialized with files: "
-                     f"{personen_file}, {banken_file}, {kontotypen_file}")
+        logger.debug(
+            "DataManager: initialized with files personen=%s banken=%s kontotypen=%s",
+            personen_file,
+            banken_file,
+            kontotypen_file,
+        )
 
     def load_personen(self):
-        logger.debug(f"load_personen: Laden aus {self.personen_file}")
+        logger.debug("load_personen: Laden aus %s", self.personen_file)
         try:
             with open(self.personen_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
             personen = data.get("personen", [])
-            logger.debug(f"load_personen: {len(personen)} Personen geladen")
+            logger.debug("load_personen: %d Personen geladen", len(personen))
             return personen
         except Exception:
             logger.exception("load_personen: Fehler beim Laden")
             return []
 
     def save_personen(self, personen):
-        logger.debug(f"save_personen: Speichere {len(personen)} Personen")
+        logger.debug("save_personen: Speichere %d Personen", len(personen))
         try:
             with open(self.personen_file, "w", encoding="utf-8") as f:
                 json.dump({"personen": personen}, f, indent=4)
@@ -47,7 +50,7 @@ class DataManager:
             logger.exception("save_personen: Fehler beim Speichern")
 
     def get_person_data(self, selected_person):
-        logger.debug(f"get_person_data: Suche nach {selected_person}")
+        logger.debug("get_person_data: Suche nach %s", selected_person)
         for p in self.load_personen():
             if (p.get("Name") == selected_person.get("Name") and
                 p.get("Nachname") == selected_person.get("Nachname")):
@@ -57,7 +60,7 @@ class DataManager:
         return None
 
     def save_person_data(self, updated_person):
-        logger.debug(f"save_person_data: Aktualisiere {updated_person}")
+        logger.debug("save_person_data: Aktualisiere %s", updated_person)
         personen = self.load_personen()
         for i, p in enumerate(personen):
             if (p.get("Name") == updated_person.get("Name") and
@@ -69,7 +72,7 @@ class DataManager:
         logger.warning("save_person_data: Person nicht gefunden")
 
     def update_account(self, selected_person, account_type, account_data):
-        logger.debug(f"update_account: Hinzufügen {account_type} für {selected_person}")
+        logger.debug("update_account: Hinzufügen %s für %s", account_type, selected_person)
         personen = self.load_personen()
         for person in personen:
             if (person.get("Name") == selected_person.get("Name") and
@@ -83,7 +86,7 @@ class DataManager:
         logger.warning("update_account: Person nicht gefunden")
 
     def duplicate_account(self, selected_person, account_type, account_data):
-        logger.debug(f"duplicate_account: Prüfe Duplikat für {selected_person}")
+        logger.debug("duplicate_account: Prüfe Duplikat für %s", selected_person)
         for person in self.load_personen():
             if (person.get("Name") == selected_person.get("Name") and
                 person.get("Nachname") == selected_person.get("Nachname")):
@@ -98,7 +101,7 @@ class DataManager:
         return False
 
     def update_kontostaende(self, konto, datum_str, wert):
-        logger.debug(f"update_kontostaende: {konto.get('Kontotyp')} am {datum_str} = {wert:.2f}")
+        logger.debug("update_kontostaende: %s am %s = %.2f", konto.get('Kontotyp'), datum_str, wert)
         existing = {}
         for entry in konto.get("Kontostaende", []):
             parts = entry.split(": ")
@@ -109,7 +112,7 @@ class DataManager:
         logger.debug("update_kontostaende: Aktualisiert")
 
     def save_account_balance(self, selected_person, account, balance, date_value):
-        logger.debug(f"save_account_balance: {balance:.2f} am {date_value}")
+        logger.debug("save_account_balance: %.2f am %s", balance, date_value)
         personen = self.load_personen()
         updated = False
         for i, person in enumerate(personen):
@@ -122,7 +125,7 @@ class DataManager:
                         self.update_kontostaende(
                             acct,
                             date_value.strftime("%Y-%m-%d"),
-                            balance
+                            balance,
                         )
                         updated = True
                         break
@@ -154,7 +157,7 @@ class DataManager:
             logger.warning("update_depot_details: Depot nicht gefunden")
 
     def load_bank_data(self):
-        logger.debug(f"load_bank_data: Laden aus {self.banken_file}")
+        logger.debug("load_bank_data: Laden aus %s", self.banken_file)
         try:
             with open(self.banken_file, "r", encoding="utf-8") as f:
                 return json.load(f)
@@ -163,7 +166,7 @@ class DataManager:
             return {}
 
     def load_kontotypen(self):
-        logger.debug(f"load_kontotypen: Laden aus {self.kontotypen_file}")
+        logger.debug("load_kontotypen: Laden aus %s", self.kontotypen_file)
         try:
             with open(self.kontotypen_file, "r", encoding="utf-8") as f:
                 return json.load(f)
@@ -172,10 +175,6 @@ class DataManager:
             return {}
 
     def calculate_festgeld_for_date(self, konto: dict, date) -> float:
-        """
-        Berechnet Festgeld-Wert am Stichtag.
-        Unterstützt 'YYYY-MM-DD' und 'DD.MM.YYYY'.
-        """
         if isinstance(date, datetime):
             dt = date.date()
         else:
@@ -186,19 +185,19 @@ class DataManager:
         except ValueError:
             try:
                 anlagedatum = datetime.strptime(anlagedatum_str, "%d.%m.%Y").date()
-            except:
+            except Exception:
                 anlagedatum = dt
         try:
             anlagebetrag = float(konto.get("Anlagebetrag", 0))
-        except:
+        except Exception:
             anlagebetrag = 0.0
         try:
             zinssatz = float(konto.get("Zinssatz", 0))
-        except:
+        except Exception:
             zinssatz = 0.0
         try:
             laufzeit = int(konto.get("Laufzeit_in_Tagen", 0))
-        except:
+        except Exception:
             laufzeit = 0
         end_date = anlagedatum + timedelta(days=laufzeit)
         if dt < anlagedatum:

@@ -1,10 +1,11 @@
-# src/data/AppState.py
-import os
+import logging
 from datetime import date
 from typing import List, Optional
 
 from FrontendService.src.controllers.AccountController import AccountController
-from src.data.DataManager import DataManager
+from FrontendService.src.data.DataManager import DataManager
+
+logger = logging.getLogger(__name__)
 
 
 class AppState:
@@ -13,7 +14,10 @@ class AppState:
     Enthält alle persistente Daten, UI-Kontexte und bietet
     Zugriff auf konto- und aktienbezogene Services.
     """
+
     def __init__(self):
+        logger.debug("AppState: Initialisierung gestartet")
+
         # persistente Daten
         self.personen: List[dict] = []
         self.banken: List[dict] = []
@@ -30,12 +34,13 @@ class AppState:
         self.data_manager: DataManager = DataManager()
         self.account_controller: AccountController = AccountController()
 
-
+        logger.debug("AppState: Initialisierung abgeschlossen")
 
     def load_all(self):
+        logger.debug("AppState.load_all: Lade Basisdaten")
         prev = self.selected_person
-        self.personen   = self.data_manager.load_personen()
-        self.banken     = self.data_manager.load_bank_data().get("Banken", [])
+        self.personen = self.data_manager.load_personen()
+        self.banken = self.data_manager.load_bank_data().get("Banken", [])
         self.kontotypen = self.data_manager.load_kontotypen().get("Kontotypen", [])
         if prev:
             self.select_person(prev.get("Name"), prev.get("Nachname"))
@@ -71,5 +76,5 @@ class AppState:
             self.account_controller.update_account_overview(
                 self.selected_person,
                 self.selected_date,
-                self.overview_inputs
+                self.overview_inputs,
             )

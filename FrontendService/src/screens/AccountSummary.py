@@ -2,7 +2,7 @@
 
 import customtkinter as ctk
 from FrontendService.src.helpers.UniversalMethoden import clear_ui, zentrieren
-from FrontendService.src.models import AppState
+from FrontendService.src.models.AppState import AppState
 
 from FrontendService.src.screens.accountsummaryinnerScreens.TimeSeriesScreen import create_screen as create_time_series
 from FrontendService.src.screens.accountsummaryinnerScreens.PieChartScreen import create_screen as create_pie_chart
