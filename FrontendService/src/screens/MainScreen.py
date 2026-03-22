@@ -1,5 +1,5 @@
 import customtkinter
-from FrontendService.src.helpers.UniversalMethoden import clear_ui, zentrieren
+from src.helpers.UniversalMethoden import clear_ui, zentrieren
 
 
 def create_screen(app, navigator, state, **kwargs):

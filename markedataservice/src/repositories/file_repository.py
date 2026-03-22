@@ -3,7 +3,7 @@ import json
 import logging
 from typing import Any, Dict, Optional
 
-from markedataservice.src.utils.config import DATA_DIR
+from src.utils.config import DATA_DIR
 
 logger = logging.getLogger(__name__)
 

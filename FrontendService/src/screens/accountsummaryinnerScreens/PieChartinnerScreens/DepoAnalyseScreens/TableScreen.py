@@ -3,7 +3,7 @@ import logging
 import customtkinter as ctk
 from tkinter import ttk
 import requests
-from FrontendService.src.helpers.UniversalMethoden import clear_ui
+from src.helpers.UniversalMethoden import clear_ui
 
 logger = logging.getLogger(__name__)
 

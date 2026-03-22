@@ -1,4 +1,5 @@
 import logging
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -38,9 +39,16 @@ def _validate_runtime_environment() -> bool:
     return True
 
 
-def _spawn(module_name: str) -> subprocess.Popen[str]:
+def _uv_executable() -> str:
+    uv_bin = shutil.which("uv")
+    if uv_bin:
+        return uv_bin
+    raise RuntimeError("'uv' wurde nicht im PATH gefunden. Bitte uv installieren und erneut starten.")
+
+
+def _spawn_project(project: str, script: str) -> subprocess.Popen[str]:
     return subprocess.Popen(
-        [sys.executable, "-m", module_name],
+        [_uv_executable(), "run", "--project", project, script],
         cwd=PROJECT_ROOT,
         text=True,
         stdout=sys.stdout,
@@ -56,11 +64,16 @@ def main() -> int:
     if not _validate_runtime_environment():
         return 2
 
-    market_process = _spawn("markedataservice.src.main")
+    try:
+        market_process = _spawn_project("markedataservice", "markedataservice")
+    except RuntimeError as exc:
+        logger.error("Orchestrator-Abbruch: %s", exc)
+        return 2
+
     logger.info("Orchestrator: markedataservice gestartet (PID=%s)", market_process.pid)
 
     try:
-        frontend_exit = _spawn("FrontendService.src.main").wait()
+        frontend_exit = _spawn_project("FrontendService", "frontendservice").wait()
         logger.info("Orchestrator: FrontendService beendet (Exit-Code=%s)", frontend_exit)
         return frontend_exit
     finally:

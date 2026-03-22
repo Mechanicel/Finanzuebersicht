@@ -1,7 +1,7 @@
 from flask import Flask
 
-from markedataservice.src.api.stock import stock_bp
-from markedataservice.src.utils.logger import logger
+from src.api.stock import stock_bp
+from src.utils.logger import logger
 
 
 def create_app() -> Flask:

@@ -1,4 +1,4 @@
-from FrontendService.src.FrontendSerivce import run
+from src.FrontendSerivce import run
 
 
 def main() -> int:

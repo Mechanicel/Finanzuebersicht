@@ -8,8 +8,8 @@ import matplotlib.dates as mdates
 from datetime import datetime
 import requests
 from urllib.parse import urlparse, parse_qs
-from FrontendService.src.helpers.UniversalMethoden import clear_ui
-from FrontendService.src.screens.accountsummaryinnerScreens.PieChartinnerScreens.DepoAnalyseScreens.ColumnSelectorScreen import create_column_selector_screen
+from src.helpers.UniversalMethoden import clear_ui
+from src.screens.accountsummaryinnerScreens.PieChartinnerScreens.DepoAnalyseScreens.ColumnSelectorScreen import create_column_selector_screen
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.DEBUG)

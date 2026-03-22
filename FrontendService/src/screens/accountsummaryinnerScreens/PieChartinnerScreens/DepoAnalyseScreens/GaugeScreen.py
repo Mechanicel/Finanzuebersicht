@@ -4,7 +4,7 @@ import requests
 import os
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-from FrontendService.src.helpers.UniversalMethoden import clear_ui
+from src.helpers.UniversalMethoden import clear_ui
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.DEBUG)

@@ -2,7 +2,7 @@ import importlib
 import logging
 from typing import Callable, Dict
 
-from FrontendService.src.models.AppState import AppState
+from src.models.AppState import AppState
 
 logger = logging.getLogger(__name__)
 
@@ -16,20 +16,20 @@ class Navigator:
         self.state = AppState()
         self.state.load_all()
         self.routes: Dict[str, str] = {
-            "MainScreen": "FrontendService.src.screens.MainScreen:create_screen",
-            "PersonSelection": "FrontendService.src.screens.PersonSelection:create_screen",
-            "NewPerson": "FrontendService.src.screens.NewPerson:create_screen",
-            "NewBank": "FrontendService.src.screens.NewBank:create_screen",
-            "PersonInfo": "FrontendService.src.screens.PersonInfo:create_screen",
-            "BankAssignment": "FrontendService.src.screens.BankAssignment:create_screen",
-            "FreibetragInput": "FrontendService.src.screens.FreibetragInput:create_screen",
-            "FreibetragDisplay": "FrontendService.src.screens.FreibetragDisplay:create_screen",
-            "AccountAddition": "FrontendService.src.screens.AccountAddition:create_screen",
-            "AccountOverview": "FrontendService.src.screens.AccountOverview:create_screen",
-            "AccountSummary": "FrontendService.src.screens.AccountSummary:create_screen",
-            "AccountEditing": "FrontendService.src.screens.AccountEditing:create_screen",
-            "PieChart": "FrontendService.src.screens.accountsummaryinnerScreens.PieChartScreen:create_screen",
-            "DepoAnalyse": "FrontendService.src.screens.accountsummaryinnerScreens.PieChartinnerScreens.DepoAnalyse:create_screen",
+            "MainScreen": "src.screens.MainScreen:create_screen",
+            "PersonSelection": "src.screens.PersonSelection:create_screen",
+            "NewPerson": "src.screens.NewPerson:create_screen",
+            "NewBank": "src.screens.NewBank:create_screen",
+            "PersonInfo": "src.screens.PersonInfo:create_screen",
+            "BankAssignment": "src.screens.BankAssignment:create_screen",
+            "FreibetragInput": "src.screens.FreibetragInput:create_screen",
+            "FreibetragDisplay": "src.screens.FreibetragDisplay:create_screen",
+            "AccountAddition": "src.screens.AccountAddition:create_screen",
+            "AccountOverview": "src.screens.AccountOverview:create_screen",
+            "AccountSummary": "src.screens.AccountSummary:create_screen",
+            "AccountEditing": "src.screens.AccountEditing:create_screen",
+            "PieChart": "src.screens.accountsummaryinnerScreens.PieChartScreen:create_screen",
+            "DepoAnalyse": "src.screens.accountsummaryinnerScreens.PieChartinnerScreens.DepoAnalyse:create_screen",
         }
         logger.debug("Navigator: Initialisierung abgeschlossen")
 
