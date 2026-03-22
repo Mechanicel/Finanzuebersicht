@@ -1,6 +1,6 @@
 from flask import Flask
 
-from api.stock import stock_bp
+from markedataservice.src.api.stock import stock_bp
 from markedataservice.src.utils.logger import logger
 
 
