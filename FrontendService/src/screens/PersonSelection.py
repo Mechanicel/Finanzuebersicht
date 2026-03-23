@@ -1,40 +1,57 @@
-import customtkinter
-from src.helpers.UniversalMethoden import clear_ui, zentrieren
+import customtkinter as ctk
+
 from src.models.AppState import AppState
+from src.ui.components import create_page, section_card, action_bar, primary_button, secondary_button, set_status, empty_state
 
 
 def create_screen(app, navigator, state: AppState, **kwargs):
-    clear_ui(app)
-    # Lade Personen aus dem zentralen Store
     persons = state.personen
-    person_list = [f"{p['Name']} {p['Nachname']}" for p in persons]
+    all_names = [f"{p['Name']} {p['Nachname']}" for p in persons]
+
+    ui = create_page(
+        app,
+        title="Person auswählen",
+        subtitle="Wählen Sie eine vorhandene Person und öffnen Sie deren Übersicht.",
+        back_command=lambda: navigator.navigate("MainScreen"),
+    )
+    status = ui["status"]
+    _, body = section_card(ui["content"], "Personen", "Suche und Auswahl")
+
+    if not all_names:
+        empty_state(body, "Es sind noch keine Personen vorhanden. Legen Sie zuerst eine Person an.")
+        return
+
+    selected_person_var = ctk.StringVar(value=all_names[0])
+    search_var = ctk.StringVar()
+
+    ctk.CTkLabel(body, text="Suche").pack(anchor="w", pady=(0, 4))
+    search_entry = ctk.CTkEntry(body, textvariable=search_var, placeholder_text="Name oder Nachname")
+    search_entry.pack(fill="x", pady=(0, 8))
+
+    ctk.CTkLabel(body, text="Person").pack(anchor="w", pady=(4, 4))
+    dropdown = ctk.CTkComboBox(body, variable=selected_person_var, values=all_names, state="readonly")
+    dropdown.pack(fill="x")
+
+    def apply_filter(*_):
+        query = search_var.get().strip().lower()
+        filtered = [n for n in all_names if query in n.lower()] if query else all_names
+        dropdown.configure(values=filtered or ["Keine Treffer"])
+        selected_person_var.set((filtered or ["Keine Treffer"])[0])
+
+    search_var.trace_add("write", apply_filter)
 
     def confirm():
         selected = selected_person_var.get()
-        if " " in selected:
-            vorname, nachname = selected.split(" ", 1)
-            person = state.select_person(vorname, nachname)
-            if person:
-                navigator.navigate("PersonInfo")
-            else:
-                print("Person nicht gefunden.")
+        if selected == "Keine Treffer" or " " not in selected:
+            set_status(status, "Bitte wählen Sie eine gültige Person aus.", "warning")
+            return
+        vorname, nachname = selected.split(" ", 1)
+        person = state.select_person(vorname, nachname)
+        if person:
+            navigator.navigate("PersonInfo")
         else:
-            print("Bitte eine gültige Person auswählen!")
+            set_status(status, "Die ausgewählte Person wurde nicht gefunden.", "error")
 
-    def back():
-        navigator.navigate("MainScreen")
-
-    label = customtkinter.CTkLabel(app, text="Person auswählen")
-    label.grid(row=0, column=0, columnspan=2, padx=20, pady=10)
-
-    selected_person_var = customtkinter.StringVar()
-    dropdown = customtkinter.CTkComboBox(app, variable=selected_person_var, values=person_list, state="readonly")
-    dropdown.grid(row=1, column=0, padx=20, pady=10)
-
-    btn_confirm = customtkinter.CTkButton(app, text="Bestätigen", command=confirm)
-    btn_confirm.grid(row=2, column=0, columnspan=2, padx=20, pady=10)
-
-    btn_back = customtkinter.CTkButton(app, text="Zurück", command=back)
-    btn_back.grid(row=3, column=0, columnspan=2, padx=20, pady=10)
-
-    zentrieren(app)
+    bar = action_bar(body)
+    primary_button(bar, "Öffnen", confirm, column=0)
+    secondary_button(bar, "Zurück", lambda: navigator.navigate("MainScreen"), column=1)

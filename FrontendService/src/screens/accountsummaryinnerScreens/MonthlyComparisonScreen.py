@@ -1,42 +1,43 @@
-import customtkinter as ctk
-from matplotlib.figure import Figure
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from collections import defaultdict
-from src.helpers.UniversalMethoden import clear_ui
+
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.figure import Figure
+
 from src.models.AppState import AppState
+from src.ui.components import section_card, empty_state
 
 
 def create_screen(app, navigator, state: AppState, **kwargs):
-    clear_ui(app)
     person = state.selected_person
-    konten = person.get('Konten', [])
+    konten = person.get("Konten", []) if person else []
 
-    # Saldo zum Monatsende pro Konto sammeln
-    monthly = defaultdict(float)  # { 'YYYY-MM': sum }
+    monthly = defaultdict(float)
     for konto in konten:
-        for ent in konto.get('Kontostaende', []):
-            date_str, val_str = ent.split(': ')
-            m = date_str[:7]
+        for ent in konto.get("Kontostaende", []):
+            date_str, val_str = ent.split(": ")
             try:
-                monthly[m] += float(val_str)
-            except:
+                monthly[date_str[:7]] += float(val_str)
+            except Exception:
                 pass
 
-    # Sortieren nach Monat
+    if not monthly:
+        empty_state(app, "Keine Monatsdaten vorhanden.")
+        return
+
     months = sorted(monthly.keys())
     values = [monthly[m] for m in months]
 
-    # Diagramm
-    fig = Figure(figsize=(6,4), dpi=100)
-    ax = fig.add_subplot(111)
-    ax.bar(months, values)
-    ax.set_title('Monatliche Saldo-Differenz')
-    ax.set_xlabel('Monat')
-    ax.set_ylabel('Gesamtsaldo')
-    ax.tick_params(axis='x', rotation=45)
-    ax.grid(axis='y')
+    _, body = section_card(app, "Monatsvergleich", "Gesamtsaldo aggregiert nach Monat")
 
-    canvas = FigureCanvasTkAgg(fig, master=app)
+    fig = Figure(figsize=(6, 4.5), dpi=100)
+    ax = fig.add_subplot(111)
+    ax.bar(months, values, color="#3A78B5")
+    ax.set_title("Monatliche Saldo-Entwicklung")
+    ax.set_xlabel("Monat")
+    ax.set_ylabel("Gesamtsaldo")
+    ax.tick_params(axis="x", rotation=45)
+    ax.grid(axis="y", alpha=0.35)
+
+    canvas = FigureCanvasTkAgg(fig, master=body)
     canvas.draw()
-    widget = canvas.get_tk_widget()
-    widget.pack(fill=ctk.BOTH, expand=True)
+    canvas.get_tk_widget().pack(fill="both", expand=True)

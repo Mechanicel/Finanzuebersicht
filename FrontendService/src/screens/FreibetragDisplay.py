@@ -1,25 +1,31 @@
-import customtkinter
-from src.helpers.UniversalMethoden import clear_ui, zentrieren
+import customtkinter as ctk
+
 from src.models.AppState import AppState
+from src.ui.components import create_page, section_card, secondary_button, stats_row, empty_state
 
 
 def create_screen(app, navigator, state: AppState, **kwargs):
-    clear_ui(app)
-    freib = state.selected_person.get('Freibetrag', {})
-    row = 0
+    ui = create_page(app, "Freibetragsübersicht", "Alle Freibeträge auf einen Blick.", back_command=lambda: navigator.navigate("PersonInfo"))
+
+    freib = state.selected_person.get("Freibetrag", {})
+    if not freib:
+        empty_state(ui["content"], "Noch keine Freibeträge hinterlegt.")
+        return
+
+    _, body = section_card(ui["content"], "Pro Bank")
     total = 0.0
 
-    for bank, val in freib.items():
-        customtkinter.CTkLabel(app, text=bank).grid(row=row, column=0, padx=20, pady=5)
-        customtkinter.CTkLabel(app, text=val).grid(row=row, column=1, padx=20, pady=5)
-        try: total += float(val)
-        except: pass
-        row +=1
+    table = ctk.CTkFrame(body, fg_color="transparent")
+    table.pack(fill="x")
+    table.grid_columnconfigure(0, weight=2)
+    table.grid_columnconfigure(1, weight=1)
 
-    lbl = customtkinter.CTkLabel(app, text=f"Gesamtsumme: {total:.2f}")
-    lbl.grid(row=row, column=0, columnspan=2, padx=20, pady=10)
-    lbl.configure(fg_color="green" if total<=1000 else "red")
-    row+=1
+    for row, (bank, val) in enumerate(freib.items()):
+        ctk.CTkLabel(table, text=bank).grid(row=row, column=0, sticky="w", pady=3)
+        ctk.CTkLabel(table, text=val).grid(row=row, column=1, sticky="e", pady=3)
+        try:
+            total += float(str(val).replace(",", "."))
+        except Exception:
+            pass
 
-    customtkinter.CTkButton(app, text="Zurück", command=lambda: navigator.navigate("PersonInfo")).grid(row=row, column=0, columnspan=2, padx=20, pady=10)
-    zentrieren(app)
+    stats_row(ui["content"], [("Gesamtsumme", f"{total:.2f} €"), ("Bewertung", "Im Rahmen" if total <= 1000 else "Über 1000 €")])

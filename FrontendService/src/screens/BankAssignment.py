@@ -1,27 +1,46 @@
-import customtkinter
-from src.helpers.UniversalMethoden import clear_ui, zentrieren
+import customtkinter as ctk
+
 from src.models.AppState import AppState
+from src.ui.components import create_page, section_card, action_bar, primary_button, secondary_button, set_status, empty_state
 
 
 def create_screen(app, navigator, state: AppState, **kwargs):
-    clear_ui(app)
     person = state.selected_person
-    banks = [b['Name'] for b in state.banken]
+    banks = [b["Name"] for b in state.banken]
 
-    var = customtkinter.StringVar()
-    customtkinter.CTkLabel(app, text="Bank auswählen:").grid(row=0, column=0, padx=20, pady=10)
-    customtkinter.CTkComboBox(app, variable=var, values=banks, state="readonly").grid(row=0, column=1, padx=20, pady=10)
+    ui = create_page(
+        app,
+        "Bank zuordnen",
+        f"Person: {person['Name']} {person['Nachname']}",
+        back_command=lambda: navigator.navigate("PersonInfo"),
+    )
+    status = ui["status"]
+
+    _, current_body = section_card(ui["content"], "Bereits zugeordnete Banken")
+    if person.get("Banken"):
+        for b in person["Banken"]:
+            ctk.CTkLabel(current_body, text=f"• {b}").pack(anchor="w", pady=2)
+    else:
+        empty_state(current_body, "Der Person ist noch keine Bank zugeordnet.")
+
+    _, select_body = section_card(ui["content"], "Neue Zuordnung")
+    var = ctk.StringVar(value=banks[0] if banks else "")
+    ctk.CTkLabel(select_body, text="Verfügbare Bank").pack(anchor="w", pady=(0, 4))
+    ctk.CTkComboBox(select_body, variable=var, values=banks, state="readonly").pack(fill="x")
 
     def add():
         name = var.get()
-        if name and name not in person['Banken']:
-            person['Banken'].append(name)
-            state.save_person(person)
-            print(f"Bank '{name}' hinzugefügt.")
-        else:
-            print("Bitte wählen Sie eine neue Bank aus.")
+        if not name:
+            set_status(status, "Keine Bank verfügbar.", "warning")
+            return
+        if name in person["Banken"]:
+            set_status(status, "Diese Bank ist bereits zugeordnet.", "info")
+            return
+        person["Banken"].append(name)
+        state.save_person(person)
+        set_status(status, f"Bank '{name}' wurde hinzugefügt.", "success")
+        navigator.navigate("BankAssignment")
 
-    customtkinter.CTkButton(app, text="Hinzufügen", command=add).grid(row=1, column=0, columnspan=2, padx=20, pady=10)
-    customtkinter.CTkButton(app, text="Zurück", command=lambda: navigator.navigate("PersonInfo")).grid(row=2, column=0, columnspan=2, padx=20, pady=10)
-
-    zentrieren(app)
+    bar = action_bar(select_body)
+    primary_button(bar, "Zuordnen", add, column=0)
+    secondary_button(bar, "Zurück", lambda: navigator.navigate("PersonInfo"), column=1)
