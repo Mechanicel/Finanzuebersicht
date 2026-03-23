@@ -31,6 +31,7 @@ class Settings:
     mongo_person_collection: str
     mongo_bank_collection: str
     mongo_account_type_collection: str
+    mongo_marketdata_collection: str
     frontend_seed_personen_file: Path
     frontend_seed_banken_file: Path
     frontend_seed_kontotypen_file: Path
@@ -44,6 +45,7 @@ class Settings:
             self.mongo_person_collection,
             self.mongo_bank_collection,
             self.mongo_account_type_collection,
+            self.mongo_marketdata_collection,
         )
 
 
@@ -60,9 +62,11 @@ def get_settings() -> Settings:
         mongo_person_collection=env("MONGO_PERSON_COLLECTION", "personen"),
         mongo_bank_collection=env("MONGO_BANK_COLLECTION", "banken"),
         mongo_account_type_collection=env("MONGO_ACCOUNT_TYPE_COLLECTION", "kontotypen"),
-        frontend_seed_personen_file=PROJECT_ROOT / env("FRONTEND_SEED_PERSONEN_FILE", "FrontendService/personen.json"),
-        frontend_seed_banken_file=PROJECT_ROOT / env("FRONTEND_SEED_BANKEN_FILE", "FrontendService/src/data/banken.json"),
-        frontend_seed_kontotypen_file=PROJECT_ROOT / env("FRONTEND_SEED_KONTOTYPEN_FILE", "FrontendService/src/data/kontotypen.json"),
+        mongo_marketdata_collection=env("MONGO_MARKETDATA_COLLECTION", "marketdata_cache"),
+        frontend_seed_personen_file=PROJECT_ROOT / env("FRONTEND_SEED_PERSONEN_FILE", "FrontendService/seeds/personen.json"),
+        frontend_seed_banken_file=PROJECT_ROOT / env("FRONTEND_SEED_BANKEN_FILE", "FrontendService/seeds/banken.json"),
+        frontend_seed_kontotypen_file=PROJECT_ROOT
+        / env("FRONTEND_SEED_KONTOTYPEN_FILE", "FrontendService/seeds/kontotypen.json"),
         marketdata_base_url=env("MARKETDATA_BASE_URL", "http://127.0.0.1:5000"),
         marketdata_host=env("MARKETDATA_HOST", "0.0.0.0"),
         marketdata_port=int(env("MARKETDATA_PORT", "5000")),

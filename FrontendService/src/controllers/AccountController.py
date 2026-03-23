@@ -1,12 +1,9 @@
 import logging
 from datetime import datetime
 
-from dotenv import load_dotenv
-
 from src.data.DataManager import DataManager
 
 logger = logging.getLogger(__name__)
-load_dotenv()
 
 
 class AccountController:
