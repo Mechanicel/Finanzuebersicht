@@ -152,31 +152,35 @@ class AccountController:
             logger.warning("AccountController.update_account_overview: entries ist kein list-Typ: %s", type(entries).__name__)
             return
 
+        person_id = self._extract_person_id(selected_person)
+        if not person_id:
+            return
+        normalized_date = self._as_date(date_value)
+        date_str = normalized_date.strftime("%Y-%m-%d")
+
         for entry in entries:
             if not isinstance(entry, dict):
                 logger.warning("AccountController.update_account_overview: Ungültiger Eintrag übersprungen: %s", entry)
                 continue
-            account_type = entry.get("Kontotyp")
-            account_data = entry.get("Data")
-            if not account_type and isinstance(entry.get("konto"), dict):
-                account_type = entry["konto"].get("Kontotyp")
-                konto_data = entry["konto"].copy()
-                konto_data.pop("DepotDetails", None)
-                if account_type == "Depot":
-                    konto_data["DepotDetails"] = entry.get("details", [])
-                else:
-                    konto_data["Kontostand"] = entry.get("balance", 0.0)
-                account_data = konto_data
-            if not account_type:
-                logger.warning("AccountController.update_account_overview: Eintrag ohne Kontotyp übersprungen: %s", entry)
+            konto = entry.get("konto")
+            if not isinstance(konto, dict):
+                logger.warning("AccountController.update_account_overview: Eintrag ohne gültiges konto übersprungen: %s", entry)
                 continue
-            if not isinstance(account_data, dict):
-                logger.warning(
-                    "AccountController.update_account_overview: Data für Kontotyp %s ist ungültig (%s) und wird übersprungen",
-                    account_type,
-                    type(account_data).__name__,
-                )
+            konto_id = konto.get("id")
+            if not konto_id:
+                logger.warning("AccountController.update_account_overview: Konto ohne id übersprungen: %s", konto)
                 continue
-            self.add_account(selected_person, account_type, account_data)
-        self.calculate(selected_person, date_value)
-        logger.info("AccountController.update_account_overview: Übersicht aktualisiert und neu berechnet")
+
+            account_type = konto.get("Kontotyp")
+            if account_type == "Depot":
+                details = entry.get("details", [])
+                self.data_manager.update_depot_details(person_id, konto_id, details)
+                continue
+
+            try:
+                balance = float(entry.get("balance", 0.0) or 0.0)
+            except (TypeError, ValueError):
+                logger.warning("AccountController.update_account_overview: Ungültiger balance-Wert für Konto %s", konto_id)
+                balance = 0.0
+            self.data_manager.update_account_balance(konto_id, date_str, balance)
+        logger.info("AccountController.update_account_overview: Übersicht aktualisiert")
