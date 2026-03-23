@@ -16,6 +16,7 @@ class StockModel:
     basic: Dict[str, Any] = field(default_factory=dict)
     metrics: Dict[str, Any] = field(default_factory=dict)
     metrics_history: List[Dict[str, Any]] = field(default_factory=list)
+    price_history: List[Dict[str, Any]] = field(default_factory=list)
     etf: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -30,6 +31,7 @@ class StockModel:
             "basic": self.basic,
             "metrics": self.metrics,
             "metrics_history": self.metrics_history,
+            "price_history": self.price_history,
         }
         # 2) ETF-Felder aufbereiten
         serialized_etf: Dict[str, Any] = {}
