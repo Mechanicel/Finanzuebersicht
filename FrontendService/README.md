@@ -1,18 +1,10 @@
 # FrontendService
 
-## Zweck
-`FrontendService` ist die eigenständige Desktop-Anwendung der Finanzübersicht.
+Desktop-Frontend der Finanzübersicht.
 
-## Eigenständiges Projekt
-- Projektdefinition: `FrontendService/pyproject.toml`
-- Eigenes Script: `frontendservice`
-- Eigene Dependencies (UI/Visualisierung/HTTP):
-  - `customtkinter`
-  - `matplotlib`
-  - `numpy`
-  - `python-dotenv`
-  - `requests`
-  - `tkcalendar`
+## Persistenz
+Die Persistenz läuft über MongoDB via `pymongo` (Repository-Schicht in `src/data/mongo_repository.py`).
+Bei leeren Collections werden vorhandene JSON-Dateien einmalig als Seed/Migration verwendet.
 
 ## Start
 Aus dem Repository-Root:
@@ -22,9 +14,9 @@ uv sync --project FrontendService
 uv run --project FrontendService frontendservice
 ```
 
-## Hinweise zur Kopplung
-Das Frontend importiert **nicht** intern den `markedataservice`.
-Die Kommunikation erfolgt ausschließlich über externe Schnittstellen (HTTP-API).
-
-## Logging
-Frontend-Logs werden nach `logs/frontend.log` geschrieben.
+## Konfiguration
+Wird zentral über Root-`.env` (`shared_config.py`) geladen.
+Wichtige Keys:
+- `MONGO_URI`
+- `MONGO_DB_NAME`
+- `MARKETDATA_BASE_URL`

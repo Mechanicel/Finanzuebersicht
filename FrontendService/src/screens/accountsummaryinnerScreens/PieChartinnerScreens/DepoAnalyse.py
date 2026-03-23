@@ -1,5 +1,4 @@
 import logging
-import os
 import customtkinter as ctk
 
 from src.screens.accountsummaryinnerScreens.PieChartinnerScreens.DepoAnalyseScreens.DepotPositionPieScreen import (
@@ -9,9 +8,11 @@ from src.helpers.UniversalMethoden import clear_ui
 from src.screens.accountsummaryinnerScreens.PieChartinnerScreens.DepoAnalyseScreens.TableScreen import create_screen as create_table_screen
 from src.screens.accountsummaryinnerScreens.PieChartinnerScreens.DepoAnalyseScreens.ChartScreen  import create_screen as create_chart_screen
 from src.screens.accountsummaryinnerScreens.PieChartinnerScreens.DepoAnalyseScreens.GaugeScreen  import create_screen as create_gauge_screen
+from shared_config import get_settings
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.DEBUG)
+settings = get_settings()
 
 def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
     """
@@ -52,13 +53,13 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
         left = ctk.CTkFrame(content_frame, fg_color="transparent")
         left.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
         logger.debug("DepoAnalyse: Erstelle TableScreen für ISIN %s", sel_isin)
-        create_table_screen(left, api_endpoint=f"{os.getenv('BACKEND_URL')}/stock/{sel_isin}")
+        create_table_screen(left, api_endpoint=f"{settings.marketdata_base_url}/stock/{sel_isin}")
 
         # --- ChartScreen (Aktienhistorie) ---
         mid = ctk.CTkFrame(content_frame, fg_color="transparent")
         mid.grid(row=0, column=1, sticky="nsew", padx=10, pady=10)
         logger.debug("DepoAnalyse: Erstelle ChartScreen für Aktie %s", sel_isin)
-        create_chart_screen(mid, api_endpoint=f"{os.getenv('BACKEND_URL')}/stock/{sel_isin}")
+        create_chart_screen(mid, api_endpoint=f"{settings.marketdata_base_url}/stock/{sel_isin}")
 
         # --- Gauges ---
         right = ctk.CTkFrame(content_frame, fg_color="transparent")
@@ -66,7 +67,7 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
         right.grid_columnconfigure(0, weight=1)
         right.grid_rowconfigure((0,1,2), weight=1)
 
-        backend = os.getenv("BACKEND_URL", "http://127.0.0.1:5000")
+        backend = settings.marketdata_base_url
         gauges = [
             ("MsciWorld", f"{backend}/stock/{sel_isin}?etf=msciworld"),
             ("Volatilität", f"{backend}/volatility?isin={sel_isin}"),

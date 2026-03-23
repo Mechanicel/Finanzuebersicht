@@ -1,5 +1,4 @@
 # src/screens/accountsummaryinnerScreens/DepotPositionPieScreen.py
-import os
 import requests
 import logging
 from datetime import datetime
@@ -8,17 +7,10 @@ from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from src.helpers.UniversalMethoden import clear_ui
 from src.models.AppState import AppState
-from dotenv import load_dotenv
+from shared_config import get_settings
 
-load_dotenv()
-
-# Lade raw URL und normalisiere sie
-_raw = os.getenv("BACKEND_URL", "127.0.0.1:5000")
-if not _raw.startswith(("http://", "https://")):
-    _raw = "http://" + _raw
-# Ersetze ungültige 0.0.0.0 für Clients durch loopback
-_normalized = _raw.replace("0.0.0.0", "127.0.0.1")
-BACKEND_URL = _normalized.rstrip("/")
+settings = get_settings()
+BACKEND_URL = settings.marketdata_base_url.replace("0.0.0.0", "127.0.0.1").rstrip("/")
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.DEBUG)
