@@ -10,6 +10,7 @@ dependencies = [
   "pandas>=1.5,<3",
   "python-dotenv>=1.0,<2",
   "pymongo>=4.8,<5",
+  "finanzuebersicht-shared",
 ]
 
 [project.scripts]
@@ -21,3 +22,6 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 include = ["src*"]
+
+[tool.uv.sources]
+finanzuebersicht-shared = { path = "../shared_config_pkg", editable = true }

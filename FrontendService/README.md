@@ -15,7 +15,7 @@ uv run --project FrontendService frontendservice
 ```
 
 ## Konfiguration
-Zentral über Root-`.env` (`shared_config.py`).
+Zentral über Root-`.env` (`finanzuebersicht_shared`).
 Wichtige Keys:
 - `MONGO_URI` (optionaler Override)
 - `MONGO_HOST`

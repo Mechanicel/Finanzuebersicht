@@ -3,7 +3,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from shared_config import ENV_FILE, docker_compose_command, ensure_local_env_file
+from finanzuebersicht_shared import ENV_FILE, docker_compose_command, ensure_local_env_file
 
 LOG_DIR = Path(__file__).resolve().parent / "logs"
 ORCHESTRATOR_LOG = LOG_DIR / "orchestrator.log"

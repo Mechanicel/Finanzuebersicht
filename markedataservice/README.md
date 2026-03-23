@@ -14,7 +14,7 @@ uv run --project markedataservice markedataservice
 ```
 
 ## Konfiguration
-Der Service nutzt die zentrale Root-Konfiguration (`shared_config.py` / `.env`), insbesondere:
+Der Service nutzt die zentrale Root-Konfiguration (`finanzuebersicht_shared` / `.env`), insbesondere:
 - `MONGO_URI` (optionaler Override)
 - `MONGO_HOST`
 - `MONGO_PORT`

@@ -9,7 +9,7 @@ from uuid import uuid4
 from pymongo import MongoClient
 from pymongo.errors import PyMongoError
 
-from shared_config import get_settings
+from finanzuebersicht_shared import get_settings
 
 logger = logging.getLogger(__name__)
 

@@ -7,7 +7,7 @@ from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from src.helpers.UniversalMethoden import clear_ui
 from src.models.AppState import AppState
-from shared_config import get_settings
+from finanzuebersicht_shared import get_settings
 
 settings = get_settings()
 BACKEND_URL = settings.marketdata_base_url.replace("0.0.0.0", "127.0.0.1").rstrip("/")
