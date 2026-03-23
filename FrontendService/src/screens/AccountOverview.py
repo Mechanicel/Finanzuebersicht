@@ -20,7 +20,7 @@ def create_screen(app, navigator, state: AppState, **kwargs):
     _, date_body = section_card(ui["content"], "1) Stichtag")
     date_entry = DateEntry(date_body, date_pattern="yyyy-mm-dd", width=20)
     date_entry.grid(row=0, column=0, sticky="w", pady=4)
-    ctk.CTkButton(date_body, text="Start", command=lambda: on_date_selected()).grid(row=0, column=1, padx=8)
+    ctk.CTkButton(date_body, text="Stichtag übernehmen", command=lambda: on_date_selected()).grid(row=0, column=1, padx=8)
 
     _, content_body = section_card(ui["content"], "2) Kontodaten")
     _, nav_body = section_card(ui["content"], "3) Navigation")
@@ -71,9 +71,8 @@ def create_screen(app, navigator, state: AppState, **kwargs):
             w.destroy()
         if idx > 0:
             ctk.CTkButton(nav_body, text="← Zurück", command=lambda: save_and_navigate(idx - 1)).grid(row=0, column=0, padx=6, sticky="ew")
-        ctk.CTkButton(nav_body, text="Fertig" if idx == len(konten) - 1 else "Weiter →", command=lambda: save_and_navigate(idx + 1)).grid(
-            row=0, column=1, padx=6, sticky="ew"
-        )
+        next_label = "Speichern und berechnen" if idx == len(konten) - 1 else "Weiter →"
+        ctk.CTkButton(nav_body, text=next_label, command=lambda: save_and_navigate(idx + 1)).grid(row=0, column=1, padx=6, sticky="ew")
 
     def save_and_navigate(next_idx):
         konto = konten[current_index]

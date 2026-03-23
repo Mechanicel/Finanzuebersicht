@@ -2,6 +2,7 @@ import customtkinter as ctk
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
+from src.helpers.ui_flow import extract_latest_balance
 from src.models.AppState import AppState
 from src.ui.components import section_card, empty_state
 
@@ -15,13 +16,7 @@ def create_screen(app, navigator, state: AppState, **kwargs):
     konten = person_data.get("Konten", [])
     labels, sizes = [], []
     for konto in konten:
-        entries = konto.get("Kontostaende", [])
-        val = 0.0
-        if entries:
-            try:
-                val = float(entries[-1].split(": ")[1])
-            except Exception:
-                val = 0.0
+        val = extract_latest_balance(konto)
         labels.append(konto.get("Kontotyp", "Unbekannt"))
         sizes.append(val)
 

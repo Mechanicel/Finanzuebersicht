@@ -3,7 +3,7 @@ import logging
 import customtkinter as ctk
 
 from src.models.AppState import AppState
-from src.ui.components import create_page, section_card, action_bar, primary_button, secondary_button, set_status
+from src.ui.components import create_page, section_card, action_bar, primary_button, set_status
 
 logger = logging.getLogger(__name__)
 
@@ -168,5 +168,4 @@ def create_screen(app, navigator, state: AppState, **kwargs):
 
     build_form()
     bar = action_bar(body)
-    primary_button(bar, "Konto hinzufügen", add_account, column=0)
-    secondary_button(bar, "Zurück", lambda: navigator.navigate("PersonInfo"), column=1)
+    primary_button(bar, "Konto anlegen", add_account, column=0)
