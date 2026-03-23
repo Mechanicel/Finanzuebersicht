@@ -4,7 +4,7 @@ import requests
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from src.helpers.UniversalMethoden import clear_ui
-from shared_config import get_settings
+from finanzuebersicht_shared import get_settings
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.DEBUG)

@@ -6,7 +6,7 @@ from typing import Any
 
 from pymongo import MongoClient
 
-from shared_config import get_settings
+from finanzuebersicht_shared import get_settings
 
 logger = logging.getLogger(__name__)
 

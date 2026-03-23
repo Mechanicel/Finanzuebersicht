@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from shared_config import get_settings
+from finanzuebersicht_shared import get_settings
 
 settings = get_settings()
 

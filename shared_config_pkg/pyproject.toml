@@ -1,0 +1,17 @@
+[project]
+name = "finanzuebersicht-shared"
+version = "0.1.0"
+description = "Shared configuration package for Finanzuebersicht"
+readme = "README.md"
+requires-python = ">=3.10,<3.13"
+dependencies = [
+  "python-dotenv>=1.0,<2",
+]
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["finanzuebersicht_shared*"]

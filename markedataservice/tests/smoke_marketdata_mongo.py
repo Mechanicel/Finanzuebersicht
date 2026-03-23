@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 
-from shared_config import get_settings
+from finanzuebersicht_shared import get_settings
 from src.repositories.mongo_repository import MongoMarketDataRepository
 
 

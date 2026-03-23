@@ -12,7 +12,23 @@ from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
 
-PROJECT_ROOT = Path(__file__).resolve().parent
+
+def _discover_project_root() -> Path:
+    override = os.getenv("FINANZUEBERSICHT_ROOT", "").strip()
+    if override:
+        return Path(override).expanduser().resolve()
+
+    current_file = Path(__file__).resolve()
+    markers = (".env.example", "FrontendService", "markedataservice")
+
+    for candidate in current_file.parents:
+        if all((candidate / marker).exists() for marker in markers):
+            return candidate
+
+    return Path.cwd().resolve()
+
+
+PROJECT_ROOT = _discover_project_root()
 ENV_FILE = PROJECT_ROOT / ".env"
 ENV_EXAMPLE_FILE = PROJECT_ROOT / ".env.example"
 

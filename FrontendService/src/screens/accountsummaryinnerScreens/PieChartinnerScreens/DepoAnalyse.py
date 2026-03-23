@@ -8,7 +8,7 @@ from src.helpers.UniversalMethoden import clear_ui
 from src.screens.accountsummaryinnerScreens.PieChartinnerScreens.DepoAnalyseScreens.TableScreen import create_screen as create_table_screen
 from src.screens.accountsummaryinnerScreens.PieChartinnerScreens.DepoAnalyseScreens.ChartScreen  import create_screen as create_chart_screen
 from src.screens.accountsummaryinnerScreens.PieChartinnerScreens.DepoAnalyseScreens.GaugeScreen  import create_screen as create_gauge_screen
-from shared_config import get_settings
+from finanzuebersicht_shared import get_settings
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.DEBUG)
