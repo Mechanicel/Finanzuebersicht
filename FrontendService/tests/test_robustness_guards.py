@@ -113,6 +113,9 @@ def test_calculate_depot_accepts_date_and_datetime_without_attribute_error():
         def update_depot_details(self, *_args, **_kwargs):
             return True
 
+        def update_account_balance(self, *_args, **_kwargs):
+            return True
+
     controller = AccountController.__new__(AccountController)
     controller.data_manager = DepotDummyDataManager()
 

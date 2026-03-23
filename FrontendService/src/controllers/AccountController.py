@@ -103,6 +103,8 @@ class AccountController:
                 logger.warning("AccountController.calculate_depot: Depotkonto ohne id übersprungen: %s", konto)
                 continue
             self.data_manager.update_depot_details(person_id, konto_id, details)
+            total_value = sum(float(item.get("value", 0.0) or 0.0) for item in details)
+            self.data_manager.update_account_balance(konto_id, normalized_date.strftime("%Y-%m-%d"), total_value)
         logger.info("AccountController.calculate_depot: Depot-Berechnung abgeschlossen")
 
     def calculate_festgeld(self, selected_person: dict, date_value: date | datetime):
