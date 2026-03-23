@@ -6,6 +6,7 @@ import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
+from urllib.parse import quote_plus
 
 from dotenv import load_dotenv
 
@@ -27,6 +28,11 @@ def ensure_local_env_file() -> None:
 @dataclass(frozen=True)
 class Settings:
     mongo_uri: str
+    mongo_host: str
+    mongo_port: int
+    mongo_username: str
+    mongo_password: str
+    mongo_auth_source: str
     mongo_db_name: str
     mongo_person_collection: str
     mongo_bank_collection: str
@@ -49,6 +55,27 @@ class Settings:
         )
 
 
+def _build_mongo_uri(
+    mongo_uri_override: str,
+    host: str,
+    port: int,
+    db_name: str,
+    username: str,
+    password: str,
+    auth_source: str,
+) -> str:
+    if mongo_uri_override:
+        return mongo_uri_override
+
+    credentials = ""
+    if username:
+        encoded_user = quote_plus(username)
+        encoded_password = quote_plus(password)
+        credentials = f"{encoded_user}:{encoded_password}@"
+
+    return f"mongodb://{credentials}{host}:{port}/{db_name}?authSource={quote_plus(auth_source)}"
+
+
 def get_settings() -> Settings:
     ensure_local_env_file()
     load_dotenv(ENV_FILE)
@@ -56,9 +83,30 @@ def get_settings() -> Settings:
     def env(name: str, default: str) -> str:
         return os.getenv(name, default).strip()
 
+    mongo_host = env("MONGO_HOST", "localhost")
+    mongo_port = int(env("MONGO_PORT", "27017"))
+    mongo_db_name = env("MONGO_DB_NAME", "finanzuebersicht")
+    mongo_username = env("MONGO_USERNAME", "")
+    mongo_password = env("MONGO_PASSWORD", "")
+    mongo_auth_source = env("MONGO_AUTH_SOURCE", "admin")
+    mongo_uri_override = env("MONGO_URI", "")
+
     settings = Settings(
-        mongo_uri=env("MONGO_URI", "mongodb://localhost:27017"),
-        mongo_db_name=env("MONGO_DB_NAME", "finanzuebersicht"),
+        mongo_uri=_build_mongo_uri(
+            mongo_uri_override=mongo_uri_override,
+            host=mongo_host,
+            port=mongo_port,
+            db_name=mongo_db_name,
+            username=mongo_username,
+            password=mongo_password,
+            auth_source=mongo_auth_source,
+        ),
+        mongo_host=mongo_host,
+        mongo_port=mongo_port,
+        mongo_username=mongo_username,
+        mongo_password=mongo_password,
+        mongo_auth_source=mongo_auth_source,
+        mongo_db_name=mongo_db_name,
         mongo_person_collection=env("MONGO_PERSON_COLLECTION", "personen"),
         mongo_bank_collection=env("MONGO_BANK_COLLECTION", "banken"),
         mongo_account_type_collection=env("MONGO_ACCOUNT_TYPE_COLLECTION", "kontotypen"),
