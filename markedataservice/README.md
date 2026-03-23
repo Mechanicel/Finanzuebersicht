@@ -15,8 +15,13 @@ uv run --project markedataservice markedataservice
 
 ## Konfiguration
 Der Service nutzt die zentrale Root-Konfiguration (`shared_config.py` / `.env`), insbesondere:
-- `MONGO_URI`
+- `MONGO_URI` (optionaler Override)
+- `MONGO_HOST`
+- `MONGO_PORT`
 - `MONGO_DB_NAME`
+- `MONGO_USERNAME`
+- `MONGO_PASSWORD`
+- `MONGO_AUTH_SOURCE`
 - `MONGO_MARKETDATA_COLLECTION`
 - `MARKETDATA_HOST`
 - `MARKETDATA_PORT`

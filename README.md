@@ -13,11 +13,23 @@ Zusätzlich orchestriert `orchestrator.py` den lokalen Start von MongoDB (Docker
 - JSON-Dateien werden nur noch als einmalige **Seed-/Migrationsartefakte** genutzt (bei leeren Collections).
 - Alle Konfigurationen laufen zentral über Root-`.env` und `shared_config.py`.
 
-Wichtige MongoDB-Collections:
+Wichtige MongoDB-Parameter:
+- `MONGO_URI` (optionaler Override)
+- `MONGO_HOST`
+- `MONGO_PORT`
+- `MONGO_DB_NAME`
+- `MONGO_USERNAME`
+- `MONGO_PASSWORD`
+- `MONGO_AUTH_SOURCE`
 - `MONGO_PERSON_COLLECTION`
 - `MONGO_BANK_COLLECTION`
 - `MONGO_ACCOUNT_TYPE_COLLECTION`
 - `MONGO_MARKETDATA_COLLECTION`
+
+## MongoDB-Authentifizierung
+- MongoDB wird lokal mit aktivierter Authentifizierung gestartet (Docker Compose).
+- `MONGO_URI` bleibt als optionaler Override unterstützt.
+- Ist `MONGO_URI` nicht gesetzt, wird die Verbindungs-URI zentral in `shared_config.py` aus `MONGO_HOST`, `MONGO_PORT`, `MONGO_DB_NAME`, `MONGO_USERNAME`, `MONGO_PASSWORD` und `MONGO_AUTH_SOURCE` aufgebaut.
 
 ## Lokales Setup (Neu-Developer-Flow)
 1. Env-Datei anlegen:

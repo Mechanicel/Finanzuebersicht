@@ -17,8 +17,13 @@ uv run --project FrontendService frontendservice
 ## Konfiguration
 Zentral über Root-`.env` (`shared_config.py`).
 Wichtige Keys:
-- `MONGO_URI`
+- `MONGO_URI` (optionaler Override)
+- `MONGO_HOST`
+- `MONGO_PORT`
 - `MONGO_DB_NAME`
+- `MONGO_USERNAME`
+- `MONGO_PASSWORD`
+- `MONGO_AUTH_SOURCE`
 - `MONGO_PERSON_COLLECTION`
 - `MONGO_BANK_COLLECTION`
 - `MONGO_ACCOUNT_TYPE_COLLECTION`
