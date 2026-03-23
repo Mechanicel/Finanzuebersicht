@@ -89,7 +89,11 @@ def main() -> int:
         if market_process.poll() is None:
             logger.info("Orchestrator: stoppe markedataservice")
             market_process.terminate()
-            market_process.wait(timeout=5)
+            try:
+                market_process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                logger.warning("markedataservice reagiert nicht, erzwinge Kill")
+                market_process.kill()
 
 
 if __name__ == "__main__":
