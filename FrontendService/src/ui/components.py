@@ -102,6 +102,13 @@ def action_bar(parent):
     return bar
 
 
+def action_bar_grid(parent, row: int, column: int = 0, columnspan: int = 1, pady=(8, 0), padx=0, sticky: str = "ew"):
+    bar = ctk.CTkFrame(parent, fg_color="transparent")
+    bar.grid(row=row, column=column, columnspan=columnspan, pady=pady, padx=padx, sticky=sticky)
+    bar.grid_columnconfigure((0, 1, 2), weight=1)
+    return bar
+
+
 def primary_button(parent, text: str, command, column: int = 0):
     btn = ctk.CTkButton(parent, text=text, height=BUTTON_HEIGHT, command=command)
     btn.grid(row=0, column=column, padx=6, pady=6, sticky="ew")

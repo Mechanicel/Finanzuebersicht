@@ -1,7 +1,7 @@
 import customtkinter as ctk
 
 from src.models.AppState import AppState
-from src.ui.components import create_page, section_card, action_bar, primary_button, secondary_button, danger_button, set_status, empty_state
+from src.ui.components import create_page, section_card, action_bar_grid, primary_button, danger_button, set_status, empty_state
 
 
 def create_screen(app, navigator, state: AppState, selected_index: int = 0, **kwargs):
@@ -129,7 +129,7 @@ def create_screen(app, navigator, state: AppState, selected_index: int = 0, **kw
             navigator.navigate("PersonInfo", selected_person=person)
 
         refresh_depot()
-        bar = action_bar(form_body)
+        bar = action_bar_grid(form_body, row=row + 1, columnspan=2)
         primary_button(bar, "Speichern", save_depot, column=0)
         danger_button(bar, "Löschen", delete_account, column=2)
     else:
@@ -143,6 +143,6 @@ def create_screen(app, navigator, state: AppState, selected_index: int = 0, **kw
             set_status(status, "Konto gespeichert.", "success")
             navigator.navigate("PersonInfo", selected_person=person)
 
-        bar = action_bar(form_body)
+        bar = action_bar_grid(form_body, row=row + 1, columnspan=2)
         primary_button(bar, "Speichern", save_generic, column=0)
         danger_button(bar, "Löschen", delete_account, column=2)

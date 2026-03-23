@@ -3,7 +3,7 @@ import logging
 import customtkinter as ctk
 
 from src.models.AppState import AppState
-from src.ui.components import create_page, section_card, action_bar, primary_button, set_status
+from src.ui.components import create_page, section_card, action_bar_grid, primary_button, set_status
 
 logger = logging.getLogger(__name__)
 
@@ -167,5 +167,5 @@ def create_screen(app, navigator, state: AppState, **kwargs):
             set_status(status, "Konto konnte nicht hinzugefügt werden (z. B. Duplikat).", "error")
 
     build_form()
-    bar = action_bar(body)
-    primary_button(bar, "Konto anlegen", add_account, column=0)
+    bar = action_bar_grid(body, row=1)
+    primary_button(bar, "Konto hinzufügen", add_account, column=0)

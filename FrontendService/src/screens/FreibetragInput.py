@@ -1,7 +1,7 @@
 import customtkinter as ctk
 
 from src.models.AppState import AppState
-from src.ui.components import create_page, section_card, action_bar, primary_button, set_status, empty_state
+from src.ui.components import create_page, section_card, action_bar_grid, primary_button, set_status, empty_state
 
 
 def create_screen(app, navigator, state: AppState, **kwargs):
@@ -53,5 +53,5 @@ def create_screen(app, navigator, state: AppState, **kwargs):
         entry.configure(border_color=("#565B5E", "#565B5E"))
         update_current()
 
-    bar = action_bar(body)
+    bar = action_bar_grid(body, row=5)
     primary_button(bar, "Freibetrag speichern", add, column=0)
