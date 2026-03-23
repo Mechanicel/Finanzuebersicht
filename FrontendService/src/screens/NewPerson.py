@@ -1,7 +1,7 @@
 import customtkinter as ctk
 
 from src.models.AppState import AppState
-from src.ui.components import create_page, section_card, action_bar, primary_button, set_status
+from src.ui.components import create_page, section_card, action_bar_grid, primary_button, set_status
 
 
 def create_screen(app, navigator, state: AppState, **kwargs):
@@ -47,5 +47,5 @@ def create_screen(app, navigator, state: AppState, **kwargs):
         set_status(status, "Person erfolgreich angelegt.", "success")
         navigator.navigate("MainScreen")
 
-    bar = action_bar(body)
+    bar = action_bar_grid(body, row=4)
     primary_button(bar, "Person speichern", proceed, column=0)

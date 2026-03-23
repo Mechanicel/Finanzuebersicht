@@ -31,6 +31,30 @@ def test_bank_assignment_filter_matches_substrings_case_insensitive():
     assert filter_bank_names(banks, "foo") == []
 
 
+def test_form_screens_use_grid_compatible_action_bar():
+    repo_root = Path(__file__).resolve().parents[1]
+    form_screens = [
+        "src/screens/NewPerson.py",
+        "src/screens/NewBank.py",
+        "src/screens/FreibetragInput.py",
+        "src/screens/AccountAddition.py",
+        "src/screens/AccountEditing.py",
+    ]
+
+    for rel_path in form_screens:
+        source = (repo_root / rel_path).read_text(encoding="utf-8")
+        assert "action_bar_grid(" in source
+        assert " action_bar(" not in source
+
+
+def test_components_expose_separate_pack_and_grid_action_bar_helpers():
+    components = (Path(__file__).resolve().parents[1] / "src/ui/components.py").read_text(encoding="utf-8")
+    assert "def action_bar(parent):" in components
+    assert "bar.pack(" in components
+    assert "def action_bar_grid(" in components
+    assert "bar.grid(" in components
+
+
 def test_calculate_depot_updates_details_and_balance_for_pie_chart_source():
     class DepotValueDataManager:
         def __init__(self):
