@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime
+from datetime import date, datetime
 
 from src.data.DataManager import DataManager
 
@@ -25,6 +25,12 @@ class AccountController:
             return person_id
         logger.warning("AccountController: selected_person hat ungültigen Typ: %s", type(selected_person).__name__)
         return None
+
+    @staticmethod
+    def _as_date(value: date | datetime) -> date:
+        if isinstance(value, datetime):
+            return value.date()
+        return value
 
     def add_account(self, selected_person: dict, account_type: str, account_data: dict) -> bool:
         """
@@ -55,11 +61,12 @@ class AccountController:
             logger.error("AccountController.add_account: Fehler beim Anlegen des Kontos")
         return result
 
-    def calculate_depot(self, selected_person: dict, date_value: datetime):
+    def calculate_depot(self, selected_person: dict, date_value: date | datetime):
         logger.debug("AccountController.calculate_depot: Person=%s, Datum=%s", selected_person, date_value)
         person_id = self._extract_person_id(selected_person)
         if not person_id:
             return
+        normalized_date = self._as_date(date_value)
         person = self.data_manager.get_person(person_id)
         if not person:
             logger.warning("AccountController.calculate_depot: Person nicht gefunden")
@@ -81,7 +88,7 @@ class AccountController:
                     continue
                 isin = det.get("ISIN", "").strip()
                 menge = float(det.get("Menge", 0) or 0)
-                price = self.data_manager.get_price(isin, date_value.date())
+                price = self.data_manager.get_price(isin, normalized_date)
                 company = self.data_manager.get_company_name(isin)
                 value = price * menge
                 details.append({
@@ -98,11 +105,12 @@ class AccountController:
             self.data_manager.update_depot_details(person_id, konto_id, details)
         logger.info("AccountController.calculate_depot: Depot-Berechnung abgeschlossen")
 
-    def calculate_festgeld(self, selected_person: dict, date_value: datetime):
+    def calculate_festgeld(self, selected_person: dict, date_value: date | datetime):
         logger.debug("AccountController.calculate_festgeld: Person=%s, Datum=%s", selected_person, date_value)
         person_id = self._extract_person_id(selected_person)
         if not person_id:
             return
+        normalized_date = self._as_date(date_value)
         person = self.data_manager.get_person(person_id)
         if not person:
             logger.warning("AccountController.calculate_festgeld: Person nicht gefunden")
@@ -121,17 +129,17 @@ class AccountController:
             if not konto_id:
                 logger.warning("AccountController.calculate_festgeld: Festgeldkonto ohne id übersprungen: %s", konto)
                 continue
-            wert = self.data_manager.calculate_festgeld_for_date(konto_id, date_value)
-            self.data_manager.update_account_balance(konto_id, date_value.strftime("%Y-%m-%d"), wert)
+            wert = self.data_manager.calculate_festgeld_for_date(konto_id, normalized_date)
+            self.data_manager.update_account_balance(konto_id, normalized_date.strftime("%Y-%m-%d"), wert)
             logger.debug("Festgeld-Konto %s: Zinswert=%s", konto_id, wert)
         logger.info("AccountController.calculate_festgeld: Festgeld-Berechnung abgeschlossen")
 
-    def calculate(self, selected_person: dict, date_value: datetime):
+    def calculate(self, selected_person: dict, date_value: date | datetime):
         logger.debug("AccountController.calculate: Starte alle Berechnungen")
         self.calculate_depot(selected_person, date_value)
         self.calculate_festgeld(selected_person, date_value)
 
-    def update_account_overview(self, selected_person: dict, date_value: datetime, entries: list):
+    def update_account_overview(self, selected_person: dict, date_value: date | datetime, entries: list):
         logger.debug(
             "AccountController.update_account_overview: Person=%s, Datum=%s, Einträge=%d",
             selected_person,
@@ -148,6 +156,15 @@ class AccountController:
                 continue
             account_type = entry.get("Kontotyp")
             account_data = entry.get("Data")
+            if not account_type and isinstance(entry.get("konto"), dict):
+                account_type = entry["konto"].get("Kontotyp")
+                konto_data = entry["konto"].copy()
+                konto_data.pop("DepotDetails", None)
+                if account_type == "Depot":
+                    konto_data["DepotDetails"] = entry.get("details", [])
+                else:
+                    konto_data["Kontostand"] = entry.get("balance", 0.0)
+                account_data = konto_data
             if not account_type:
                 logger.warning("AccountController.update_account_overview: Eintrag ohne Kontotyp übersprungen: %s", entry)
                 continue
