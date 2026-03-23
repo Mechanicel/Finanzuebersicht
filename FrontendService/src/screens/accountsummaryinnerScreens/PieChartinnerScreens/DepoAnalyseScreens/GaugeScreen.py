@@ -1,13 +1,14 @@
 import logging
 import customtkinter as ctk
 import requests
-import os
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from src.helpers.UniversalMethoden import clear_ui
+from shared_config import get_settings
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.DEBUG)
+settings = get_settings()
 
 def create_screen(parent, title: str, api_endpoint: str, click_callback=None):
     """
@@ -25,7 +26,7 @@ def create_screen(parent, title: str, api_endpoint: str, click_callback=None):
 
     # API-Aufruf
     try:
-        base = os.getenv("BACKEND_URL", "http://127.0.0.1:5000")
+        base = settings.marketdata_base_url
         url = api_endpoint if api_endpoint.startswith("http") else f"{base}{api_endpoint}"
         logger.debug("GaugeScreen '%s': Abruf-URL=%s", title, url)
 

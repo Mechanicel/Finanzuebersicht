@@ -1,6 +1,7 @@
 from flask import Flask
 
 from src.api.stock import stock_bp
+from src.utils.config import MARKETDATA_HOST, MARKETDATA_PORT
 from src.utils.logger import logger
 
 
@@ -18,8 +19,8 @@ def create_app() -> Flask:
 
 def main() -> int:
     app = create_app()
-    logger.info("Starte Flask-Server auf http://0.0.0.0:5000")
-    app.run(host="0.0.0.0", port=5000, debug=False)
+    logger.info("Starte Flask-Server auf http://%s:%s", MARKETDATA_HOST, MARKETDATA_PORT)
+    app.run(host=MARKETDATA_HOST, port=MARKETDATA_PORT, debug=False)
     return 0
 
 

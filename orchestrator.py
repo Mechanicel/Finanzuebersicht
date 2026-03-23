@@ -1,17 +1,13 @@
 import logging
-import shutil
 import subprocess
 import sys
 from pathlib import Path
 
+from shared_config import ENV_FILE, docker_compose_command, ensure_local_env_file
+
 LOG_DIR = Path(__file__).resolve().parent / "logs"
 ORCHESTRATOR_LOG = LOG_DIR / "orchestrator.log"
 PROJECT_ROOT = Path(__file__).resolve().parent
-REQUIRED_FRONTEND_FILES = [
-    PROJECT_ROOT / "FrontendService" / "personen.json",
-    PROJECT_ROOT / "FrontendService" / "src" / "data" / "banken.json",
-    PROJECT_ROOT / "FrontendService" / "src" / "data" / "kontotypen.json",
-]
 
 
 def configure_logging(level: int = logging.INFO) -> None:
@@ -27,19 +23,9 @@ def configure_logging(level: int = logging.INFO) -> None:
     )
 
 
-def _validate_runtime_environment() -> bool:
-    logger = logging.getLogger(__name__)
-    missing = [str(path.relative_to(PROJECT_ROOT)) for path in REQUIRED_FRONTEND_FILES if not path.exists()]
-    if missing:
-        logger.error(
-            "Orchestrator-Abbruch: erforderliche Frontend-Konfigurationsdateien fehlen: %s",
-            ", ".join(missing),
-        )
-        return False
-    return True
-
-
 def _uv_executable() -> str:
+    import shutil
+
     uv_bin = shutil.which("uv")
     if uv_bin:
         return uv_bin
@@ -56,13 +42,36 @@ def _spawn_project(project: str, script: str) -> subprocess.Popen[str]:
     )
 
 
+def _ensure_mongodb_started() -> bool:
+    logger = logging.getLogger(__name__)
+    compose_cmd = docker_compose_command()
+    if not compose_cmd:
+        logger.warning("Docker Compose wurde nicht gefunden. MongoDB muss manuell laufen.")
+        return False
+
+    compose_file = PROJECT_ROOT / "docker-compose.yml"
+    if not compose_file.exists():
+        logger.warning("Keine docker-compose.yml gefunden. MongoDB-Start wird übersprungen.")
+        return False
+
+    try:
+        command = compose_cmd + ["-f", str(compose_file), "up", "-d", "mongodb"]
+        logger.info("Starte MongoDB via Docker: %s", " ".join(command))
+        subprocess.run(command, cwd=PROJECT_ROOT, check=True)
+        return True
+    except subprocess.CalledProcessError:
+        logger.exception("MongoDB konnte per Docker Compose nicht gestartet werden")
+        return False
+
+
 def main() -> int:
     configure_logging(logging.DEBUG)
     logger = logging.getLogger(__name__)
     logger.info("Orchestrator-Start: starte FrontendService + markedataservice")
 
-    if not _validate_runtime_environment():
-        return 2
+    ensure_local_env_file()
+    logger.info("Verwende env-Datei: %s", ENV_FILE)
+    _ensure_mongodb_started()
 
     try:
         market_process = _spawn_project("markedataservice", "markedataservice")
