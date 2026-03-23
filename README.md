@@ -1,47 +1,56 @@
 # Finanzübersicht
 
 ## Projektüberblick
-Dieses Repository ist als Monorepo organisiert, enthält aber **zwei unabhängig installierbare Python-Projekte**:
+Monorepo mit zwei Services:
 
 - **`FrontendService/`**: Desktop-UI (customtkinter)
 - **`markedataservice/`**: Flask-API für Marktdaten
 
-Zusätzlich gibt es im Root eine optionale **Orchestrierung** (`orchestrator.py`), die beide Prozesse gemeinsam startet, ohne dass sich die Pakete direkt gegenseitig importieren.
+Zusätzlich gibt es im Root eine **Orchestrierung** (`orchestrator.py`), die MongoDB (Docker), markedataservice und Frontend gemeinsam startet.
 
-## Architektur nach Entkopplung
-- `FrontendService` hat eine eigene Projektdefinition: `FrontendService/pyproject.toml`
-- `markedataservice` hat eine eigene Projektdefinition: `markedataservice/pyproject.toml`
-- Root-`pyproject.toml` enthält nur den optionalen Komfort-Start (`finanzuebersicht`)
-- Keine direkte Python-Importkopplung zwischen den beiden Paketen
+## Konfiguration (zentral über `.env`)
+Alle zentralen Werte liegen in `.env` und werden über `shared_config.py` geladen.
 
-## Installation und Start
+1. Beispiel konfigurieren:
+   ```bash
+   cp .env.example .env
+   ```
+2. Optional Werte anpassen (z. B. Ports, MongoDB-URI).
 
-### 1) FrontendService separat
+> Falls `.env` fehlt, erzeugt der Orchestrator sie automatisch aus `.env.example`.
+
+## Lokaler Start (empfohlen)
+```bash
+uv sync
+uv sync --project FrontendService
+uv sync --project markedataservice
+uv run finanzuebersicht
+```
+
+Was passiert dabei:
+1. MongoDB Community wird über Docker Compose gestartet (`docker-compose.yml`).
+2. Der `markedataservice` startet.
+3. Das Frontend startet.
+4. Frontend-Persistenz läuft über MongoDB (`pymongo`) mit Seed/Migration aus den bisherigen JSON-Dateien, falls die Collections leer sind.
+
+## Einzelstart der Services
+### Frontend
 ```bash
 uv sync --project FrontendService
 uv run --project FrontendService frontendservice
 ```
 
-### 2) markedataservice separat
+### markedataservice
 ```bash
 uv sync --project markedataservice
 uv run --project markedataservice markedataservice
 ```
 
-### 3) Optional: gemeinsamer Start (Root-Orchestrierung)
-Der gemeinsame Start bleibt als Komfortfunktion erhalten, aber nur auf Root-Level:
-
-```bash
-uv run finanzuebersicht
-```
-
-Alternativ:
-- macOS/Linux: `./start.sh`
-- Windows: `start.bat`
+## Datenhaltung
+- **Neu:** MongoDB Collections für Personen, Banken, Kontotypen.
+- **Alt:** JSON-Dateien bleiben als Seed-Quelle erhalten (`FrontendService/personen.json`, `FrontendService/src/data/*.json`).
 
 ## Logging
-- Frontend schreibt nach `logs/frontend.log`
-- Marktdatenservice schreibt nach `logs/markedataservice.log`
-- Root-Orchestrator schreibt nach `logs/orchestrator.log`
-
-Damit bleiben beide Komponenten getrennt beobachtbar.
+- Frontend: `logs/frontend.log`
+- Marktdatenservice: `logs/markedataservice.log`
+- Orchestrator: `logs/orchestrator.log`

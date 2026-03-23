@@ -12,3 +12,4 @@ python-dotenv>=1.0,<2
 requests>=2.31,<3
 tkcalendar>=1.6,<2
 yfinance>=0.2.18,<1
+pymongo>=4.8,<5
