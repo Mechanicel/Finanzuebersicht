@@ -6,26 +6,25 @@ from src.data.DataManager import DataManager
 
 class DummyDataManager:
     def __init__(self):
-        self.add_calls = []
+        self.balance_calls = []
+        self.depot_calls = []
         self.calculate_calls = []
-
-    def duplicate_account(self, *_args, **_kwargs):
-        return False
-
-    def create_account(self, person_id, account_type, account_data):
-        self.add_calls.append((person_id, account_type, account_data))
-        return True
 
     def get_person(self, _person_id):
         return {"id": "p1", "Konten": []}
 
-    def update_depot_details(self, *_args, **_kwargs):
+    def update_depot_details(self, person_id, konto_id, details):
+        self.depot_calls.append((person_id, konto_id, details))
+        return True
+
+    def update_account_balance(self, konto_id, date_str, value):
+        self.balance_calls.append((konto_id, date_str, value))
+        return True
+
+    def calculate_depot(self, *_args, **_kwargs):
         self.calculate_calls.append("depot")
 
-    def calculate_festgeld_for_date(self, *_args, **_kwargs):
-        return 0.0
-
-    def update_account_balance(self, *_args, **_kwargs):
+    def calculate_festgeld(self, *_args, **_kwargs):
         self.calculate_calls.append("festgeld")
 
 
@@ -44,16 +43,15 @@ def test_update_account_overview_skips_invalid_entries_and_none_data():
     controller.data_manager = DummyDataManager()
 
     entries = [
-        {"Kontotyp": "Depot", "Data": None},
-        {"Kontotyp": "Depot", "Data": {"Bank": "X", "Deponummer": "1"}},
+        {"konto": {"id": "d1", "Kontotyp": "Depot"}, "details": [{"ISIN": "AAA", "Menge": 1}]},
         None,
-        {"Data": {"Bank": "Y"}},
+        {"konto": {"Kontotyp": "Girokonto"}, "balance": 123.0},
     ]
 
     controller.update_account_overview({"id": "p1"}, datetime(2026, 1, 1), entries)
 
-    assert len(controller.data_manager.add_calls) == 1
-    assert controller.data_manager.add_calls[0][1] == "Depot"
+    assert controller.data_manager.depot_calls == [("p1", "d1", [{"ISIN": "AAA", "Menge": 1}])]
+    assert controller.data_manager.balance_calls == []
 
 
 def test_create_account_returns_false_for_none_account_data():
@@ -131,17 +129,16 @@ def test_update_account_overview_accepts_accountoverview_entry_shape():
 
     entries = [
         {
-            "konto": {"Kontotyp": "Depot", "Bank": "X", "Deponummer": "D1", "DepotDetails": []},
+            "konto": {"id": "d1", "Kontotyp": "Depot", "Bank": "X", "Deponummer": "D1", "DepotDetails": []},
             "details": [{"ISIN": "DE000A1EWWW0", "Menge": 1.0}],
         },
         {
-            "konto": {"Kontotyp": "Girokonto", "Bank": "Y", "Kontonummer": "K1"},
+            "konto": {"id": "g1", "Kontotyp": "Girokonto", "Bank": "Y", "Kontonummer": "K1"},
             "balance": 123.45,
         },
     ]
 
     controller.update_account_overview({"id": "p1"}, datetime(2026, 1, 1), entries)
 
-    assert len(controller.data_manager.add_calls) == 2
-    assert controller.data_manager.add_calls[0][2]["DepotDetails"] == [{"ISIN": "DE000A1EWWW0", "Menge": 1.0}]
-    assert controller.data_manager.add_calls[1][2]["Kontostand"] == 123.45
+    assert controller.data_manager.depot_calls == [("p1", "d1", [{"ISIN": "DE000A1EWWW0", "Menge": 1.0}])]
+    assert controller.data_manager.balance_calls == [("g1", "2026-01-01", 123.45)]

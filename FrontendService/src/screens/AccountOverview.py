@@ -75,6 +75,9 @@ def create_screen(app, navigator, state: AppState, **kwargs):
         ctk.CTkButton(nav_body, text=next_label, command=lambda: save_and_navigate(idx + 1)).grid(row=0, column=1, padx=6, sticky="ew")
 
     def save_and_navigate(next_idx):
+        if not state.selected_date:
+            set_status(status, "Bitte zuerst einen Stichtag festlegen.", "warning")
+            return
         konto = konten[current_index]
         if konto.get("Kontotyp") == "Depot":
             details = []
@@ -97,8 +100,9 @@ def create_screen(app, navigator, state: AppState, **kwargs):
         if next_idx < len(konten):
             show_account(next_idx)
         else:
-            ac.calculate_festgeld(person, state.selected_date)
             ac.update_account_overview(person, state.selected_date, state.overview_inputs)
+            ac.calculate_festgeld(person, state.selected_date)
+            ac.calculate_depot(person, state.selected_date)
             state.load_all()
             set_status(status, "Kontoübersicht erfolgreich gespeichert.", "success")
             navigator.navigate("PersonInfo")

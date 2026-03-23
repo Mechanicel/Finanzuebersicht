@@ -233,7 +233,7 @@ class DataManager:
         konto_id = account.get("id") if isinstance(account, dict) else account
         person = self.get_person(person_id) if person_id else self.get_person_data(selected_person)
         if not person or not isinstance(person, dict):
-            return
+            return False
         for acct in self._validate_list("person.Konten", person.get("Konten", [])):
             if not isinstance(acct, dict):
                 logger.warning("DataManager.update_depot_details: Ungültiger Kontoeintrag übersprungen: %s", acct)
@@ -243,9 +243,9 @@ class DataManager:
                 person_id = person.get("id")
                 if not person_id:
                     logger.warning("DataManager.update_depot_details: Person ohne id, Update verworfen")
-                    return
-                self._with_db_or_default(lambda: self.repository.update_person(person_id, person), False)
-                return
+                    return False
+                return self._with_db_or_default(lambda: self.repository.update_person(person_id, person), False)
+        return False
 
     def load_bank_data(self):
         banken = self._with_db_or_default(self.repository.list_banken, [])

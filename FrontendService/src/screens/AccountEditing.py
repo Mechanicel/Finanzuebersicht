@@ -1,7 +1,15 @@
 import customtkinter as ctk
+import logging
 
 from src.models.AppState import AppState
+from src.helpers.account_editing import (
+    get_latest_balance_entry,
+    recalculate_depot_after_account_edit,
+    update_latest_balance_entry,
+)
 from src.ui.components import create_page, section_card, action_bar_grid, primary_button, danger_button, set_status, empty_state
+
+logger = logging.getLogger(__name__)
 
 
 def create_screen(app, navigator, state: AppState, selected_index: int = 0, **kwargs):
@@ -125,7 +133,11 @@ def create_screen(app, navigator, state: AppState, selected_index: int = 0, **kw
             account["BIC"] = bic_var.get()
             account["BLZ"] = blz_var.get()
             state.save_person(person)
-            set_status(status, "Depotkonto gespeichert.", "success")
+            recalc_ok = recalculate_depot_after_account_edit(state.account_controller, person, state.selected_date)
+            if recalc_ok:
+                set_status(status, "Depotkonto gespeichert und Depot neu berechnet.", "success")
+            else:
+                set_status(status, "Depotkonto gespeichert. Depot-Neuberechnung fehlgeschlagen (siehe Logs).", "warning")
             navigator.navigate("PersonInfo", selected_person=person)
 
         refresh_depot()
@@ -133,14 +145,36 @@ def create_screen(app, navigator, state: AppState, selected_index: int = 0, **kw
         primary_button(bar, "Speichern", save_depot, column=0)
         danger_button(bar, "Löschen", delete_account, column=2)
     else:
+        latest_date, latest_balance = get_latest_balance_entry(account)
+        ctk.CTkLabel(form_body, text="Aktueller Kontostand").grid(row=row, column=0, sticky="w", pady=4)
+        balance_entry = ctk.CTkEntry(form_body)
+        balance_entry.insert(0, str(latest_balance))
+        balance_entry.grid(row=row, column=1, sticky="ew")
+        row += 1
+        ctk.CTkLabel(
+            form_body,
+            text=f"Letzter Kontostand-Eintrag: {latest_date or 'nicht vorhanden'}",
+        ).grid(row=row, column=0, columnspan=2, sticky="w", pady=(0, 4))
+        row += 1
+
         def save_generic():
             account["Bank"] = bank_var.get()
             account["BIC"] = bic_var.get()
             account["BLZ"] = blz_var.get()
             for k, ent in detail_entries.items():
                 account[k] = ent.get().strip()
+            try:
+                new_balance = float(balance_entry.get().strip() or 0.0)
+            except (TypeError, ValueError):
+                logger.warning("AccountEditing.save_generic: Ungültiger Kontostand, verwende 0.0")
+                new_balance = 0.0
+            update_latest_balance_entry(account, new_balance, state.selected_date)
             state.save_person(person)
-            set_status(status, "Konto gespeichert.", "success")
+            recalc_ok = recalculate_depot_after_account_edit(state.account_controller, person, state.selected_date)
+            if recalc_ok:
+                set_status(status, "Konto gespeichert und Depot neu berechnet.", "success")
+            else:
+                set_status(status, "Konto gespeichert. Depot-Neuberechnung fehlgeschlagen (siehe Logs).", "warning")
             navigator.navigate("PersonInfo", selected_person=person)
 
         bar = action_bar_grid(form_body, row=row + 1, columnspan=2)
