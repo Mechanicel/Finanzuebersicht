@@ -9,6 +9,7 @@ dependencies = [
   "matplotlib>=3.8,<4",
   "numpy>=1.26,<3",
   "python-dotenv>=1.0,<2",
+  "pymongo>=4.8,<5",
   "requests>=2.31,<3",
   "tkcalendar>=1.6,<2",
 ]
