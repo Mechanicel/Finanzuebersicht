@@ -40,7 +40,11 @@ class MongoRepository:
         if not path.exists():
             logger.info("Seed-Datei fehlt: %s", path)
             return {}
-        return json.loads(path.read_text(encoding="utf-8"))
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            logger.warning("Seed-Datei %s enthält kein JSON-Objekt und wird ignoriert", path)
+            return {}
+        return payload
 
     def _seed_personen(self) -> None:
         payload = self._read_json_file(self.settings.frontend_seed_personen_file)
@@ -67,10 +71,16 @@ class MongoRepository:
             logger.info("Mongo Seed: %d Kontotypen migriert", len(docs))
 
     def _normalize_person(self, person: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(person, dict):
+            logger.warning("MongoRepository._normalize_person: Ungültiger Personentyp: %s", type(person).__name__)
+            person = {}
         person_doc = dict(person)
         person_doc.setdefault("id", str(uuid4()))
         konten = []
         for konto in person_doc.get("Konten", []):
+            if not isinstance(konto, dict):
+                logger.warning("MongoRepository._normalize_person: Ungültiger Kontotyp übersprungen: %s", konto)
+                continue
             konto_doc = dict(konto)
             konto_doc.setdefault("id", str(uuid4()))
             konten.append(konto_doc)
@@ -78,6 +88,9 @@ class MongoRepository:
         return person_doc
 
     def _normalize_bank(self, bank: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(bank, dict):
+            logger.warning("MongoRepository._normalize_bank: Ungültiger Banktyp: %s", type(bank).__name__)
+            bank = {}
         bank_doc = dict(bank)
         bank_doc.setdefault("id", str(uuid4()))
         bank_doc.setdefault("BIC", [])
@@ -85,6 +98,9 @@ class MongoRepository:
         return bank_doc
 
     def _normalize_account_type(self, item: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(item, dict) or not item:
+            logger.warning("MongoRepository._normalize_account_type: Ungültiger Kontotyp-Eintrag: %s", item)
+            return {"id": str(uuid4()), "name": "Unbekannt", "fields": []}
         key = next(iter(item.keys()))
         fields = item.get(key, [])
         return {"id": str(uuid4()), "name": key, "fields": fields}
