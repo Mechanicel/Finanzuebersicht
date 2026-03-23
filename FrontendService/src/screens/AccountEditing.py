@@ -1,110 +1,95 @@
-# src/screens/AccountEditing.py
-
 import customtkinter as ctk
-from src.helpers.UniversalMethoden import clear_ui, zentrieren
+
 from src.models.AppState import AppState
+from src.ui.components import create_page, section_card, action_bar, primary_button, secondary_button, danger_button, set_status, empty_state
 
 
 def create_screen(app, navigator, state: AppState, selected_index: int = 0, **kwargs):
-    clear_ui(app)
-
     person = state.selected_person
     konten = person.get("Konten", [])
     if not konten:
-        return navigator.navigate("PersonInfo", selected_person=person)
+        ui = create_page(app, "Konten bearbeiten", "Keine Konten verfügbar.", back_command=lambda: navigator.navigate("PersonInfo"))
+        empty_state(ui["content"], "Es sind keine Konten vorhanden.")
+        return
 
     idx = max(0, min(selected_index, len(konten) - 1))
     account = konten[idx]
 
-    # Header + Auswahl-Dropdown
-    ctk.CTkLabel(
+    ui = create_page(
         app,
-        text=f"Konten bearbeiten – {person['Name']} {person['Nachname']}",
-        font=("Arial", 16, "bold")
-    ).grid(row=0, column=0, columnspan=4, padx=20, pady=10, sticky="w")
+        title="Konten bearbeiten",
+        subtitle=f"{person['Name']} {person['Nachname']}",
+        back_command=lambda: navigator.navigate("PersonInfo", selected_person=person),
+        scrollable=True,
+    )
+    status = ui["status"]
 
-    choices = [
-        f"{i}: {k['Kontotyp']} – {k.get('Kontonummer', k.get('Deponummer',''))}"
-        for i, k in enumerate(konten)
-    ]
+    _, select_body = section_card(ui["content"], "Kontoauswahl")
+    choices = [f"{i}: {k['Kontotyp']} – {k.get('Kontonummer', k.get('Deponummer', ''))}" for i, k in enumerate(konten)]
     sel_var = ctk.StringVar(value=choices[idx])
     ctk.CTkComboBox(
-        app,
+        select_body,
         values=choices,
         variable=sel_var,
         state="readonly",
-        command=lambda v: navigator.navigate(
-            "AccountEditing",
-            selected_person=person,
-            selected_index=int(v.split(":", 1)[0])
-        )
-    ).grid(row=1, column=0, columnspan=4, padx=20, pady=5, sticky="we")
+        command=lambda v: navigator.navigate("AccountEditing", selected_person=person, selected_index=int(v.split(":", 1)[0])),
+    ).pack(fill="x")
 
-    # Detail-Frame
-    frame = ctk.CTkFrame(app)
-    frame.grid(row=2, column=0, columnspan=4, padx=20, pady=10, sticky="nsew")
-    zentrieren(frame)
+    _, form_body = section_card(ui["content"], "Bearbeitung")
+    form_body.grid_columnconfigure(1, weight=1)
 
-    # Statischer Kontotyp
-    ctk.CTkLabel(frame, text="Kontotyp:").grid(row=0, column=0, sticky="w", padx=5, pady=5)
-    ctk.CTkLabel(frame, text=account.get("Kontotyp","")).grid(row=0, column=1, columnspan=3, sticky="w", padx=5, pady=5)
+    ctk.CTkLabel(form_body, text="Kontotyp").grid(row=0, column=0, sticky="w", pady=4)
+    ctk.CTkLabel(form_body, text=account.get("Kontotyp", "")).grid(row=0, column=1, sticky="w", pady=4)
 
-    # Bank / BIC / BLZ
-    bank_var = ctk.StringVar(value=account.get("Bank",""))
-    bic_var  = ctk.StringVar(value=account.get("BIC",""))
-    blz_var  = ctk.StringVar(value=account.get("BLZ",""))
+    bank_var = ctk.StringVar(value=account.get("Bank", ""))
+    bic_var = ctk.StringVar(value=account.get("BIC", ""))
+    blz_var = ctk.StringVar(value=account.get("BLZ", ""))
 
     def update_bank_fields(_=None):
-        banken = state.banken
-        b = next((b for b in banken if b["Name"] == bank_var.get()), {})
-        bics = b.get("BIC", [])
-        blzs = b.get("BLZ", [])
+        b = next((x for x in state.banken if x["Name"] == bank_var.get()), {})
+        bics = b.get("BIC", []) or [""]
+        blzs = b.get("BLZ", []) or [""]
         bic_menu.configure(values=bics)
-        if bics and bic_var.get() not in bics:
-            bic_var.set(bics[0])
         blz_menu.configure(values=blzs)
-        if blzs and blz_var.get() not in blzs:
+        if bic_var.get() not in bics:
+            bic_var.set(bics[0])
+        if blz_var.get() not in blzs:
             blz_var.set(blzs[0])
 
-    ctk.CTkLabel(frame, text="Bank:").grid(row=1, column=0, sticky="w", padx=5, pady=5)
-    ctk.CTkOptionMenu(frame, variable=bank_var, values=person.get("Banken", []), command=update_bank_fields)\
-        .grid(row=1, column=1, sticky="we", padx=5, pady=5)
-    ctk.CTkLabel(frame, text="BIC:").grid(row=2, column=0, sticky="w", padx=5, pady=5)
-    bic_menu = ctk.CTkOptionMenu(frame, variable=bic_var, values=[])
-    bic_menu.grid(row=2, column=1, sticky="we", padx=5, pady=5)
-    ctk.CTkLabel(frame, text="BLZ:").grid(row=3, column=0, sticky="w", padx=5, pady=5)
-    blz_menu = ctk.CTkOptionMenu(frame, variable=blz_var, values=[])
-    blz_menu.grid(row=3, column=1, sticky="we", padx=5, pady=5)
-
+    ctk.CTkLabel(form_body, text="Bank").grid(row=1, column=0, sticky="w", pady=4)
+    ctk.CTkOptionMenu(form_body, variable=bank_var, values=person.get("Banken", []), command=update_bank_fields).grid(row=1, column=1, sticky="ew")
+    ctk.CTkLabel(form_body, text="BIC").grid(row=2, column=0, sticky="w", pady=4)
+    bic_menu = ctk.CTkOptionMenu(form_body, variable=bic_var, values=[])
+    bic_menu.grid(row=2, column=1, sticky="ew")
+    ctk.CTkLabel(form_body, text="BLZ").grid(row=3, column=0, sticky="w", pady=4)
+    blz_menu = ctk.CTkOptionMenu(form_body, variable=blz_var, values=[])
+    blz_menu.grid(row=3, column=1, sticky="ew")
     update_bank_fields()
 
-    # Dynamische Felder (z.B. Kontonummer)
     detail_entries = {}
     row = 4
     for key, val in account.items():
-        if key in ("Kontotyp","Bank","BIC","BLZ","Kontostaende","DepotDetails","Auszahlungskonto","Verrechnungskonto"):
+        if key in ("Kontotyp", "Bank", "BIC", "BLZ", "Kontostaende", "DepotDetails", "Auszahlungskonto", "Verrechnungskonto"):
             continue
-        ctk.CTkLabel(frame, text=f"{key}:").grid(row=row, column=0, sticky="w", padx=5, pady=5)
-        ent = ctk.CTkEntry(frame)
+        ctk.CTkLabel(form_body, text=key).grid(row=row, column=0, sticky="w", pady=4)
+        ent = ctk.CTkEntry(form_body)
         ent.insert(0, str(val))
-        ent.grid(row=row, column=1, columnspan=3, sticky="we", padx=5, pady=5)
+        ent.grid(row=row, column=1, sticky="ew")
         detail_entries[key] = ent
         row += 1
 
-    # Speicher- und Lösch-Funktion für Nicht-Depot
+    detail_frame = ctk.CTkFrame(form_body, fg_color="transparent")
+    detail_frame.grid(row=row, column=0, columnspan=2, sticky="ew", pady=(10, 0))
+
     def delete_account():
         konten.pop(idx)
         state.save_person(person)
+        set_status(status, "Konto gelöscht.", "success")
         navigator.navigate("PersonInfo", selected_person=person)
 
-    # Sonderfall Depot mit dynamischen Rows
     if account.get("Kontotyp") == "Depot":
-        detail_frame = ctk.CTkFrame(frame)
-        detail_frame.grid(row=row, column=0, columnspan=4, sticky="we", pady=(10,5))
-        zentrieren(detail_frame)
-
         def add_row():
-            account.setdefault("DepotDetails", []).append({"ISIN":"", "Menge":0})
+            account.setdefault("DepotDetails", []).append({"ISIN": "", "Menge": 0})
             refresh_depot()
 
         def delete_row(ridx):
@@ -112,49 +97,42 @@ def create_screen(app, navigator, state: AppState, selected_index: int = 0, **kw
             refresh_depot()
 
         def refresh_depot():
-            # Nur die Einträge in detail_frame neu erzeugen
             for w in detail_frame.winfo_children():
                 w.destroy()
             for r, det in enumerate(account.get("DepotDetails", [])):
                 e_i = ctk.CTkEntry(detail_frame)
-                e_i.insert(0, det.get("ISIN",""))
-                e_i.grid(row=r, column=0, padx=5, pady=2, sticky="we")
+                e_i.insert(0, det.get("ISIN", ""))
+                e_i.grid(row=r, column=0, padx=4, pady=2, sticky="ew")
                 e_m = ctk.CTkEntry(detail_frame)
-                e_m.insert(0, str(det.get("Menge","")))
-                e_m.grid(row=r, column=1, padx=5, pady=2, sticky="we")
-                btn_del = ctk.CTkButton(
-                    detail_frame, text="✕", width=30,
-                    command=lambda ridx=r: delete_row(ridx)
-                )
-                btn_del.grid(row=r, column=2, padx=5, pady=2)
-            # "Position hinzufügen"-Button immer neu anlegen
-            btn_add = ctk.CTkButton(detail_frame, text="Position hinzufügen", command=add_row)
-            btn_add.grid(row=len(account.get("DepotDetails", [])), column=0, columnspan=3, pady=5)
+                e_m.insert(0, str(det.get("Menge", "")))
+                e_m.grid(row=r, column=1, padx=4, pady=2, sticky="ew")
+                ctk.CTkButton(detail_frame, text="✕", width=34, fg_color="#A61B1B", command=lambda ridx=r: delete_row(ridx)).grid(row=r, column=2, padx=4)
+            ctk.CTkButton(detail_frame, text="Position hinzufügen", command=add_row).grid(row=len(account.get("DepotDetails", [])), column=0, columnspan=3, pady=6)
 
         def save_depot():
-            # Alle Einträge zurück in account["DepotDetails"]
             new_details = []
-            # Wir lesen Reihenweise anhand der aktuellen Liste
             for r in range(len(account.get("DepotDetails", []))):
                 isin = detail_frame.grid_slaves(row=r, column=0)[0].get().strip()
                 qty_text = detail_frame.grid_slaves(row=r, column=1)[0].get().strip()
                 try:
                     qty = float(qty_text)
-                except:
+                except Exception:
                     qty = qty_text
                 if isin:
                     new_details.append({"ISIN": isin, "Menge": qty})
             account["DepotDetails"] = new_details
+            account["Bank"] = bank_var.get()
+            account["BIC"] = bic_var.get()
+            account["BLZ"] = blz_var.get()
             state.save_person(person)
+            set_status(status, "Depotkonto gespeichert.", "success")
             navigator.navigate("PersonInfo", selected_person=person)
 
-        # Initial render und Buttons
         refresh_depot()
-        ctk.CTkButton(frame, text="Speichern", command=save_depot).grid(row=row+1, column=0, padx=5, pady=10)
-        ctk.CTkButton(frame, text="Löschen", command=delete_account).grid(row=row+1, column=1, padx=5, pady=10)
-
+        bar = action_bar(form_body)
+        primary_button(bar, "Speichern", save_depot, column=0)
+        danger_button(bar, "Löschen", delete_account, column=2)
     else:
-        # Nicht-Depot: Standard-Save/Delete
         def save_generic():
             account["Bank"] = bank_var.get()
             account["BIC"] = bic_var.get()
@@ -162,16 +140,9 @@ def create_screen(app, navigator, state: AppState, selected_index: int = 0, **kw
             for k, ent in detail_entries.items():
                 account[k] = ent.get().strip()
             state.save_person(person)
+            set_status(status, "Konto gespeichert.", "success")
             navigator.navigate("PersonInfo", selected_person=person)
 
-        ctk.CTkButton(frame, text="Speichern", command=save_generic).grid(row=row, column=0, padx=5, pady=10)
-        ctk.CTkButton(frame, text="Löschen", command=delete_account).grid(row=row, column=1, padx=5, pady=10)
-
-    # Rückkehr-Button
-    ctk.CTkButton(
-        app,
-        text="Zurück",
-        command=lambda: navigator.navigate("PersonInfo", selected_person=person)
-    ).grid(row=row+2, column=0, columnspan=4, pady=10)
-
-    zentrieren(app)
+        bar = action_bar(form_body)
+        primary_button(bar, "Speichern", save_generic, column=0)
+        danger_button(bar, "Löschen", delete_account, column=2)

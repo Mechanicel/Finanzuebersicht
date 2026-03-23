@@ -1,19 +1,45 @@
-import customtkinter
-from src.helpers.UniversalMethoden import clear_ui, zentrieren
+import customtkinter as ctk
+
 from src.models.AppState import AppState
+from src.ui.components import create_page, section_card, stats_row
 
 
 def create_screen(app, navigator, state: AppState, **kwargs):
-    clear_ui(app)
     person = state.selected_person
-    customtkinter.CTkLabel(app, text=f"{person['Name']} {person['Nachname']}").grid(row=0, column=0, columnspan=2, padx=20, pady=10)
+    if not person:
+        navigator.navigate("PersonSelection")
+        return
 
-    customtkinter.CTkButton(app, text="Kontozusammenfassung", command=lambda: navigator.navigate("AccountSummary")).grid(row=1, column=0, columnspan=2, padx=20, pady=10)
-    customtkinter.CTkButton(app, text="Freibetrag eingeben", command=lambda: navigator.navigate("FreibetragInput")).grid(row=2, column=0, columnspan=2, padx=20, pady=10)
-    customtkinter.CTkButton(app, text="Kontoübersicht", command=lambda: navigator.navigate("AccountOverview")).grid(row=3, column=0, columnspan=2, padx=20, pady=10)
-    customtkinter.CTkButton(app, text="Bank hinzufügen", command=lambda: navigator.navigate("BankAssignment")).grid(row=4, column=0, columnspan=2, padx=20, pady=10)
-    customtkinter.CTkButton(app, text="Konto hinzufügen", command=lambda: navigator.navigate("AccountAddition")).grid(row=5, column=0, columnspan=2, padx=20, pady=10)
-    customtkinter.CTkButton(app, text="Konten bearbeiten", command=lambda: navigator.navigate("AccountEditing")).grid(row=6, column=0, columnspan=2, padx=20, pady=10)
-    customtkinter.CTkButton(app, text="Zurück", command=lambda: navigator.navigate("PersonSelection")).grid(row=7, column=0, columnspan=2, padx=20, pady=10)
+    ui = create_page(
+        app,
+        title=f"{person['Name']} {person['Nachname']}",
+        subtitle="Personen-Hub für Verwaltung und Analysen",
+        back_command=lambda: navigator.navigate("PersonSelection"),
+    )
 
-    zentrieren(app)
+    stats_row(
+        ui["content"],
+        [
+            ("Banken", str(len(person.get("Banken", [])))),
+            ("Konten", str(len(person.get("Konten", [])))),
+            ("Freibeträge", str(len(person.get("Freibetrag", {})))),
+        ],
+    )
+
+    _, manage = section_card(ui["content"], "Verwalten")
+    manage.grid_columnconfigure((0, 1), weight=1)
+    buttons_manage = [
+        ("Freibetrag eingeben", "FreibetragInput"),
+        ("Freibeträge anzeigen", "FreibetragDisplay"),
+        ("Kontoübersicht erfassen", "AccountOverview"),
+        ("Bank hinzufügen", "BankAssignment"),
+        ("Konto hinzufügen", "AccountAddition"),
+        ("Konten bearbeiten", "AccountEditing"),
+    ]
+    for i, (label, route) in enumerate(buttons_manage):
+        ctk.CTkButton(manage, text=label, height=40, command=lambda r=route: navigator.navigate(r)).grid(
+            row=i // 2, column=i % 2, padx=6, pady=6, sticky="ew"
+        )
+
+    _, analyze = section_card(ui["content"], "Analysieren")
+    ctk.CTkButton(analyze, text="Kontozusammenfassung öffnen", height=44, command=lambda: navigator.navigate("AccountSummary")).pack(fill="x")

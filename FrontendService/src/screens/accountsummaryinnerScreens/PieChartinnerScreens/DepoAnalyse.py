@@ -1,100 +1,69 @@
 import logging
+
 import customtkinter as ctk
 
 from src.screens.accountsummaryinnerScreens.PieChartinnerScreens.DepoAnalyseScreens.DepotPositionPieScreen import (
-    create_screen as create_depot_pie
+    create_screen as create_depot_pie,
 )
-from src.helpers.UniversalMethoden import clear_ui
 from src.screens.accountsummaryinnerScreens.PieChartinnerScreens.DepoAnalyseScreens.TableScreen import create_screen as create_table_screen
-from src.screens.accountsummaryinnerScreens.PieChartinnerScreens.DepoAnalyseScreens.ChartScreen  import create_screen as create_chart_screen
-from src.screens.accountsummaryinnerScreens.PieChartinnerScreens.DepoAnalyseScreens.GaugeScreen  import create_screen as create_gauge_screen
+from src.screens.accountsummaryinnerScreens.PieChartinnerScreens.DepoAnalyseScreens.ChartScreen import create_screen as create_chart_screen
+from src.screens.accountsummaryinnerScreens.PieChartinnerScreens.DepoAnalyseScreens.GaugeScreen import create_screen as create_gauge_screen
+from src.ui.components import create_page, section_card, empty_state
 from finanzuebersicht_shared import get_settings
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.DEBUG)
 settings = get_settings()
 
+
 def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
-    """
-    Leimwand-Screen:
-     1) Oben: Depot-Aufteilung (immer sichtbar)
-     2) Unten: Table, Chart, Gauges erst nach Auswahl
-    """
-    logger.debug("DepoAnalyse: Baue Haupt-Screen auf für Depot %s", depot_index)
-    clear_ui(app)
-    logger.debug("DepoAnalyse: Ausgewählte Person: %s", state.selected_person)
+    ui = create_page(app, "Depot-Analyse", "Interaktive Detailanalyse einzelner Depotpositionen", back_command=lambda: navigator.navigate("AccountSummary", selected_tab="piechart"))
 
-    # --- Grid: zwei Zeilen, drei Spalten ---
-    app.grid_rowconfigure(0, weight=1)
-    app.grid_rowconfigure(1, weight=3)
-    app.grid_columnconfigure(0, weight=1)
-    app.grid_columnconfigure(1, weight=2)
-    app.grid_columnconfigure(2, weight=1)
+    _, top_body = section_card(ui["content"], "Depot-Aufteilung", "Klicken Sie auf ein Segment, um Details zu laden.")
+    _, content_body = section_card(ui["content"], "Detailansicht")
 
-    # --- 1) PieChart immer anzeigen ---
-    top_frame = ctk.CTkFrame(app, fg_color="transparent")
-    top_frame.grid(row=0, column=0, columnspan=3, sticky="nsew", padx=10, pady=10)
-    logger.debug("DepoAnalyse: Top-Frame für PieChart erstellt")
+    layout = ctk.CTkFrame(content_body, fg_color="transparent")
+    layout.pack(fill="both", expand=True)
+    layout.grid_columnconfigure(0, weight=1)
+    layout.grid_columnconfigure(1, weight=2)
+    layout.grid_columnconfigure(2, weight=1)
+    layout.grid_rowconfigure(0, weight=1)
 
-    # --- 2) Content-Frame leer ---
-    content_frame = ctk.CTkFrame(app, fg_color="transparent")
-    content_frame.grid(row=1, column=0, columnspan=3, sticky="nsew", padx=10, pady=10)
-    content_frame.grid_columnconfigure((0,1,2), weight=1)
-    content_frame.grid_rowconfigure(0, weight=1)
-    logger.debug("DepoAnalyse: Leer-Content-Frame angelegt")
+    placeholder = ctk.CTkLabel(
+        content_body,
+        text="Bitte oben eine Depotposition auswählen, um Tabelle, Chart und Gauges zu sehen.",
+        text_color="gray70",
+    )
+    placeholder.pack(fill="x", pady=(8, 0))
 
-    # Callback für Auswahl im PieChart
     def on_stock_selected(ev):
         sel_isin = ev.get("isin")
         logger.debug("DepoAnalyse: Aktie ausgewählt ISIN=%s", sel_isin)
-        clear_ui(content_frame)
+        for w in layout.winfo_children():
+            w.destroy()
+        placeholder.pack_forget()
 
-        # --- TableScreen ---
-        left = ctk.CTkFrame(content_frame, fg_color="transparent")
-        left.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
-        logger.debug("DepoAnalyse: Erstelle TableScreen für ISIN %s", sel_isin)
+        left = ctk.CTkFrame(layout, fg_color="transparent")
+        left.grid(row=0, column=0, sticky="nsew", padx=8, pady=8)
         create_table_screen(left, api_endpoint=f"{settings.marketdata_base_url}/stock/{sel_isin}")
 
-        # --- ChartScreen (Aktienhistorie) ---
-        mid = ctk.CTkFrame(content_frame, fg_color="transparent")
-        mid.grid(row=0, column=1, sticky="nsew", padx=10, pady=10)
-        logger.debug("DepoAnalyse: Erstelle ChartScreen für Aktie %s", sel_isin)
+        mid = ctk.CTkFrame(layout, fg_color="transparent")
+        mid.grid(row=0, column=1, sticky="nsew", padx=8, pady=8)
         create_chart_screen(mid, api_endpoint=f"{settings.marketdata_base_url}/stock/{sel_isin}")
 
-        # --- Gauges ---
-        right = ctk.CTkFrame(content_frame, fg_color="transparent")
-        right.grid(row=0, column=2, sticky="nsew", padx=10, pady=10)
+        right = ctk.CTkFrame(layout, fg_color="transparent")
+        right.grid(row=0, column=2, sticky="nsew", padx=8, pady=8)
         right.grid_columnconfigure(0, weight=1)
-        right.grid_rowconfigure((0,1,2), weight=1)
 
         backend = settings.marketdata_base_url
         gauges = [
             ("MsciWorld", f"{backend}/stock/{sel_isin}?etf=msciworld"),
             ("Volatilität", f"{backend}/volatility?isin={sel_isin}"),
-            ("Sharpe Ratio", f"{backend}/sharpe?isin={sel_isin}")
+            ("Sharpe Ratio", f"{backend}/sharpe?isin={sel_isin}"),
         ]
 
-        # Klick auf Gauge lädt neues Chart in der Mitte nach
         for i, (title, endpoint) in enumerate(gauges):
-            logger.debug("DepoAnalyse: Gauge '%s' Endpoint='%s'", title, endpoint)
             cont = ctk.CTkFrame(right, fg_color="transparent")
-            cont.grid(row=i, column=0, sticky="nsew", pady=5)
+            cont.grid(row=i, column=0, sticky="nsew", pady=4)
+            create_gauge_screen(cont, title=title, api_endpoint=endpoint, click_callback=(lambda ep=endpoint: create_chart_screen(mid, api_endpoint=ep)))
 
-            def make_click_cb(ep):
-                return lambda *_: create_chart_screen(mid, api_endpoint=ep)
-
-            create_gauge_screen(
-                cont,
-                title=title,
-                api_endpoint=endpoint,
-                click_callback=make_click_cb(endpoint)
-            )
-
-    # PieChart erstellen mit Callback
-    create_depot_pie(
-        top_frame,
-        navigator,
-        state,
-        depot_index=depot_index,
-        pick_callback=on_stock_selected
-    )
+    create_depot_pie(top_body, navigator, state, depot_index=depot_index, pick_callback=on_stock_selected)

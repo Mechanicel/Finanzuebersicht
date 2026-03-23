@@ -1,23 +1,36 @@
-import customtkinter
-from src.helpers.UniversalMethoden import clear_ui, zentrieren
+import customtkinter as ctk
+
+from src.ui.components import create_page, section_card, primary_button, secondary_button
 
 
 def create_screen(app, navigator, state, **kwargs):
-    clear_ui(app)
+    ui = create_page(
+        app,
+        title="Finanzübersicht",
+        subtitle="Verwaltung und Analyse Ihrer Personen, Banken und Konten.",
+    )
+    content = ui["content"]
 
-    title = customtkinter.CTkLabel(app, text="Person Wählen")
-    title.grid(row=0, column=1, padx=20, pady=20)
+    _, actions = section_card(content, "Schnellstart", "Wählen Sie eine Aktion aus, um zu beginnen.")
+    actions.grid_columnconfigure((0, 1, 2), weight=1)
 
-    btn_person = customtkinter.CTkButton(app, text="Person Auswählen",
-                                         command=lambda: navigator.navigate("PersonSelection"))
-    btn_person.grid(row=1, column=0, padx=20, pady=20)
+    ctk.CTkButton(
+        actions,
+        text="👤 Person auswählen",
+        height=54,
+        command=lambda: navigator.navigate("PersonSelection"),
+    ).grid(row=0, column=0, padx=8, pady=8, sticky="ew")
 
-    btn_new_person = customtkinter.CTkButton(app, text="Neue Person Anlegen",
-                                             command=lambda: navigator.navigate("NewPerson"))
-    btn_new_person.grid(row=1, column=1, padx=20, pady=20)
+    ctk.CTkButton(
+        actions,
+        text="➕ Neue Person",
+        height=54,
+        command=lambda: navigator.navigate("NewPerson"),
+    ).grid(row=0, column=1, padx=8, pady=8, sticky="ew")
 
-    btn_new_bank = customtkinter.CTkButton(app, text="Neue Bank Anlegen",
-                                           command=lambda: navigator.navigate("NewBank"))
-    btn_new_bank.grid(row=1, column=2, padx=20, pady=20)
-
-    zentrieren(app)
+    ctk.CTkButton(
+        actions,
+        text="🏦 Neue Bank",
+        height=54,
+        command=lambda: navigator.navigate("NewBank"),
+    ).grid(row=0, column=2, padx=8, pady=8, sticky="ew")
