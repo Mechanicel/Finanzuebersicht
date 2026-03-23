@@ -262,24 +262,50 @@ class DataManager:
         kontotypen = self._with_db_or_default(self.repository.list_kontotypen, [])
         return {"Kontotypen": kontotypen}
 
-    def _get(self, url: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+    def _get(self, url: str, params: dict[str, Any] | None = None) -> dict[str, Any] | None:
         try:
             response = requests.get(url, params=params, timeout=8)
             response.raise_for_status()
             return response.json()
+        except requests.HTTPError as exc:
+            status_code = exc.response.status_code if exc.response is not None else "unknown"
+            body = exc.response.text if exc.response is not None else ""
+            logger.error("HTTP-Fehler beim Aufruf von %s (status=%s, body=%s)", url, status_code, body)
+            return None
         except requests.RequestException:
             logger.exception("HTTP-Fehler beim Aufruf von %s", url)
-            return {}
+            return None
+        except ValueError:
+            logger.exception("Ungültige JSON-Antwort von %s", url)
+            return None
 
     def get_price(self, isin: str, target_date):
         url = f"{self.settings.marketdata_base_url}/price/{isin}"
-        payload = self._get(url, {"date": target_date.isoformat() if target_date else None})
-        return float(payload.get("price", 0.0) or 0.0)
+        params = {"date": target_date.isoformat()} if target_date else None
+        payload = self._get(url, params)
+        if not payload:
+            logger.warning("DataManager.get_price: Fallback auf 0.0 für ISIN=%s", isin)
+            return 0.0
+        if "price" not in payload:
+            logger.warning("DataManager.get_price: Antwort ohne price-Feld für ISIN=%s: %s", isin, payload)
+            return 0.0
+        try:
+            return float(payload.get("price") or 0.0)
+        except (TypeError, ValueError):
+            logger.warning("DataManager.get_price: Ungültiges price-Feld für ISIN=%s: %s", isin, payload.get("price"))
+            return 0.0
 
     def get_company_name(self, isin: str):
         url = f"{self.settings.marketdata_base_url}/company/{isin}"
         payload = self._get(url)
-        return payload.get("company_name") or isin
+        if not payload:
+            logger.warning("DataManager.get_company_name: Fallback auf ISIN=%s", isin)
+            return isin
+        company_name = payload.get("company_name")
+        if not company_name:
+            logger.warning("DataManager.get_company_name: Antwort ohne company_name für ISIN=%s: %s", isin, payload)
+            return isin
+        return company_name
 
     def calculate_festgeld_for_date(self, konto_or_id, date) -> float:
         konto = konto_or_id
