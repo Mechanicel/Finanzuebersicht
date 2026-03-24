@@ -1,18 +1,28 @@
-# stock_model.py
-from dataclasses import dataclass, field, asdict, is_dataclass
+from __future__ import annotations
+
+from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List
 
+
 @dataclass
-class StockModel:
-    """
-    Modell zur Abbildung von Aktien-Daten:
-      - isin
-      - basic: Basisinfos (inkl. country)
-      - metrics: aktueller Stand (inkl. freeFloat)
-      - metrics_history: historische Quartalsdaten
-      - etf: Mapping von ETF-Key auf ein beliebiges Objekt oder Dict
-    """
+class CompanyAnalysisModel:
+    """Stabiles internes Analysemodell für Einzelwerte und Fonds/ETFs."""
+
     isin: str
+    instrument: Dict[str, Any] = field(default_factory=dict)
+    market: Dict[str, Any] = field(default_factory=dict)
+    profile: Dict[str, Any] = field(default_factory=dict)
+    valuation: Dict[str, Any] = field(default_factory=dict)
+    quality: Dict[str, Any] = field(default_factory=dict)
+    growth: Dict[str, Any] = field(default_factory=dict)
+    balance_sheet: Dict[str, Any] = field(default_factory=dict)
+    cash_flow: Dict[str, Any] = field(default_factory=dict)
+    analysts: Dict[str, Any] = field(default_factory=dict)
+    fund: Dict[str, Any] = field(default_factory=dict)
+    timeseries: Dict[str, Any] = field(default_factory=dict)
+    meta: Dict[str, Any] = field(default_factory=dict)
+
+    # Legacy-/Kompatibilitätsfelder
     basic: Dict[str, Any] = field(default_factory=dict)
     metrics: Dict[str, Any] = field(default_factory=dict)
     metrics_history: List[Dict[str, Any]] = field(default_factory=list)
@@ -20,41 +30,43 @@ class StockModel:
     etf: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
-        """
-        Serialisiert das gesamte Modell in JSON-kompatibles Dict.
-        Baut das 'etf'-Mapping so um, dass jedes Objekt
-        entweder seine to_dict() nutzt oder asdict()/__dict__.
-        """
-        # 1) Kopf-Felder übernehmen
-        result = {
-            "isin": self.isin,
-            "basic": self.basic,
-            "metrics": self.metrics,
-            "metrics_history": self.metrics_history,
-            "price_history": self.price_history,
-        }
-        # 2) ETF-Felder aufbereiten
-        serialized_etf: Dict[str, Any] = {}
-        for key, data in self.etf.items():
-            # Priorität 1: eigene to_dict-Methode
-            if hasattr(data, "to_dict") and callable(data.to_dict):
-                serialized_etf[key] = data.to_dict()
-            # Priorität 2: dataclass-Objekt
-            elif is_dataclass(data):
-                serialized_etf[key] = asdict(data)
-            # Priorität 3: normales Dict oder anderes Objekt
-            elif isinstance(data, dict):
-                serialized_etf[key] = data
-            else:
-                # Fallback: alle öffentlichen Attribute
-                serialized_etf[key] = {
-                    k: v for k, v in getattr(data, "__dict__", {}).items()
-                    if not k.startswith("_")
-                }
-        result["etf"] = serialized_etf
-        return result
+        return asdict(self)
+
+    def sync_legacy_fields(self) -> None:
+        """Hält alte Felder für bestehende Endpunkte synchron."""
+        if not self.basic:
+            self.basic = {
+                "isin": self.instrument.get("isin") or self.isin,
+                "symbol": self.instrument.get("symbol"),
+                "shortName": self.instrument.get("short_name"),
+                "longName": self.instrument.get("long_name"),
+                "sector": self.profile.get("sector"),
+                "industry": self.profile.get("industry"),
+                "country": self.profile.get("country"),
+                "exchange": self.instrument.get("exchange"),
+                "currency": self.instrument.get("currency"),
+            }
+
+        if not self.metrics:
+            merged_metrics = {}
+            merged_metrics.update(self.market or {})
+            merged_metrics.update(self.valuation or {})
+            merged_metrics.update(self.quality or {})
+            merged_metrics.update(self.growth or {})
+            self.metrics = merged_metrics
+
+        if not self.price_history:
+            self.price_history = list((self.timeseries or {}).get("price_history") or [])
+
+        if not self.metrics_history:
+            self.metrics_history = list((self.timeseries or {}).get("metrics_history") or [])
+
+
+# Abwärtskompatibilität für bestehende Imports
+StockModel = CompanyAnalysisModel
 
 
 class ModelNotFoundError(Exception):
     """Wird geworfen, wenn ein angefragtes Modell/ETF nicht existiert."""
+
     pass
