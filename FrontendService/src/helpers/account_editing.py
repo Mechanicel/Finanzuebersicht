@@ -4,31 +4,13 @@ import logging
 from datetime import date
 from typing import Any
 
+from src.helpers.account_overview import get_latest_balance_entry_for_account, parse_balance_entry
+
 logger = logging.getLogger(__name__)
 
 
-def parse_balance_entry(entry: str) -> tuple[str, float] | None:
-    if not isinstance(entry, str) or ": " not in entry:
-        return None
-    date_str, value_str = entry.split(": ", 1)
-    try:
-        return date_str, float(value_str)
-    except (TypeError, ValueError):
-        return None
-
-
 def get_latest_balance_entry(account: dict[str, Any]) -> tuple[str | None, float]:
-    latest_date = None
-    latest_balance = 0.0
-    for raw_entry in account.get("Kontostaende", []) or []:
-        parsed = parse_balance_entry(raw_entry)
-        if not parsed:
-            continue
-        entry_date, value = parsed
-        if latest_date is None or entry_date > latest_date:
-            latest_date = entry_date
-            latest_balance = value
-    return latest_date, latest_balance
+    return get_latest_balance_entry_for_account(account)
 
 
 def update_latest_balance_entry(account: dict[str, Any], balance: float, reference_date: date | None) -> None:
