@@ -34,48 +34,25 @@ def _handle_service_error(exc: Exception, isin: str, endpoint_name: str):
 
 @stock_bp.route("/stock/<isin>", methods=["GET"])
 def get_stock(isin: str):
-    """
-    Legacy-Endpoint (beibehalten für bestehende Aufrufer).
-
-    Hinweis: Neue Clients sollten /analysis/company/<isin>/snapshot oder
-    /analysis/company/<isin>/full verwenden.
-    """
     etf = request.args.get("etf")
     try:
         if etf:
             model = service.build(isin, etf_key=etf)
             key = etf.lower()
-            etf_data = model.etf.get(key)
-
-            if hasattr(etf_data, "to_dict") and callable(etf_data.to_dict):
-                payload = etf_data.to_dict()
-            elif isinstance(etf_data, dict):
-                payload = etf_data
-            else:
-                payload = {"entries": getattr(etf_data, "entries", [])}
-
-            response = {
-                "instrument": model.basic if isinstance(model.basic, dict) else {},
-                "etf": {key: payload},
-                "entries": payload.get("entries", []),
-                "meta": {
-                    "deprecated": True,
-                    "preferred_endpoint": f"/analysis/company/{isin}/full",
-                    "coverage": f"etf:{key}",
-                },
-            }
-            return jsonify(response)
+            payload = model.etf.get(key) if isinstance(model.etf.get(key), dict) else {"entries": []}
+            return jsonify(
+                {
+                    "instrument": model.basic if isinstance(model.basic, dict) else {},
+                    "etf": {key: payload},
+                    "entries": payload.get("entries", []),
+                    "meta": {"deprecated": True, "preferred_endpoint": f"/analysis/company/{isin}/full", "coverage": f"etf:{key}"},
+                }
+            )
 
         model = service.build(isin)
         response = model.to_dict()
         response.setdefault("meta", {})
-        response["meta"].update(
-            {
-                "deprecated": True,
-                "preferred_endpoint": f"/analysis/company/{isin}/full",
-                "coverage": "legacy_stock",
-            }
-        )
+        response["meta"].update({"deprecated": True, "preferred_endpoint": f"/analysis/company/{isin}/full", "coverage": "legacy_stock"})
         return jsonify(response)
     except Exception as exc:
         return _handle_service_error(exc, isin, "/stock")
@@ -87,6 +64,41 @@ def get_company_snapshot(isin: str):
         return jsonify(service.get_analysis_snapshot(isin))
     except Exception as exc:
         return _handle_service_error(exc, isin, "/analysis/company/<isin>/snapshot")
+
+
+@stock_bp.route("/analysis/company/<isin>/financials", methods=["GET"])
+def get_company_financials(isin: str):
+    period = (request.args.get("period") or "annual").lower()
+    if period not in {"annual", "quarterly"}:
+        return _error_response(400, "Invalid period, expected annual|quarterly", "invalid_period")
+    try:
+        return jsonify(service.get_analysis_financials(isin, period=period))
+    except Exception as exc:
+        return _handle_service_error(exc, isin, "/analysis/company/<isin>/financials")
+
+
+@stock_bp.route("/analysis/company/<isin>/fundamentals", methods=["GET"])
+def get_company_fundamentals(isin: str):
+    try:
+        return jsonify(service.get_analysis_fundamentals(isin))
+    except Exception as exc:
+        return _handle_service_error(exc, isin, "/analysis/company/<isin>/fundamentals")
+
+
+@stock_bp.route("/analysis/company/<isin>/analysts", methods=["GET"])
+def get_company_analysts(isin: str):
+    try:
+        return jsonify(service.get_analysis_analysts(isin))
+    except Exception as exc:
+        return _handle_service_error(exc, isin, "/analysis/company/<isin>/analysts")
+
+
+@stock_bp.route("/analysis/company/<isin>/fund", methods=["GET"])
+def get_company_fund(isin: str):
+    try:
+        return jsonify(service.get_analysis_fund(isin))
+    except Exception as exc:
+        return _handle_service_error(exc, isin, "/analysis/company/<isin>/fund")
 
 
 @stock_bp.route("/analysis/company/<isin>/full", methods=["GET"])
@@ -117,7 +129,6 @@ def get_sharpe():
 
 @stock_bp.route("/price/<isin>", methods=["GET"])
 def get_price(isin: str):
-    """Liefert den Preis einer ISIN für heute oder ein explizites Datum."""
     date_str = request.args.get("date")
     target_date: Optional[date] = None
     if date_str:
@@ -135,7 +146,6 @@ def get_price(isin: str):
 
 @stock_bp.route("/company/<isin>", methods=["GET"])
 def get_company(isin: str):
-    """Gibt den Firmennamen für eine ISIN zurück."""
     try:
         name = service.get_company(isin)
         return jsonify({"company_name": name})
