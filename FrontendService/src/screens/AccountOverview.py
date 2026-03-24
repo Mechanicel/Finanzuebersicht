@@ -3,7 +3,6 @@ from calendar import monthrange
 from datetime import date
 
 import customtkinter as ctk
-from tkcalendar import DateEntry
 
 from src.helpers.account_overview import (
     build_account_label,
@@ -13,6 +12,7 @@ from src.helpers.account_overview import (
 )
 from src.models.AppState import AppState
 from src.ui.components import action_bar, create_page, empty_state, primary_button, secondary_button, section_card, set_status
+from src.ui.date_widgets import create_date_entry
 
 
 def create_screen(app, navigator, state: AppState, **kwargs):
@@ -60,7 +60,7 @@ def create_screen(app, navigator, state: AppState, **kwargs):
     date_body.grid_columnconfigure((0, 1, 2, 3), weight=1)
 
     selected_date = state.selected_date or date.today()
-    date_entry = DateEntry(date_body, date_pattern="yyyy-mm-dd", width=20)
+    date_entry = create_date_entry(date_body)
     date_entry.set_date(selected_date)
     date_entry.grid(row=0, column=0, sticky="w", pady=4)
 
