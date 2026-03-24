@@ -24,6 +24,18 @@ class FakeStockService:
             return 49.5
         return 48.0
 
+    def get_analysis_metrics(self, isin: str):
+        return {"metrics": {"performance": {"volatility": {"value": 0.2}}}}
+
+    def get_analysis_risk(self, isin: str, benchmark_key: str | None = None):
+        return {"risk": {"beta": {"value": 1.1}}, "benchmark": {"key": benchmark_key or "msci_world"}}
+
+    def get_analysis_benchmark(self, isin: str, benchmark_key: str | None = None):
+        return {"comparison": {"excess_return": {"value": 0.05}}, "benchmark": {"key": benchmark_key or "msci_world"}}
+
+    def get_analysis_timeseries(self, isin: str, series: str, benchmark_key: str | None = None):
+        return {"series": {"price": [{"date": "2026-03-24", "close": 51.0}]}, "benchmark": {"key": benchmark_key or "msci_world"}}
+
 
 def _client():
     stock_api.service = FakeStockService()
@@ -86,3 +98,39 @@ def test_invalid_date_format_returns_400():
     assert response.status_code == 400
     payload = response.get_json()
     assert payload["error"]["code"] == "invalid_date"
+
+
+def test_analysis_metrics_endpoint():
+    client = _client()
+
+    response = client.get("/analysis/company/DE000BASF111/metrics")
+
+    assert response.status_code == 200
+    assert response.get_json()["metrics"]["performance"]["volatility"]["value"] == 0.2
+
+
+def test_analysis_risk_endpoint_with_benchmark():
+    client = _client()
+
+    response = client.get("/analysis/company/DE000BASF111/risk?benchmark=sp500")
+
+    assert response.status_code == 200
+    assert response.get_json()["benchmark"]["key"] == "sp500"
+
+
+def test_analysis_benchmark_endpoint():
+    client = _client()
+
+    response = client.get("/analysis/company/DE000BASF111/benchmark?benchmark=ftse_all_world")
+
+    assert response.status_code == 200
+    assert response.get_json()["benchmark"]["key"] == "ftse_all_world"
+
+
+def test_analysis_timeseries_endpoint():
+    client = _client()
+
+    response = client.get("/analysis/company/DE000BASF111/timeseries?series=price,returns")
+
+    assert response.status_code == 200
+    assert response.get_json()["series"]["price"][0]["close"] == 51.0

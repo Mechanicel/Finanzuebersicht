@@ -107,6 +107,17 @@ class YahooMarketClient:
 
         return {"metrics_history": metrics_history, "price_history": price_history}
 
+    def fetch_benchmark_price_history(self, symbol: str) -> List[Dict[str, Any]]:
+        ticker = yf.Ticker(symbol)
+        daily = ticker.history(period="10y", interval="1d", auto_adjust=False, actions=False)
+        price_history: List[Dict[str, Any]] = []
+        for dt, row in daily.iterrows():
+            close = row.get("Close")
+            if close is None:
+                continue
+            price_history.append({"date": dt.date().isoformat(), "close": float(close)})
+        return price_history
+
 
 class YahooFinancialsClient:
     @staticmethod
@@ -349,6 +360,9 @@ class YFinanceProvider(BaseProvider):
     def fetch_timeseries(self, isin: str, symbol: str | None = None) -> Dict[str, Any]:
         ticker, _, _ = self._ticker_for_isin(isin, symbol)
         return self.market_client.fetch_timeseries(ticker)
+
+    def fetch_benchmark_timeseries(self, symbol: str) -> List[Dict[str, Any]]:
+        return self.market_client.fetch_benchmark_price_history(symbol)
 
     def fetch_etf_data(self, isin: str, etf_key: str) -> List[Dict[str, Any]]:
         market = self.fetch_market(isin)

@@ -38,6 +38,9 @@ class BaseProvider:
     def fetch_timeseries(self, isin: str, symbol: str | None = None) -> Dict[str, Any]:
         raise NotImplementedError
 
+    def fetch_benchmark_timeseries(self, symbol: str) -> List[Dict[str, Any]]:
+        raise NotImplementedError
+
     # Legacy-Adapter
     def fetch_basic(self, isin: str, symbol: str | None = None) -> Dict[str, Any]:
         instrument = self.fetch_instrument(isin, symbol=symbol)
