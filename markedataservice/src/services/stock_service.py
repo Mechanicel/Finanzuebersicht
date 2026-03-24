@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import datetime
 import logging
-import math
 from dataclasses import asdict, dataclass
 from typing import Any, Optional
 
 from src.models.stock_model import StockModel
 from src.repositories.mongo_repository import MongoMarketDataRepository
 from src.repositories.providers.yfinance_provider import YFinanceProvider
+from src.services.analysis_service import AnalysisMetricsService
 from src.services.base_service import BaseService, handle_errors
 
 logger = logging.getLogger(__name__)
@@ -46,6 +46,13 @@ class StockService(BaseService):
         super().__init__()
         self.mongo_repo = MongoMarketDataRepository()
         self.provider = YFinanceProvider()
+        self.analysis = AnalysisMetricsService(self.provider)
+
+    def _analysis_service(self) -> AnalysisMetricsService:
+        analysis = getattr(self, "analysis", None)
+        if analysis is None or getattr(analysis, "provider", None) is not self.provider:
+            self.analysis = AnalysisMetricsService(self.provider)
+        return self.analysis
 
     @handle_errors
     def build(self, isin: str, etf_key: Optional[str] = None) -> Any:
@@ -137,28 +144,56 @@ class StockService(BaseService):
     @handle_errors
     def get_volatility(self, isin: str) -> dict[str, Any]:
         model = self._get_or_build_model(isin)
-        closes = [entry["close"] for entry in self._normalize_price_history(model.price_history)]
-        returns = self._daily_returns(closes)
-        if not returns:
-            raise PriceNotFoundError("Zu wenig Preisdaten zur Volatilitätsberechnung")
-        annualized_vol = self._stddev(returns) * math.sqrt(252)
-        return {"value": round(annualized_vol * 100.0, 2), "unit": "percent", "metric": "volatility_annualized", "meta": asdict(self._meta("volatility"))}
+        metrics = self._analysis_service().build_metrics_payload(model)
+        return {**metrics["performance"]["volatility"], "metric": "volatility_annualized", "meta": asdict(self._meta("volatility"))}
 
     @handle_errors
     def get_sharpe_ratio(self, isin: str, risk_free_rate: float = 0.02) -> dict[str, Any]:
         model = self._get_or_build_model(isin)
-        closes = [entry["close"] for entry in self._normalize_price_history(model.price_history)]
-        returns = self._daily_returns(closes)
-        if not returns:
+        sharpe = self._analysis_service().build_metrics_payload(model)["performance"]["sharpe_ratio"]["value"]
+        if sharpe is None:
             raise PriceNotFoundError("Zu wenig Preisdaten zur Sharpe-Berechnung")
-        mean_return = sum(returns) / len(returns)
-        volatility = self._stddev(returns)
-        if volatility == 0:
-            raise PriceNotFoundError("Keine Schwankung in den Preisdaten – Sharpe nicht berechenbar")
-        daily_rf = risk_free_rate / 252
-        sharpe = ((mean_return - daily_rf) / volatility) * math.sqrt(252)
         score = max(min(((sharpe + 1.0) / 2.0) * 100.0, 100.0), 0.0)
         return {"value": round(score, 2), "ratio": round(sharpe, 4), "metric": "sharpe_ratio_annualized", "meta": asdict(self._meta("sharpe"))}
+
+    @handle_errors
+    def get_analysis_metrics(self, isin: str) -> dict[str, Any]:
+        model = self._get_or_build_model(isin)
+        return {
+            "metrics": self._analysis_service().build_metrics_payload(model),
+            "meta": asdict(self._meta("metrics")),
+        }
+
+    @handle_errors
+    def get_analysis_risk(self, isin: str, benchmark_key: str | None = None) -> dict[str, Any]:
+        model = self._get_or_build_model(isin)
+        return {
+            **self._analysis_service().build_risk_payload(model, benchmark_key=benchmark_key),
+            "meta": asdict(self._meta("risk")),
+        }
+
+    @handle_errors
+    def get_analysis_benchmark(self, isin: str, benchmark_key: str | None = None) -> dict[str, Any]:
+        model = self._get_or_build_model(isin)
+        return {
+            **self._analysis_service().build_benchmark_payload(model, benchmark_key=benchmark_key),
+            "meta": asdict(self._meta("benchmark")),
+        }
+
+    @handle_errors
+    def get_analysis_timeseries(self, isin: str, series: str, benchmark_key: str | None = None) -> dict[str, Any]:
+        model = self._get_or_build_model(isin)
+        requested = [item.strip().lower() for item in (series or "").split(",") if item.strip()]
+        allowed = {"price", "returns", "drawdown", "benchmark_relative", "benchmark_price"}
+        if not requested:
+            requested = ["price", "returns", "drawdown"]
+        invalid = [item for item in requested if item not in allowed]
+        if invalid:
+            raise InvalidRequestError(f"Invalid series values: {', '.join(invalid)}")
+        return {
+            **self._analysis_service().build_timeseries(model, requested, benchmark_key=benchmark_key),
+            "meta": asdict(self._meta("timeseries_analysis")),
+        }
 
     def _get_or_build_model(self, isin: str, target_date: Optional[datetime.date] = None) -> StockModel:
         normalized_isin = (isin or "").strip().upper()
@@ -336,16 +371,3 @@ class StockService(BaseService):
                 "timeseries": "yfinance",
             },
         )
-
-    def _normalize_price_history(self, history: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        normalized: list[dict[str, Any]] = []
-        for entry in history or []:
-            if not isinstance(entry, dict):
-                continue
-            date_str = entry.get("date")
-            close = self._to_float(entry.get("close"))
-            if not date_str or close is None:
-                continue
-            normalized.append({"date": str(date_str), "close": close})
-        normalized.sort(key=lambda item: item["date"])
-        return normalized

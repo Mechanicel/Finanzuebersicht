@@ -109,6 +109,42 @@ def get_company_full(isin: str):
         return _handle_service_error(exc, isin, "/analysis/company/<isin>/full")
 
 
+@stock_bp.route("/analysis/company/<isin>/metrics", methods=["GET"])
+def get_company_metrics(isin: str):
+    try:
+        return jsonify(service.get_analysis_metrics(isin))
+    except Exception as exc:
+        return _handle_service_error(exc, isin, "/analysis/company/<isin>/metrics")
+
+
+@stock_bp.route("/analysis/company/<isin>/risk", methods=["GET"])
+def get_company_risk(isin: str):
+    benchmark = request.args.get("benchmark")
+    try:
+        return jsonify(service.get_analysis_risk(isin, benchmark_key=benchmark))
+    except Exception as exc:
+        return _handle_service_error(exc, isin, "/analysis/company/<isin>/risk")
+
+
+@stock_bp.route("/analysis/company/<isin>/benchmark", methods=["GET"])
+def get_company_benchmark(isin: str):
+    benchmark = request.args.get("benchmark")
+    try:
+        return jsonify(service.get_analysis_benchmark(isin, benchmark_key=benchmark))
+    except Exception as exc:
+        return _handle_service_error(exc, isin, "/analysis/company/<isin>/benchmark")
+
+
+@stock_bp.route("/analysis/company/<isin>/timeseries", methods=["GET"])
+def get_company_timeseries(isin: str):
+    series = request.args.get("series", "price,returns,drawdown")
+    benchmark = request.args.get("benchmark")
+    try:
+        return jsonify(service.get_analysis_timeseries(isin, series=series, benchmark_key=benchmark))
+    except Exception as exc:
+        return _handle_service_error(exc, isin, "/analysis/company/<isin>/timeseries")
+
+
 @stock_bp.route("/volatility", methods=["GET"])
 def get_volatility():
     isin = request.args.get("isin", "")
