@@ -7,6 +7,8 @@ logger = logging.getLogger(__name__)
 
 
 class AnalysisApiClient:
+    """Kleiner Frontend-Helper für die Company-Analyse-Endpoints."""
+
     def __init__(self, base_url: str):
         self.base_url = (base_url or "").rstrip("/")
 
@@ -30,11 +32,39 @@ class AnalysisApiClient:
             logger.exception("AnalysisApiClient JSON-Fehler bei %s", url)
             return None, "Ungültige Serverantwort"
 
+    def load_snapshot(self, isin: str):
+        return self._get(f"/analysis/company/{isin}/snapshot")
+
     def load_full(self, isin: str):
         return self._get(f"/analysis/company/{isin}/full")
 
-    def load_metrics(self, isin: str):
-        return self._get(f"/analysis/company/{isin}/metrics")
+    def load_company_analysis(self, isin: str) -> tuple[dict[str, Any], list[str]]:
+        """Lädt Snapshot + Full und merged die wichtigsten Blöcke robust zusammen."""
+        warnings: list[str] = []
+        snapshot, snapshot_error = self.load_snapshot(isin)
+        full, full_error = self.load_full(isin)
+
+        if snapshot_error:
+            warnings.append(f"Snapshot: {snapshot_error}")
+        if full_error:
+            warnings.append(f"Full: {full_error}")
+
+        merged: dict[str, Any] = {}
+        for block in (snapshot or {}, full or {}):
+            if isinstance(block, dict):
+                merged.update(block)
+
+        for section in ("instrument", "market", "profile", "timeseries"):
+            left = snapshot.get(section) if isinstance(snapshot, dict) else None
+            right = full.get(section) if isinstance(full, dict) else None
+            if isinstance(left, dict) or isinstance(right, dict):
+                merged[section] = {}
+                if isinstance(left, dict):
+                    merged[section].update(left)
+                if isinstance(right, dict):
+                    merged[section].update(right)
+
+        return merged, warnings
 
     def load_financials(self, isin: str, period: str):
         return self._get(f"/analysis/company/{isin}/financials", params={"period": period})
