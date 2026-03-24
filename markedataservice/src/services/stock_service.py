@@ -56,7 +56,14 @@ class StockService(BaseService):
 
     @handle_errors
     def build(self, isin: str, etf_key: Optional[str] = None) -> Any:
-        model = self._get_or_build_model(isin)
+        model = self._get_or_build_model(
+            isin,
+            include_market=True,
+            include_prices=True,
+            include_financials=True,
+            include_analysts=True,
+            include_fund=True,
+        )
         if etf_key:
             model.etf[etf_key.lower()] = {"entries": self.provider.fetch_etf_data(model.isin, etf_key)}
             self.mongo_repo.write(model.isin, model.to_dict())
@@ -73,12 +80,12 @@ class StockService(BaseService):
 
     @handle_errors
     def get_price(self, isin: str, target_date: Optional[datetime.date]) -> float:
-        model = self._get_or_build_model(isin, target_date=target_date)
+        model = self._get_or_build_model(isin, target_date=target_date, include_prices=True)
         return self._price_from_history_for_date(model.price_history, target_date)
 
     @handle_errors
     def get_analysis_snapshot(self, isin: str) -> dict[str, Any]:
-        model = self._get_or_build_model(isin)
+        model = self._get_or_build_model(isin, include_market=True, include_financials=True)
         return {
             "instrument": model.instrument,
             "market": model.market,
@@ -88,7 +95,7 @@ class StockService(BaseService):
 
     @handle_errors
     def get_analysis_financials(self, isin: str, period: str = "annual") -> dict[str, Any]:
-        model = self._get_or_build_model(isin)
+        model = self._get_or_build_model(isin, include_financials=True)
         period = "quarterly" if period == "quarterly" else "annual"
         response = {
             "financials": {
@@ -103,7 +110,7 @@ class StockService(BaseService):
 
     @handle_errors
     def get_analysis_fundamentals(self, isin: str) -> dict[str, Any]:
-        model = self._get_or_build_model(isin)
+        model = self._get_or_build_model(isin, include_market=True, include_financials=True)
         return {
             "fundamentals": {
                 "valuation": model.valuation,
@@ -115,17 +122,24 @@ class StockService(BaseService):
 
     @handle_errors
     def get_analysis_analysts(self, isin: str) -> dict[str, Any]:
-        model = self._get_or_build_model(isin)
+        model = self._get_or_build_model(isin, include_analysts=True)
         return {"analysts": model.analysts, "meta": asdict(self._meta("analysts"))}
 
     @handle_errors
     def get_analysis_fund(self, isin: str) -> dict[str, Any]:
-        model = self._get_or_build_model(isin)
+        model = self._get_or_build_model(isin, include_fund=True)
         return {"fund": model.fund, "meta": asdict(self._meta("fund"))}
 
     @handle_errors
     def get_analysis_full(self, isin: str) -> dict[str, Any]:
-        model = self._get_or_build_model(isin)
+        model = self._get_or_build_model(
+            isin,
+            include_market=True,
+            include_prices=True,
+            include_financials=True,
+            include_analysts=True,
+            include_fund=True,
+        )
         return {
             "instrument": model.instrument,
             "market": model.market,
@@ -143,13 +157,13 @@ class StockService(BaseService):
 
     @handle_errors
     def get_volatility(self, isin: str) -> dict[str, Any]:
-        model = self._get_or_build_model(isin)
+        model = self._get_or_build_model(isin, include_prices=True)
         metrics = self._analysis_service().build_metrics_payload(model)
         return {**metrics["performance"]["volatility"], "metric": "volatility_annualized", "meta": asdict(self._meta("volatility"))}
 
     @handle_errors
     def get_sharpe_ratio(self, isin: str, risk_free_rate: float = 0.02) -> dict[str, Any]:
-        model = self._get_or_build_model(isin)
+        model = self._get_or_build_model(isin, include_prices=True)
         sharpe = self._analysis_service().build_metrics_payload(model)["performance"]["sharpe_ratio"]["value"]
         if sharpe is None:
             raise PriceNotFoundError("Zu wenig Preisdaten zur Sharpe-Berechnung")
@@ -158,7 +172,7 @@ class StockService(BaseService):
 
     @handle_errors
     def get_analysis_metrics(self, isin: str) -> dict[str, Any]:
-        model = self._get_or_build_model(isin)
+        model = self._get_or_build_model(isin, include_market=True, include_prices=True, include_financials=True)
         return {
             "metrics": self._analysis_service().build_metrics_payload(model),
             "meta": asdict(self._meta("metrics")),
@@ -166,7 +180,7 @@ class StockService(BaseService):
 
     @handle_errors
     def get_analysis_risk(self, isin: str, benchmark_key: str | None = None) -> dict[str, Any]:
-        model = self._get_or_build_model(isin)
+        model = self._get_or_build_model(isin, include_prices=True)
         return {
             **self._analysis_service().build_risk_payload(model, benchmark_key=benchmark_key),
             "meta": asdict(self._meta("risk")),
@@ -174,7 +188,7 @@ class StockService(BaseService):
 
     @handle_errors
     def get_analysis_benchmark(self, isin: str, benchmark_key: str | None = None) -> dict[str, Any]:
-        model = self._get_or_build_model(isin)
+        model = self._get_or_build_model(isin, include_prices=True)
         return {
             **self._analysis_service().build_benchmark_payload(model, benchmark_key=benchmark_key),
             "meta": asdict(self._meta("benchmark")),
@@ -182,7 +196,7 @@ class StockService(BaseService):
 
     @handle_errors
     def get_analysis_timeseries(self, isin: str, series: str, benchmark_key: str | None = None) -> dict[str, Any]:
-        model = self._get_or_build_model(isin)
+        model = self._get_or_build_model(isin, include_prices=True)
         requested = [item.strip().lower() for item in (series or "").split(",") if item.strip()]
         allowed = {"price", "returns", "drawdown", "benchmark_relative", "benchmark_price"}
         if not requested:
@@ -195,7 +209,17 @@ class StockService(BaseService):
             "meta": asdict(self._meta("timeseries_analysis")),
         }
 
-    def _get_or_build_model(self, isin: str, target_date: Optional[datetime.date] = None) -> StockModel:
+    def _get_or_build_model(
+        self,
+        isin: str,
+        target_date: Optional[datetime.date] = None,
+        *,
+        include_market: bool = False,
+        include_prices: bool = False,
+        include_financials: bool = False,
+        include_analysts: bool = False,
+        include_fund: bool = False,
+    ) -> StockModel:
         normalized_isin = (isin or "").strip().upper()
         if not normalized_isin:
             raise InvalidRequestError("ISIN darf nicht leer sein")
@@ -209,39 +233,45 @@ class StockService(BaseService):
         if not symbol:
             symbol = self._resolve_symbol_or_raise(normalized_isin)
 
+        provider_cache: dict[tuple[str, str | None, tuple[tuple[str, Any], ...]], Any] = {}
+
         if not model.instrument:
-            model.instrument = self._provider_call("fetch_instrument", normalized_isin, symbol)
+            model.instrument = self._provider_call("fetch_instrument", normalized_isin, symbol, cache=provider_cache)
 
         if not model.profile:
-            model.profile = self._provider_call("fetch_profile", normalized_isin, symbol)
+            model.profile = self._provider_call("fetch_profile", normalized_isin, symbol, cache=provider_cache)
 
         needs_fundamentals = bool(updated_at) and ((now - updated_at).total_seconds() > FUNDAMENTALS_TTL_SECONDS)
-        if not model.market or needs_fundamentals:
-            model.market = self._provider_call("fetch_market", normalized_isin, symbol)
+        if include_market and (not model.market or needs_fundamentals):
+            model.market = self._provider_call("fetch_market", normalized_isin, symbol, cache=provider_cache)
 
-        if not model.valuation or needs_fundamentals:
-            fundamentals = self._provider_call("fetch_fundamentals", normalized_isin, symbol) or {}
+        if include_financials and (not model.valuation or needs_fundamentals):
+            fundamentals = self._optional_provider_call("fetch_fundamentals", normalized_isin, symbol, default={}, cache=provider_cache) or {}
             model.valuation = fundamentals.get("valuation") or {}
             model.quality = fundamentals.get("quality") or {}
             model.growth = fundamentals.get("growth") or {}
             model.balance_sheet.setdefault("snapshot", fundamentals.get("balance_sheet") or {})
             model.cash_flow.setdefault("snapshot", fundamentals.get("cash_flow") or {})
 
-        if not model.balance_sheet.get("annual") or needs_fundamentals:
-            financials = self._provider_call("fetch_financial_statements", normalized_isin, symbol=symbol) or {}
+        if include_financials and (not model.balance_sheet.get("annual") or needs_fundamentals):
+            financials = self._optional_provider_call("fetch_financial_statements", normalized_isin, symbol=symbol, default={}, cache=provider_cache) or {}
             model.meta["financials"] = financials
             model.balance_sheet = financials.get("balance_sheet") or {"annual": [], "quarterly": []}
             model.cash_flow = financials.get("cash_flow") or {"annual": [], "quarterly": []}
 
-        if not model.analysts or needs_fundamentals:
-            model.analysts = self._provider_call("fetch_analysts", normalized_isin, symbol)
+        if include_analysts and (not model.analysts or needs_fundamentals):
+            model.analysts = self._optional_provider_call("fetch_analysts", normalized_isin, symbol, default={}, cache=provider_cache)
 
-        if not model.fund or needs_fundamentals:
-            model.fund = self._provider_call("fetch_fund", normalized_isin, symbol)
+        instrument_quote_type = str(model.instrument.get("quote_type") or "").upper()
+        can_have_fund = self._is_fund_like_quote_type(instrument_quote_type)
+        if include_fund and can_have_fund and (not model.fund or needs_fundamentals):
+            model.fund = self._optional_provider_call("fetch_fund", normalized_isin, symbol, default={}, cache=provider_cache)
+        elif include_fund and not can_have_fund:
+            model.fund = {}
 
         needs_prices = bool(updated_at) and ((now - updated_at).total_seconds() > PRICE_TTL_SECONDS)
-        if not self._has_usable_price_history(model.price_history, target_date) or needs_prices:
-            model.timeseries = self._provider_call("fetch_timeseries", normalized_isin, symbol)
+        if include_prices and (not self._has_usable_price_history(model.price_history, target_date) or needs_prices):
+            model.timeseries = self._provider_call("fetch_timeseries", normalized_isin, symbol, cache=provider_cache)
             model.price_history = list((model.timeseries or {}).get("price_history") or [])
             model.metrics_history = list((model.timeseries or {}).get("metrics_history") or [])
 
@@ -264,15 +294,23 @@ class StockService(BaseService):
         self.mongo_repo.write(normalized_isin, model.to_dict())
         return model
 
-    def _provider_call(self, method: str, isin: str, symbol: str | None = None, **kwargs: Any) -> Any:
+    def _provider_call(self, method: str, isin: str, symbol: str | None = None, *, cache: dict[tuple[str, str | None, tuple[tuple[str, Any], ...]], Any] | None = None, **kwargs: Any) -> Any:
+        key_kwargs = tuple(sorted(kwargs.items()))
+        key = (method, symbol, key_kwargs)
+        if cache is not None and key in cache:
+            return cache[key]
+
         provider_fn = getattr(self.provider, method, None)
         if callable(provider_fn):
-            return provider_fn(isin, symbol=symbol, **kwargs)
+            result = provider_fn(isin, symbol=symbol, **kwargs)
+            if cache is not None:
+                cache[key] = result
+            return result
 
         # Fallback für Tests mit vereinfachtem FakeProvider
         if method == "fetch_instrument":
             basic = self.provider.fetch_basic(isin, symbol=symbol)
-            return {
+            result = {
                 "isin": basic.get("isin") or isin,
                 "symbol": basic.get("symbol"),
                 "short_name": basic.get("shortName"),
@@ -280,20 +318,58 @@ class StockService(BaseService):
                 "exchange": basic.get("exchange"),
                 "currency": basic.get("currency"),
             }
+            if cache is not None:
+                cache[key] = result
+            return result
         if method == "fetch_profile":
             basic = self.provider.fetch_basic(isin, symbol=symbol)
-            return {"sector": basic.get("sector"), "industry": basic.get("industry"), "country": basic.get("country")}
+            result = {"sector": basic.get("sector"), "industry": basic.get("industry"), "country": basic.get("country")}
+            if cache is not None:
+                cache[key] = result
+            return result
         if method == "fetch_market":
             metrics_fn = getattr(self.provider, "fetch_metrics", None)
-            return metrics_fn(isin, symbol=symbol) if callable(metrics_fn) else {}
+            result = metrics_fn(isin, symbol=symbol) if callable(metrics_fn) else {}
+            if cache is not None:
+                cache[key] = result
+            return result
         if method == "fetch_timeseries":
-            return {
+            result = {
                 "price_history": self.provider.fetch_price_history(isin, symbol=symbol),
                 "metrics_history": self.provider.fetch_metrics_history(isin, symbol=symbol) if hasattr(self.provider, "fetch_metrics_history") else [],
             }
+            if cache is not None:
+                cache[key] = result
+            return result
         if method in {"fetch_fundamentals", "fetch_analysts", "fetch_fund", "fetch_financial_statements"}:
             return {}
         raise InstrumentNotFoundError(f"Provider-Methode {method} fehlt")
+
+    def _optional_provider_call(self, method: str, isin: str, symbol: str | None = None, *, default: Any, cache: dict[tuple[str, str | None, tuple[tuple[str, Any], ...]], Any] | None = None, **kwargs: Any) -> Any:
+        try:
+            return self._provider_call(method, isin, symbol, cache=cache, **kwargs)
+        except Exception as exc:
+            if self._is_optional_data_unavailable(exc):
+                logger.info("Optionaler Provider-Block %s für %s/%s nicht verfügbar: %s", method, isin, symbol, exc)
+            else:
+                logger.warning("Optionaler Provider-Block %s für %s/%s fehlgeschlagen", method, isin, symbol, exc_info=True)
+            return default
+
+    @staticmethod
+    def _is_fund_like_quote_type(quote_type: str) -> bool:
+        normalized = (quote_type or "").strip().upper()
+        return normalized in {"ETF", "MUTUALFUND", "MONEYMARKET", "CLOSEDEND"}
+
+    @staticmethod
+    def _is_optional_data_unavailable(exc: Exception) -> bool:
+        text = str(exc).lower()
+        name = exc.__class__.__name__.lower()
+        return (
+            "no fund data found" in text
+            or "404" in text
+            or "not found" in text
+            or "yfdataexception" in name
+        )
 
     def _resolve_symbol_or_raise(self, isin: str) -> str:
         try:

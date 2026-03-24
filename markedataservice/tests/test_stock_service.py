@@ -27,6 +27,8 @@ class FakeProvider:
         self.basic_calls = []
         self.price_history_calls = []
         self.symbol_for_isin = {"DE000BASF111": "BAS.DE"}
+        self.fund_calls = 0
+        self.analyst_calls = 0
 
     def resolve_symbol(self, isin: str) -> str:
         self.resolve_calls.append(isin)
@@ -46,6 +48,14 @@ class FakeProvider:
             {"date": "2026-03-21", "close": 50.0},
             {"date": "2026-03-24", "close": 51.0},
         ]
+
+    def fetch_fund(self, isin: str, symbol: str | None = None):
+        self.fund_calls += 1
+        raise RuntimeError("No Fund data found")
+
+    def fetch_analysts(self, isin: str, symbol: str | None = None):
+        self.analyst_calls += 1
+        raise RuntimeError("404 Not Found")
 
 
 def _build_service(repo: FakeMongoRepo, provider: FakeProvider) -> StockService:
@@ -119,3 +129,25 @@ def test_symbol_resolution_used_instead_of_raw_isin():
 
     assert provider.price_history_calls[0][0] == "DE000BASF111"
     assert provider.price_history_calls[0][1] == "BAS.DE"
+
+
+def test_get_price_does_not_load_optional_fund_or_analyst_blocks():
+    repo = FakeMongoRepo()
+    provider = FakeProvider()
+    service = _build_service(repo, provider)
+
+    service.get_price("DE000BASF111", None)
+
+    assert provider.fund_calls == 0
+    assert provider.analyst_calls == 0
+
+
+def test_optional_analyst_block_failure_is_non_fatal():
+    repo = FakeMongoRepo()
+    provider = FakeProvider()
+    service = _build_service(repo, provider)
+
+    payload = service.get_analysis_analysts("DE000BASF111")
+
+    assert provider.analyst_calls == 1
+    assert payload["analysts"] == {}

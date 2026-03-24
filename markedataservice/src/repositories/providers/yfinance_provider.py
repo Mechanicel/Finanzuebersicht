@@ -45,6 +45,18 @@ class YahooMarketClient:
         except (TypeError, ValueError, ZeroDivisionError):
             return None
 
+    @staticmethod
+    def _sanitize_free_float(value: Any) -> float | None:
+        try:
+            if value is None:
+                return None
+            normalized = float(value)
+            if 0.0 <= normalized <= 1.0:
+                return normalized
+        except (TypeError, ValueError):
+            return None
+        return None
+
     def fetch_market(self, info: Dict[str, Any], ticker: Any) -> Dict[str, Any]:
         free_float = None
         try:
@@ -61,6 +73,7 @@ class YahooMarketClient:
             free_float = self._safe_div(info.get("floatShares"), info.get("sharesOutstanding"))
         if free_float is None:
             free_float = self._safe_div(info.get("floatMarketCap"), info.get("marketCap"))
+        free_float = self._sanitize_free_float(free_float)
 
         return {
             "currentPrice": info.get("currentPrice"),
@@ -205,6 +218,13 @@ class YahooAnalystClient:
         df = frame.reset_index(drop=False)
         return df.where(pd.notna(df), None).to_dict(orient="records")
 
+    def _safe_attr_records(self, ticker: Any, attr: str) -> List[Dict[str, Any]]:
+        try:
+            return self._safe_records(getattr(ticker, attr, None))
+        except Exception:
+            logger.debug("[YFinance] optionale Analystendaten %s nicht verfügbar", attr, exc_info=True)
+            return []
+
     def fetch_analysts(self, ticker: Any, info: Dict[str, Any]) -> Dict[str, Any]:
         return {
             "recommendationMean": info.get("recommendationMean"),
@@ -213,10 +233,10 @@ class YahooAnalystClient:
             "targetMeanPrice": info.get("targetMeanPrice"),
             "targetHighPrice": info.get("targetHighPrice"),
             "targetLowPrice": info.get("targetLowPrice"),
-            "earnings_estimate": self._safe_records(getattr(ticker, "earnings_estimate", None)),
-            "revenue_estimate": self._safe_records(getattr(ticker, "revenue_estimate", None)),
-            "eps_trend": self._safe_records(getattr(ticker, "eps_trend", None)),
-            "upgrades_downgrades": self._safe_records(getattr(ticker, "upgrades_downgrades", None)),
+            "earnings_estimate": self._safe_attr_records(ticker, "earnings_estimate"),
+            "revenue_estimate": self._safe_attr_records(ticker, "revenue_estimate"),
+            "eps_trend": self._safe_attr_records(ticker, "eps_trend"),
+            "upgrades_downgrades": self._safe_attr_records(ticker, "upgrades_downgrades"),
         }
 
 
@@ -227,8 +247,24 @@ class YahooFundClient:
             return []
         return frame.where(pd.notna(frame), None).to_dict(orient="records")
 
+    @staticmethod
+    def is_fund_like_quote_type(quote_type: str | None) -> bool:
+        normalized = str(quote_type or "").upper()
+        return normalized in {"ETF", "MUTUALFUND", "MONEYMARKET", "CLOSEDEND"}
+
     def fetch_fund(self, ticker: Any, info: Dict[str, Any]) -> Dict[str, Any]:
         quote_type = str(info.get("quoteType") or "").upper()
+        if not self.is_fund_like_quote_type(quote_type):
+            return {}
+
+        holdings: List[Dict[str, Any]] = []
+        try:
+            funds_data = getattr(ticker, "funds_data", None)
+            top_holdings = getattr(funds_data, "top_holdings", None) if funds_data else None
+            holdings = self._holders(top_holdings)
+        except Exception:
+            logger.debug("[YFinance] optionale Fund-Holdings nicht verfügbar", exc_info=True)
+
         return {
             "quoteType": quote_type,
             "category": info.get("category"),
@@ -240,7 +276,7 @@ class YahooFundClient:
             "annualHoldingsTurnover": info.get("annualHoldingsTurnover"),
             "bondRatings": info.get("bondRatings"),
             "sectorWeightings": info.get("sectorWeightings"),
-            "holdings": self._holders(getattr(ticker, "funds_data", None).top_holdings if getattr(ticker, "funds_data", None) else None),
+            "holdings": holdings,
         }
 
 
@@ -249,6 +285,7 @@ class YFinanceProvider(BaseProvider):
 
     def __init__(self) -> None:
         self._symbol_cache: dict[str, str] = {}
+        self._ticker_bundle_cache: dict[str, tuple[Any, Dict[str, Any]]] = {}
         self.instrument_client = YahooInstrumentClient()
         self.market_client = YahooMarketClient()
         self.financials_client = YahooFinancialsClient()
@@ -318,8 +355,13 @@ class YFinanceProvider(BaseProvider):
 
     def _ticker_for_isin(self, isin: str, symbol: str | None = None) -> tuple[Any, str, Dict[str, Any]]:
         resolved_symbol = symbol or self.resolve_symbol(isin)
+        if resolved_symbol in self._ticker_bundle_cache:
+            ticker, info = self._ticker_bundle_cache[resolved_symbol]
+            return ticker, resolved_symbol, info
+
         ticker = yf.Ticker(resolved_symbol)
         info = self.instrument_client.get_info(ticker)
+        self._ticker_bundle_cache[resolved_symbol] = (ticker, info)
         return ticker, resolved_symbol, info
 
     def fetch_instrument(self, isin: str, symbol: str | None = None) -> Dict[str, Any]:
@@ -351,11 +393,22 @@ class YFinanceProvider(BaseProvider):
 
     def fetch_analysts(self, isin: str, symbol: str | None = None) -> Dict[str, Any]:
         ticker, _, info = self._ticker_for_isin(isin, symbol)
-        return self.analyst_client.fetch_analysts(ticker, info)
+        try:
+            return self.analyst_client.fetch_analysts(ticker, info)
+        except Exception:
+            logger.warning("[YFinance] optionale Analystendaten für %s (%s) nicht verfügbar", isin, symbol, exc_info=True)
+            return {}
 
     def fetch_fund(self, isin: str, symbol: str | None = None) -> Dict[str, Any]:
         ticker, _, info = self._ticker_for_isin(isin, symbol)
-        return self.fund_client.fetch_fund(ticker, info)
+        quote_type = str(info.get("quoteType") or "").upper()
+        if not self.fund_client.is_fund_like_quote_type(quote_type):
+            return {}
+        try:
+            return self.fund_client.fetch_fund(ticker, info)
+        except Exception:
+            logger.info("[YFinance] optionale Funddaten für %s (%s) nicht verfügbar", isin, symbol, exc_info=True)
+            return {}
 
     def fetch_timeseries(self, isin: str, symbol: str | None = None) -> Dict[str, Any]:
         ticker, _, _ = self._ticker_for_isin(isin, symbol)
