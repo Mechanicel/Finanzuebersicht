@@ -11,6 +11,11 @@ class AnalysisApiClient:
 
     def __init__(self, base_url: str):
         self.base_url = (base_url or "").rstrip("/")
+        self._cache: dict[tuple[str, tuple[tuple[str, Any], ...]], tuple[dict[str, Any] | None, str | None]] = {}
+
+    def _cache_key(self, path: str, params: dict[str, Any] | None = None) -> tuple[str, tuple[tuple[str, Any], ...]]:
+        normalized = tuple(sorted((str(k), str(v)) for k, v in (params or {}).items() if v is not None))
+        return path, normalized
 
     def _get(self, path: str, params: dict[str, Any] | None = None) -> tuple[dict[str, Any] | None, str | None]:
         url = f"{self.base_url}{path}"
@@ -32,11 +37,46 @@ class AnalysisApiClient:
             logger.exception("AnalysisApiClient JSON-Fehler bei %s", url)
             return None, "Ungültige Serverantwort"
 
+    def _cached_get(self, path: str, params: dict[str, Any] | None = None) -> tuple[dict[str, Any] | None, str | None]:
+        key = self._cache_key(path, params)
+        if key in self._cache:
+            return self._cache[key]
+
+        result = self._get(path, params=params)
+        self._cache[key] = result
+        return result
+
     def load_snapshot(self, isin: str):
-        return self._get(f"/analysis/company/{isin}/snapshot")
+        return self._cached_get(f"/analysis/company/{isin}/snapshot")
 
     def load_full(self, isin: str):
-        return self._get(f"/analysis/company/{isin}/full")
+        return self._cached_get(f"/analysis/company/{isin}/full")
+
+    def load_fundamentals(self, isin: str):
+        return self._cached_get(f"/analysis/company/{isin}/fundamentals")
+
+    def load_metrics(self, isin: str):
+        return self._cached_get(f"/analysis/company/{isin}/metrics")
+
+    def load_risk(self, isin: str, benchmark: str | None = None):
+        params = {"benchmark": benchmark} if benchmark else None
+        return self._cached_get(f"/analysis/company/{isin}/risk", params=params)
+
+    def load_benchmark(self, isin: str, benchmark: str | None = None):
+        params = {"benchmark": benchmark} if benchmark else None
+        return self._cached_get(f"/analysis/company/{isin}/benchmark", params=params)
+
+    def load_timeseries(self, isin: str, series: str, benchmark: str | None = None):
+        params = {"series": series}
+        if benchmark:
+            params["benchmark"] = benchmark
+        return self._cached_get(f"/analysis/company/{isin}/timeseries", params=params)
+
+    def load_financials(self, isin: str, period: str):
+        return self._cached_get(f"/analysis/company/{isin}/financials", params={"period": period})
+
+    def load_benchmark_catalog(self):
+        return self._cached_get("/analysis/benchmarks")
 
     def load_company_analysis(self, isin: str) -> tuple[dict[str, Any], list[str]]:
         """Lädt Snapshot + Full und merged die wichtigsten Blöcke robust zusammen."""
@@ -66,23 +106,8 @@ class AnalysisApiClient:
 
         return merged, warnings
 
-    def load_financials(self, isin: str, period: str):
-        return self._get(f"/analysis/company/{isin}/financials", params={"period": period})
-
     def load_analysts(self, isin: str):
-        return self._get(f"/analysis/company/{isin}/analysts")
+        return self._cached_get(f"/analysis/company/{isin}/analysts")
 
     def load_fund(self, isin: str):
-        return self._get(f"/analysis/company/{isin}/fund")
-
-    def load_risk(self, isin: str, benchmark: str):
-        return self._get(f"/analysis/company/{isin}/risk", params={"benchmark": benchmark})
-
-    def load_benchmark(self, isin: str, benchmark: str):
-        return self._get(f"/analysis/company/{isin}/benchmark", params={"benchmark": benchmark})
-
-    def load_timeseries(self, isin: str, series: str, benchmark: str | None = None):
-        params = {"series": series}
-        if benchmark:
-            params["benchmark"] = benchmark
-        return self._get(f"/analysis/company/{isin}/timeseries", params=params)
+        return self._cached_get(f"/analysis/company/{isin}/fund")

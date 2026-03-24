@@ -156,6 +156,15 @@ class StockService(BaseService):
         }
 
     @handle_errors
+    def get_analysis_benchmark_catalog(self) -> dict[str, Any]:
+        analysis = self._analysis_service()
+        return {
+            "benchmarks": analysis.benchmark_catalog(),
+            "default": analysis.default_benchmark_key(),
+            "meta": asdict(self._meta("benchmarks")),
+        }
+
+    @handle_errors
     def get_volatility(self, isin: str) -> dict[str, Any]:
         model = self._get_or_build_model(isin, include_prices=True)
         metrics = self._analysis_service().build_metrics_payload(model)
