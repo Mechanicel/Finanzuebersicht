@@ -3,10 +3,10 @@ from datetime import datetime, date
 import customtkinter as ctk
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 from matplotlib.figure import Figure
-from tkcalendar import DateEntry
 
 from src.models.AppState import AppState
 from src.ui.components import section_card, empty_state
+from src.ui.date_widgets import create_date_entry
 
 
 def create_screen(app, navigator, state: AppState, **kwargs):
@@ -65,12 +65,12 @@ def create_screen(app, navigator, state: AppState, **kwargs):
     date_card, date_body = section_card(app, "Zeitraum")
     date_body.grid_columnconfigure((1, 3), weight=1)
     ctk.CTkLabel(date_body, text="Von").grid(row=0, column=0, sticky="w")
-    from_entry = DateEntry(date_body, date_pattern="yyyy-mm-dd")
+    from_entry = create_date_entry(date_body)
     from_entry.set_date(date.today())
     from_entry.grid(row=0, column=1, sticky="ew", padx=(8, 16))
 
     ctk.CTkLabel(date_body, text="Bis").grid(row=0, column=2, sticky="w")
-    to_entry = DateEntry(date_body, date_pattern="yyyy-mm-dd")
+    to_entry = create_date_entry(date_body)
     to_entry.set_date(date.today())
     to_entry.grid(row=0, column=3, sticky="ew", padx=(8, 16))
     ctk.CTkButton(date_body, text="Aktualisieren", command=lambda: update_plot()).grid(row=0, column=4, sticky="e")
