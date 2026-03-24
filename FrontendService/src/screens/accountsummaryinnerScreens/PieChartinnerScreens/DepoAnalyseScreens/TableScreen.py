@@ -1,4 +1,5 @@
 import logging
+from typing import Any
 
 import customtkinter as ctk
 
@@ -10,22 +11,37 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 
 
-def _format_value(value):
+def _format_scalar(value: Any) -> str | None:
     if value in (None, ""):
         return None
     if isinstance(value, float):
         return f"{value:,.2f}".replace(",", " ")
-    if isinstance(value, list):
-        return ", ".join(str(v) for v in value if v not in (None, "")) or None
     return str(value)
 
 
-def _render_kv_section(parent, title: str, payload: dict):
-    if not isinstance(payload, dict):
-        return False
+def _flatten_payload(payload: Any, prefix: str = "") -> list[tuple[str, str]]:
+    rows: list[tuple[str, str]] = []
 
-    rows = [(k, _format_value(v)) for k, v in payload.items()]
-    rows = [(k, v) for k, v in rows if v is not None]
+    if isinstance(payload, dict):
+        for key, value in payload.items():
+            label = f"{prefix}.{key}" if prefix else str(key)
+            rows.extend(_flatten_payload(value, label))
+        return rows
+
+    if isinstance(payload, list):
+        for index, entry in enumerate(payload):
+            label = f"{prefix}[{index}]" if prefix else f"[{index}]"
+            rows.extend(_flatten_payload(entry, label))
+        return rows
+
+    value = _format_scalar(payload)
+    if value is not None:
+        rows.append((prefix or "value", value))
+    return rows
+
+
+def _render_section(parent, title: str, payload: Any) -> bool:
+    rows = _flatten_payload(payload)
     if not rows:
         return False
 
@@ -47,29 +63,64 @@ def _render_kv_section(parent, title: str, payload: dict):
     return True
 
 
-def create_screen(parent, isin: str, client: AnalysisApiClient | None = None):
-    """Rendert eine saubere Key-Value-Ansicht für instrument/market/profile."""
+def create_screen(
+    parent,
+    isin: str,
+    client: AnalysisApiClient | None = None,
+    payload: dict[str, Any] | None = None,
+    warnings: list[str] | None = None,
+    mode: str = "core",
+):
+    """Rendert eine Key-Value-Ansicht für Analyseblöcke."""
     logger.debug("TableScreen: Initialisiere für ISIN %s", isin)
     clear_ui(parent)
 
     container = ctk.CTkScrollableFrame(parent)
     container.pack(fill="both", expand=True, padx=20, pady=20)
 
-    analysis_client = client or AnalysisApiClient(settings.marketdata_base_url)
-    data, warnings = analysis_client.load_company_analysis(isin)
+    effective_warnings = list(warnings or [])
+    analysis_payload = payload
 
-    if warnings and not data:
+    if analysis_payload is None:
+        analysis_client = client or AnalysisApiClient(settings.marketdata_base_url)
+        analysis_payload, fetched_warnings = analysis_client.load_company_analysis(isin)
+        effective_warnings.extend(fetched_warnings)
+
+    data = analysis_payload or {}
+
+    if effective_warnings and not data:
         ctk.CTkLabel(container, text="Fehler beim Laden der Analyse", text_color="red", font=(None, 14)).pack(pady=20)
-        ctk.CTkLabel(container, text="\n".join(warnings), text_color="#ffb347", justify="left").pack(anchor="w", padx=8)
+        ctk.CTkLabel(container, text="\n".join(effective_warnings), text_color="#ffb347", justify="left").pack(anchor="w", padx=8)
         return
 
-    visible_sections = 0
-    visible_sections += _render_kv_section(container, "Instrument", data.get("instrument", {}))
-    visible_sections += _render_kv_section(container, "Market", data.get("market", {}))
-    visible_sections += _render_kv_section(container, "Profile", data.get("profile", {}))
+    if mode not in {"core", "raw"}:
+        mode = "core"
+
+    sections = [
+        ("Instrument", data.get("instrument")),
+        ("Market", data.get("market")),
+        ("Profile", data.get("profile")),
+    ]
+
+    if mode == "raw":
+        sections.extend(
+            [
+                ("Valuation", data.get("valuation")),
+                ("Quality", data.get("quality")),
+                ("Growth", data.get("growth")),
+                ("Balance Sheet", data.get("balance_sheet")),
+                ("Cash Flow", data.get("cash_flow")),
+                ("Analysts", data.get("analysts")),
+                ("Fund", data.get("fund")),
+                ("Timeseries", data.get("timeseries")),
+                ("Meta", data.get("meta")),
+            ]
+        )
+
+    visible_sections = sum(_render_section(container, title, section_payload) for title, section_payload in sections)
 
     if visible_sections == 0:
-        ctk.CTkLabel(container, text="Keine Analyseblöcke (instrument/market/profile) vorhanden", font=(None, 14)).pack(pady=20)
+        ctk.CTkLabel(container, text="Keine Analyseblöcke vorhanden", font=(None, 14)).pack(pady=20)
 
-    if warnings:
-        ctk.CTkLabel(container, text="Hinweise: " + " | ".join(warnings), text_color="#ffb347").pack(anchor="w", pady=(8, 0), padx=8)
+    if effective_warnings:
+        ctk.CTkLabel(container, text="Hinweise: " + " | ".join(effective_warnings), text_color="#ffb347").pack(anchor="w", pady=(8, 0), padx=8)

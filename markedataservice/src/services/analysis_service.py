@@ -10,6 +10,8 @@ from src.models.stock_model import StockModel
 class AnalysisMetricsService:
     """Berechnet abgeleitete Kennzahlen aus strukturierten Rohdaten."""
 
+    DEFAULT_BENCHMARK_KEY = "msci_world"
+
     BENCHMARKS: dict[str, dict[str, str]] = {
         "msci_world": {"symbol": "URTH", "name": "MSCI World (ETF Proxy URTH)"},
         "sp500": {"symbol": "^GSPC", "name": "S&P 500"},
@@ -22,8 +24,11 @@ class AnalysisMetricsService:
     def benchmark_catalog(self) -> dict[str, dict[str, str]]:
         return self.BENCHMARKS
 
+    def default_benchmark_key(self) -> str:
+        return self.DEFAULT_BENCHMARK_KEY
+
     def benchmark_for_key(self, benchmark_key: str | None) -> tuple[str, dict[str, str]]:
-        key = (benchmark_key or "msci_world").strip().lower()
+        key = (benchmark_key or self.DEFAULT_BENCHMARK_KEY).strip().lower()
         if key not in self.BENCHMARKS:
             allowed = ", ".join(sorted(self.BENCHMARKS.keys()))
             raise ValueError(f"Unknown benchmark '{benchmark_key}'. Allowed keys: {allowed}")

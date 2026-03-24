@@ -145,6 +145,14 @@ def get_company_timeseries(isin: str):
         return _handle_service_error(exc, isin, "/analysis/company/<isin>/timeseries")
 
 
+@stock_bp.route("/analysis/benchmarks", methods=["GET"])
+def get_benchmark_catalog():
+    try:
+        return jsonify(service.get_analysis_benchmark_catalog())
+    except Exception as exc:
+        return _handle_service_error(exc, "", "/analysis/benchmarks")
+
+
 @stock_bp.route("/volatility", methods=["GET"])
 def get_volatility():
     isin = request.args.get("isin", "")
