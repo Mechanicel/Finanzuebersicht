@@ -1,149 +1,89 @@
-# FrontendService/src/screens/analysis/ChartScreen.py
 import logging
-import customtkinter as ctk
-from matplotlib.figure import Figure
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-from matplotlib.ticker import FuncFormatter
-import matplotlib.dates as mdates
 from datetime import datetime
-import requests
-from urllib.parse import urlparse, parse_qs
+
+import customtkinter as ctk
+import matplotlib.dates as mdates
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.figure import Figure
+
+from finanzuebersicht_shared import get_settings
 from src.helpers.UniversalMethoden import clear_ui
-from src.screens.accountsummaryinnerScreens.PieChartinnerScreens.DepoAnalyseScreens.ColumnSelectorScreen import create_column_selector_screen
+from src.screens.accountsummaryinnerScreens.PieChartinnerScreens.analysis_api_client import AnalysisApiClient
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.DEBUG)
+settings = get_settings()
 
 
-def _extract_entries(data, api_endpoint: str):
-    if isinstance(data, list):
-        return data
-    if not isinstance(data, dict):
+def _to_float(value):
+    try:
+        if value is None:
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _extract_price_history(payload: dict) -> list[tuple[datetime, float]]:
+    timeseries = payload.get("timeseries", {}) if isinstance(payload, dict) else {}
+    history = timeseries.get("price_history") if isinstance(timeseries, dict) else None
+    if not isinstance(history, list):
         return []
 
-    # Neue Analyse-API
-    timeseries = data.get("timeseries", {})
-    price_history = timeseries.get("price_history") if isinstance(timeseries, dict) else None
-    if isinstance(price_history, list) and price_history:
-        return price_history
+    points: list[tuple[datetime, float]] = []
+    for entry in history:
+        if not isinstance(entry, dict):
+            continue
+        date_raw = entry.get("date")
+        close = _to_float(entry.get("close"))
+        if not date_raw or close is None:
+            continue
+        try:
+            points.append((datetime.fromisoformat(str(date_raw)), close))
+        except ValueError:
+            continue
 
-    # Legacy-Top-Level
-    entries = data.get("entries")
-    if isinstance(entries, list) and entries:
-        return entries
-
-    # ETF-legacy
-    parsed = urlparse(api_endpoint)
-    etf = parse_qs(parsed.query).get("etf", [None])[0]
-    etf_data = data.get("etf", {}) if isinstance(data.get("etf"), dict) else {}
-    if etf and isinstance(etf_data.get(etf), dict):
-        etf_entries = etf_data[etf].get("entries")
-        if isinstance(etf_entries, list):
-            return etf_entries
-    return []
+    return sorted(points, key=lambda x: x[0])
 
 
-def create_screen(parent, api_endpoint: str):
-    """
-    Zeigt ein Liniendiagramm der historischen Daten.
-    Unterstützt sowohl die neue Analyse-API als auch Legacy-Responses.
-    """
-    logger.debug("ChartScreen: Initialisiere mit Endpoint %s", api_endpoint)
+def create_screen(parent, isin: str, client: AnalysisApiClient | None = None):
+    """Rendert den Kursverlauf ausschließlich aus timeseries.price_history."""
+    logger.debug("ChartScreen: Initialisiere für ISIN %s", isin)
     clear_ui(parent)
 
     frame = ctk.CTkFrame(parent, fg_color="transparent")
     frame.pack(fill="both", expand=True, padx=10, pady=10)
 
-    ctk.CTkLabel(frame, text="Historische Entwicklung", font=(None, 16, "bold")).pack(pady=(0, 5))
+    ctk.CTkLabel(frame, text="Historische Entwicklung", font=(None, 16, "bold")).pack(pady=(0, 8))
 
-    try:
-        resp = requests.get(api_endpoint, timeout=5)
-        resp.raise_for_status()
-        data = resp.json()
-        logger.debug("ChartScreen: Rohdaten: %s", data)
-    except Exception as e:
-        logger.error("ChartScreen: Fehler beim Abruf von %s – %s", api_endpoint, e)
-        ctk.CTkLabel(frame, text="Fehler beim Laden der Daten", text_color="red").pack(pady=20)
+    analysis_client = client or AnalysisApiClient(settings.marketdata_base_url)
+    data, warnings = analysis_client.load_company_analysis(isin)
+    points = _extract_price_history(data)
+
+    if not points:
+        ctk.CTkLabel(
+            frame,
+            text="Keine Zeitreihe verfügbar (timeseries.price_history fehlt oder ist leer).",
+            justify="left",
+        ).pack(pady=20)
+        if warnings:
+            ctk.CTkLabel(frame, text="Hinweise: " + " | ".join(warnings), text_color="#ffb347").pack(anchor="w")
         return
 
-    entries = _extract_entries(data, api_endpoint)
-    if not entries:
-        ctk.CTkLabel(frame, text="Keine historischen Daten gefunden").pack(pady=20)
-        return
-
-    country = None
-    if isinstance(data, dict):
-        instrument = data.get("instrument") if isinstance(data.get("instrument"), dict) else {}
-        country = instrument.get("country")
-    if not country:
-        country = entries[0].get("country") if isinstance(entries[0], dict) else None
-
-    if country:
-        ctk.CTkLabel(frame, text=f"Land: {country}", font=(None, 12)).pack(pady=(0, 10))
-
-    metrics = []
-    first_entry = entries[0] if entries and isinstance(entries[0], dict) else {}
-    for key in first_entry.keys():
-        if key in ("date", "country"):
-            continue
-        try:
-            for e in entries:
-                float(e.get(key, 0))
-            metrics.append(key)
-        except Exception:
-            continue
-    logger.debug("ChartScreen: Zu plottende Kennzahlen: %s", metrics)
-
-    if not metrics:
-        ctk.CTkLabel(frame, text="Keine numerischen Zeitreihen gefunden").pack(pady=20)
-        return
-
-    chart_container = ctk.CTkFrame(frame, fg_color="transparent")
-    chart_container.pack(fill="both", expand=True)
-    selector_container = ctk.CTkFrame(frame, fg_color="transparent")
-    selector_container.pack(fill="x", pady=(5, 0))
-
-    fig = Figure(figsize=(5, 3), dpi=100)
+    fig = Figure(figsize=(6, 3), dpi=100)
     ax = fig.add_subplot(111)
-
-    lines = {}
-    data_map = {}
-    entries_sorted = sorted(entries, key=lambda e: datetime.strptime(e["date"], "%Y-%m-%d"))
-    dates = [datetime.strptime(e["date"], "%Y-%m-%d") for e in entries_sorted]
-
-    for name in metrics:
-        ys = [float(e.get(name, 0)) for e in entries_sorted]
-        ln, = ax.plot(dates, ys, label=name)
-        lines[name] = ln
-        data_map[name] = ys
-
-    def rescale():
-        visible_vals = [val for nm, ys in data_map.items() if lines[nm].get_visible() for val in ys]
-        if visible_vals:
-            mn, mx = min(visible_vals), max(visible_vals)
-            padding = max((mx - mn) * 0.1, 1e-6)
-            ax.set_ylim(mn - padding, mx + padding)
-        ax.set_xlim(min(dates), max(dates))
-        ax.relim()
-        ax.yaxis.set_major_formatter(FuncFormatter(lambda x, _: f"{x/1e6:.1f}M"))
-        ax.xaxis.set_major_locator(mdates.AutoDateLocator())
-        ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(ax.xaxis.get_major_locator()))
-
-    rescale()
+    dates = [p[0] for p in points]
+    values = [p[1] for p in points]
+    ax.plot(dates, values, label="Close")
+    ax.grid(alpha=0.3)
     ax.set_xlabel("Datum")
-    ax.set_ylabel("Wert in Mio.")
-    ax.legend()
+    ax.set_ylabel("Preis")
+    ax.xaxis.set_major_locator(mdates.AutoDateLocator())
+    ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(ax.xaxis.get_major_locator()))
+    ax.legend(loc="best")
 
-    canvas = FigureCanvasTkAgg(fig, master=chart_container)
+    canvas = FigureCanvasTkAgg(fig, master=frame)
     canvas.draw()
     canvas.get_tk_widget().pack(fill="both", expand=True)
 
-    def toggle(col):
-        ln = lines[col]
-        ln.set_visible(not ln.get_visible())
-        rescale()
-        canvas.draw()
-        logger.debug("ChartScreen: Serie '%s' sichtbar=%s", col, ln.get_visible())
-
-    create_column_selector_screen(selector_container, metrics, lambda c, _: toggle(c))
-    logger.debug("ChartScreen: Fertig aufgebaut")
+    if warnings:
+        ctk.CTkLabel(frame, text="Hinweise: " + " | ".join(warnings), text_color="#ffb347").pack(anchor="w", pady=(8, 0))
