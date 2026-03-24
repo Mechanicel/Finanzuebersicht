@@ -44,11 +44,11 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
 
         left = ctk.CTkFrame(layout, fg_color="transparent")
         left.grid(row=0, column=0, sticky="nsew", padx=8, pady=8)
-        create_table_screen(left, api_endpoint=f"{settings.marketdata_base_url}/stock/{sel_isin}")
+        create_table_screen(left, api_endpoint=f"{settings.marketdata_base_url}/analysis/company/{sel_isin}/full")
 
         mid = ctk.CTkFrame(layout, fg_color="transparent")
         mid.grid(row=0, column=1, sticky="nsew", padx=8, pady=8)
-        create_chart_screen(mid, api_endpoint=f"{settings.marketdata_base_url}/stock/{sel_isin}")
+        create_chart_screen(mid, api_endpoint=f"{settings.marketdata_base_url}/analysis/company/{sel_isin}/full")
 
         right = ctk.CTkFrame(layout, fg_color="transparent")
         right.grid(row=0, column=2, sticky="nsew", padx=8, pady=8)
@@ -64,6 +64,7 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
         for i, (title, endpoint) in enumerate(gauges):
             cont = ctk.CTkFrame(right, fg_color="transparent")
             cont.grid(row=i, column=0, sticky="nsew", pady=4)
-            create_gauge_screen(cont, title=title, api_endpoint=endpoint, click_callback=(lambda ep=endpoint: create_chart_screen(mid, api_endpoint=ep)))
+            callback = (lambda ep=endpoint: create_chart_screen(mid, api_endpoint=ep)) if "etf=" in endpoint else None
+            create_gauge_screen(cont, title=title, api_endpoint=endpoint, click_callback=callback)
 
     create_depot_pie(top_body, navigator, state, depot_index=depot_index, pick_callback=on_stock_selected)

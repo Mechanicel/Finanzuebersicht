@@ -14,14 +14,39 @@ from src.screens.accountsummaryinnerScreens.PieChartinnerScreens.DepoAnalyseScre
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.DEBUG)
 
+
+def _extract_entries(data, api_endpoint: str):
+    if isinstance(data, list):
+        return data
+    if not isinstance(data, dict):
+        return []
+
+    # Neue Analyse-API
+    timeseries = data.get("timeseries", {})
+    price_history = timeseries.get("price_history") if isinstance(timeseries, dict) else None
+    if isinstance(price_history, list) and price_history:
+        return price_history
+
+    # Legacy-Top-Level
+    entries = data.get("entries")
+    if isinstance(entries, list) and entries:
+        return entries
+
+    # ETF-legacy
+    parsed = urlparse(api_endpoint)
+    etf = parse_qs(parsed.query).get("etf", [None])[0]
+    etf_data = data.get("etf", {}) if isinstance(data.get("etf"), dict) else {}
+    if etf and isinstance(etf_data.get(etf), dict):
+        etf_entries = etf_data[etf].get("entries")
+        if isinstance(etf_entries, list):
+            return etf_entries
+    return []
+
+
 def create_screen(parent, api_endpoint: str):
     """
     Zeigt ein Liniendiagramm der historischen Daten.
-    Nutzt JSON mit 'entries' oder verschachtelte 'etf' Sektionen.
-    ColumnSelector erlaubt Ein-/Ausblenden einzelner Kennzahlen.
-    Das Feld 'country' wird nur oben als Label angezeigt.
-    Die Y-Achse wird manuell anhand aktiver Serien neu skaliert und in Millionen formatiert.
-    Die X-Achse zeigt ausgewählte Datumswerte aufsteigend.
+    Unterstützt sowohl die neue Analyse-API als auch Legacy-Responses.
     """
     logger.debug("ChartScreen: Initialisiere mit Endpoint %s", api_endpoint)
     clear_ui(parent)
@@ -29,10 +54,8 @@ def create_screen(parent, api_endpoint: str):
     frame = ctk.CTkFrame(parent, fg_color="transparent")
     frame.pack(fill="both", expand=True, padx=10, pady=10)
 
-    # Titel
-    ctk.CTkLabel(frame, text="Historische Entwicklung", font=(None, 16, "bold")).pack(pady=(0,5))
+    ctk.CTkLabel(frame, text="Historische Entwicklung", font=(None, 16, "bold")).pack(pady=(0, 5))
 
-    # API-Abfrage
     try:
         resp = requests.get(api_endpoint, timeout=5)
         resp.raise_for_status()
@@ -43,49 +66,50 @@ def create_screen(parent, api_endpoint: str):
         ctk.CTkLabel(frame, text="Fehler beim Laden der Daten", text_color="red").pack(pady=20)
         return
 
-    # historische Einträge extrahieren
-    entries = data.get("entries")
-    if not entries:
-        parsed = urlparse(api_endpoint)
-        etf = parse_qs(parsed.query).get("etf", [None])[0]
-        entries = data.get("etf", {}).get(etf, {}).get("entries", [])
+    entries = _extract_entries(data, api_endpoint)
     if not entries:
         ctk.CTkLabel(frame, text="Keine historischen Daten gefunden").pack(pady=20)
         return
 
-    # Land-Label
-    country = entries[0].get("country")
-    if country:
-        ctk.CTkLabel(frame, text=f"Land: {country}", font=(None, 12)).pack(pady=(0,10))
+    country = None
+    if isinstance(data, dict):
+        instrument = data.get("instrument") if isinstance(data.get("instrument"), dict) else {}
+        country = instrument.get("country")
+    if not country:
+        country = entries[0].get("country") if isinstance(entries[0], dict) else None
 
-    # numerische Kennzahlen erkennen
+    if country:
+        ctk.CTkLabel(frame, text=f"Land: {country}", font=(None, 12)).pack(pady=(0, 10))
+
     metrics = []
-    for key in entries[0].keys():
-        if key in ("date", "country"): continue
+    first_entry = entries[0] if entries and isinstance(entries[0], dict) else {}
+    for key in first_entry.keys():
+        if key in ("date", "country"):
+            continue
         try:
             for e in entries:
                 float(e.get(key, 0))
             metrics.append(key)
-        except:
+        except Exception:
             continue
     logger.debug("ChartScreen: Zu plottende Kennzahlen: %s", metrics)
 
-    # Container für Chart & Selector
+    if not metrics:
+        ctk.CTkLabel(frame, text="Keine numerischen Zeitreihen gefunden").pack(pady=20)
+        return
+
     chart_container = ctk.CTkFrame(frame, fg_color="transparent")
     chart_container.pack(fill="both", expand=True)
     selector_container = ctk.CTkFrame(frame, fg_color="transparent")
-    selector_container.pack(fill="x", pady=(5,0))
+    selector_container.pack(fill="x", pady=(5, 0))
 
-    # Matplotlib-Figur
-    fig = Figure(figsize=(5,3), dpi=100)
+    fig = Figure(figsize=(5, 3), dpi=100)
     ax = fig.add_subplot(111)
 
-    # Daten speichern und Linien anlegen
     lines = {}
     data_map = {}
-    # Datumsstrings in datetime-Objekte und sortieren aufsteigend
-    entries_sorted = sorted(entries, key=lambda e: datetime.strptime(e['date'], '%Y-%m-%d'))
-    dates = [datetime.strptime(e['date'], '%Y-%m-%d') for e in entries_sorted]
+    entries_sorted = sorted(entries, key=lambda e: datetime.strptime(e["date"], "%Y-%m-%d"))
+    dates = [datetime.strptime(e["date"], "%Y-%m-%d") for e in entries_sorted]
 
     for name in metrics:
         ys = [float(e.get(name, 0)) for e in entries_sorted]
@@ -93,18 +117,14 @@ def create_screen(parent, api_endpoint: str):
         lines[name] = ln
         data_map[name] = ys
 
-    # initiale Skalierung und Formatierung
     def rescale():
-        # alle sichtbaren Serien
         visible_vals = [val for nm, ys in data_map.items() if lines[nm].get_visible() for val in ys]
         if visible_vals:
             mn, mx = min(visible_vals), max(visible_vals)
-            padding = (mx - mn) * 0.1
+            padding = max((mx - mn) * 0.1, 1e-6)
             ax.set_ylim(mn - padding, mx + padding)
-        # Datumsformatierung
         ax.set_xlim(min(dates), max(dates))
         ax.relim()
-        # Millionen-Formatierung
         ax.yaxis.set_major_formatter(FuncFormatter(lambda x, _: f"{x/1e6:.1f}M"))
         ax.xaxis.set_major_locator(mdates.AutoDateLocator())
         ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(ax.xaxis.get_major_locator()))
@@ -118,7 +138,6 @@ def create_screen(parent, api_endpoint: str):
     canvas.draw()
     canvas.get_tk_widget().pack(fill="both", expand=True)
 
-    # Toggle via ColumnSelector
     def toggle(col):
         ln = lines[col]
         ln.set_visible(not ln.get_visible())
@@ -126,9 +145,5 @@ def create_screen(parent, api_endpoint: str):
         canvas.draw()
         logger.debug("ChartScreen: Serie '%s' sichtbar=%s", col, ln.get_visible())
 
-    create_column_selector_screen(
-        selector_container,
-        metrics,
-        lambda c, _: toggle(c)
-    )
+    create_column_selector_screen(selector_container, metrics, lambda c, _: toggle(c))
     logger.debug("ChartScreen: Fertig aufgebaut")
