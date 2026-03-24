@@ -14,6 +14,14 @@ from src.screens.accountsummaryinnerScreens.PieChartinnerScreens.analysis_api_cl
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
+SERIES_LABELS = {
+    "price": "Price",
+    "benchmark_price": "Benchmark",
+    "returns": "Returns",
+    "drawdown": "Drawdown",
+    "benchmark_relative": "Relative Spread",
+}
+
 
 def _to_float(value):
     try:
@@ -46,12 +54,6 @@ def _parse_points(entries: Any, value_key: str, field_name: str) -> list[tuple[d
     return sorted(points, key=lambda x: x[0])
 
 
-def _extract_legacy_series(payload: dict[str, Any]) -> dict[str, list[tuple[datetime, float]]]:
-    timeseries = payload.get("timeseries", {}) if isinstance(payload, dict) else {}
-    history = timeseries.get("price_history") if isinstance(timeseries, dict) else None
-    return {"price": _parse_points(history, "close", "close")}
-
-
 def _extract_timeseries_api_series(payload: dict[str, Any]) -> dict[str, list[tuple[datetime, float]]]:
     series = payload.get("series", {}) if isinstance(payload, dict) else {}
     if not isinstance(series, dict):
@@ -62,7 +64,7 @@ def _extract_timeseries_api_series(payload: dict[str, Any]) -> dict[str, list[tu
         "benchmark_price": _parse_points(series.get("benchmark_price"), "close", "close"),
         "returns": _parse_points(series.get("returns"), "value", "value"),
         "drawdown": _parse_points(series.get("drawdown"), "value", "value"),
-        "relative_spread": _parse_points(series.get("benchmark_relative"), "relative_spread", "relative_spread"),
+        "benchmark_relative": _parse_points(series.get("benchmark_relative"), "relative_spread", "relative_spread"),
     }
 
 
@@ -72,81 +74,68 @@ def create_screen(
     client: AnalysisApiClient | None = None,
     payload: dict[str, Any] | None = None,
     warnings: list[str] | None = None,
-    chart_mode: str = "legacy",
+    selected_series: list[str] | None = None,
+    benchmark: str | None = None,
 ):
-    """Rendert Kurs-/Performance-Verläufe für legacy oder timeseries API."""
+    """Rendert Kurs-/Performance-Verläufe aus dem /timeseries-Endpoint."""
     logger.debug("ChartScreen: Initialisiere für ISIN %s", isin)
     clear_ui(parent)
 
     frame = ctk.CTkFrame(parent, fg_color="transparent")
-    frame.pack(fill="both", expand=True, padx=10, pady=10)
-
-    ctk.CTkLabel(frame, text="Historische Entwicklung", font=(None, 16, "bold")).pack(pady=(0, 8))
+    frame.pack(fill="both", expand=True, padx=4, pady=4)
 
     effective_warnings = list(warnings or [])
     data = payload
 
     if data is None:
         analysis_client = client or AnalysisApiClient(settings.marketdata_base_url)
-        if chart_mode == "timeseries":
-            data, fetch_error = analysis_client.load_timeseries(
-                isin,
-                series="price,returns,drawdown,benchmark_relative,benchmark_price",
-            )
-            if fetch_error:
-                effective_warnings.append(fetch_error)
-        else:
-            data, fetch_warnings = analysis_client.load_company_analysis(isin)
-            effective_warnings.extend(fetch_warnings)
+        query_series = selected_series or ["price", "returns", "drawdown", "benchmark_relative", "benchmark_price"]
+        data, fetch_error = analysis_client.load_timeseries(isin, series=",".join(query_series), benchmark=benchmark)
+        if fetch_error:
+            effective_warnings.append(fetch_error)
 
-    if chart_mode == "timeseries":
-        series_map = _extract_timeseries_api_series(data or {})
-    else:
-        series_map = _extract_legacy_series(data or {})
+    series_map = _extract_timeseries_api_series(data or {})
+    selected = selected_series or ["price", "returns", "drawdown", "benchmark_relative", "benchmark_price"]
+    visible_keys = [key for key in selected if key in series_map]
 
-    price_points = series_map.get("price") or []
-    benchmark_points = series_map.get("benchmark_price") or []
-    returns_points = series_map.get("returns") or []
-    drawdown_points = series_map.get("drawdown") or []
-    relative_points = series_map.get("relative_spread") or []
+    if not visible_keys:
+        ctk.CTkLabel(frame, text="Keine Serie ausgewählt.", justify="left").pack(pady=20)
+        return
 
-    if not any([price_points, benchmark_points, returns_points, drawdown_points, relative_points]):
-        ctk.CTkLabel(
-            frame,
-            text="Keine Zeitreihe verfügbar (weder legacy timeseries.price_history noch /timeseries series).",
-            justify="left",
-        ).pack(pady=20)
+    visible_series = {key: series_map.get(key) or [] for key in visible_keys}
+    if not any(visible_series.values()):
+        ctk.CTkLabel(frame, text="Keine Zeitreihendaten für die gewählten Serien vorhanden.", justify="left").pack(pady=20)
         if effective_warnings:
             ctk.CTkLabel(frame, text="Hinweise: " + " | ".join(effective_warnings), text_color="#ffb347").pack(anchor="w")
         return
 
-    has_secondary = any([returns_points, drawdown_points, relative_points])
-    fig = Figure(figsize=(7, 4 if has_secondary else 3), dpi=100)
-    if has_secondary:
+    lower_series = [k for k in visible_keys if k in {"returns", "drawdown", "benchmark_relative"}]
+    fig = Figure(figsize=(7, 4.3 if lower_series else 3), dpi=100)
+
+    if lower_series:
         ax_price = fig.add_subplot(211)
         ax_metric = fig.add_subplot(212, sharex=ax_price)
     else:
         ax_price = fig.add_subplot(111)
         ax_metric = None
 
-    if price_points:
-        ax_price.plot([p[0] for p in price_points], [p[1] for p in price_points], label="Price")
-    if benchmark_points:
-        ax_price.plot([p[0] for p in benchmark_points], [p[1] for p in benchmark_points], label="Benchmark")
+    for key in ("price", "benchmark_price"):
+        points = visible_series.get(key) or []
+        if points:
+            ax_price.plot([p[0] for p in points], [p[1] for p in points], label=SERIES_LABELS.get(key, key))
 
     ax_price.grid(alpha=0.3)
     ax_price.set_ylabel("Preis")
     ax_price.xaxis.set_major_locator(mdates.AutoDateLocator())
     ax_price.xaxis.set_major_formatter(mdates.ConciseDateFormatter(ax_price.xaxis.get_major_locator()))
-    ax_price.legend(loc="best")
+    if any(visible_series.get(k) for k in ("price", "benchmark_price")):
+        ax_price.legend(loc="best")
 
     if ax_metric is not None:
-        if returns_points:
-            ax_metric.plot([p[0] for p in returns_points], [p[1] for p in returns_points], label="Returns")
-        if drawdown_points:
-            ax_metric.plot([p[0] for p in drawdown_points], [p[1] for p in drawdown_points], label="Drawdown")
-        if relative_points:
-            ax_metric.plot([p[0] for p in relative_points], [p[1] for p in relative_points], label="Relative Spread")
+        for key in lower_series:
+            points = visible_series.get(key) or []
+            if points:
+                ax_metric.plot([p[0] for p in points], [p[1] for p in points], label=SERIES_LABELS.get(key, key))
         ax_metric.grid(alpha=0.3)
         ax_metric.set_xlabel("Datum")
         ax_metric.set_ylabel("Wert")
