@@ -11,6 +11,21 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 
 
+CORE_SECTION_KEYS = ["instrument", "market", "profile"]
+RAW_PRIORITY_KEYS = [
+    "metrics",
+    "risk",
+    "benchmark",
+    "fundamentals",
+    "valuation",
+    "quality",
+    "growth",
+    "financials",
+    "timeseries",
+    "meta",
+]
+
+
 def _format_scalar(value: Any) -> str | None:
     if value in (None, ""):
         return None
@@ -63,6 +78,22 @@ def _render_section(parent, title: str, payload: Any) -> bool:
     return True
 
 
+def _raw_sections(data: dict[str, Any]) -> list[tuple[str, Any]]:
+    sections: list[tuple[str, Any]] = []
+    seen = set()
+
+    for key in RAW_PRIORITY_KEYS:
+        if key in data:
+            sections.append((key.replace("_", " ").title(), data.get(key)))
+            seen.add(key)
+
+    for key, value in data.items():
+        if key in seen or key in CORE_SECTION_KEYS:
+            continue
+        sections.append((key.replace("_", " ").title(), value))
+    return sections
+
+
 def create_screen(
     parent,
     isin: str,
@@ -76,7 +107,7 @@ def create_screen(
     clear_ui(parent)
 
     container = ctk.CTkScrollableFrame(parent)
-    container.pack(fill="both", expand=True, padx=20, pady=20)
+    container.pack(fill="both", expand=True, padx=10, pady=10)
 
     effective_warnings = list(warnings or [])
     analysis_payload = payload
@@ -96,26 +127,14 @@ def create_screen(
     if mode not in {"core", "raw"}:
         mode = "core"
 
-    sections = [
-        ("Instrument", data.get("instrument")),
-        ("Market", data.get("market")),
-        ("Profile", data.get("profile")),
-    ]
-
-    if mode == "raw":
-        sections.extend(
-            [
-                ("Valuation", data.get("valuation")),
-                ("Quality", data.get("quality")),
-                ("Growth", data.get("growth")),
-                ("Balance Sheet", data.get("balance_sheet")),
-                ("Cash Flow", data.get("cash_flow")),
-                ("Analysts", data.get("analysts")),
-                ("Fund", data.get("fund")),
-                ("Timeseries", data.get("timeseries")),
-                ("Meta", data.get("meta")),
-            ]
-        )
+    if mode == "core":
+        sections = [
+            ("Instrument", data.get("instrument")),
+            ("Market", data.get("market")),
+            ("Profile", data.get("profile")),
+        ]
+    else:
+        sections = _raw_sections(data)
 
     visible_sections = sum(_render_section(container, title, section_payload) for title, section_payload in sections)
 
