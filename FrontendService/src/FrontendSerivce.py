@@ -13,7 +13,8 @@ def create_app() -> customtkinter.CTk:
     customtkinter.set_default_color_theme("blue")
 
     app = customtkinter.CTk()
-    app.geometry("720x480")
+    app.geometry("1100x780")
+    app.minsize(980, 680)
     app.title("Finanzübersicht")
     return app
 
