@@ -60,6 +60,7 @@ class Settings:
     marketdata_base_url: str
     marketdata_host: str
     marketdata_port: int
+    log_verbosity: str
 
     @property
     def mongo_collections(self) -> Iterable[str]:
@@ -90,6 +91,13 @@ def _build_mongo_uri(
         credentials = f"{encoded_user}:{encoded_password}@"
 
     return f"mongodb://{credentials}{host}:{port}/{db_name}?authSource={quote_plus(auth_source)}"
+
+
+def normalize_log_verbosity(value: str) -> str:
+    normalized = value.strip().lower()
+    if normalized in {"error", "debug", "trace"}:
+        return normalized
+    return "debug"
 
 
 def get_settings() -> Settings:
@@ -134,6 +142,7 @@ def get_settings() -> Settings:
         marketdata_base_url=env("MARKETDATA_BASE_URL", "http://127.0.0.1:5000"),
         marketdata_host=env("MARKETDATA_HOST", "0.0.0.0"),
         marketdata_port=int(env("MARKETDATA_PORT", "5000")),
+        log_verbosity=normalize_log_verbosity(env("LOG_VERBOSITY", "debug")),
     )
     return settings
 

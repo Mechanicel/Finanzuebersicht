@@ -6,7 +6,9 @@ from .config import (
     docker_compose_command,
     ensure_local_env_file,
     get_settings,
+    normalize_log_verbosity,
 )
+from .logging_utils import configure_application_logging
 
 __all__ = [
     "PROJECT_ROOT",
@@ -15,5 +17,7 @@ __all__ = [
     "Settings",
     "ensure_local_env_file",
     "get_settings",
+    "normalize_log_verbosity",
     "docker_compose_command",
+    "configure_application_logging",
 ]
