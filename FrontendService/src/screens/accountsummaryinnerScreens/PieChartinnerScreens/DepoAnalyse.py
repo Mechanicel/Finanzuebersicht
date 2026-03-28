@@ -79,9 +79,24 @@ def _render_warning_bar(parent, warnings: list[str]):
         ctk.CTkLabel(parent, text="Hinweise: " + " | ".join(warnings), text_color="#ffb347").pack(anchor="w", pady=(8, 0))
 
 
-def _metric_card_grid(parent, items: list[tuple[str, str]], columns: int = 3):
+def _metric_card_grid(
+    parent,
+    items: list[tuple[str, str]],
+    columns: int = 3,
+    layout: str = "pack",
+    row: int | None = None,
+    column: int = 0,
+    columnspan: int = 1,
+    padx=0,
+    pady=(2, 6),
+    sticky: str = "ew",
+):
     grid = ctk.CTkFrame(parent, fg_color="transparent")
-    grid.pack(fill="x", pady=(2, 6))
+    if layout == "grid":
+        grid_row = 0 if row is None else row
+        grid.grid(row=grid_row, column=column, columnspan=columnspan, padx=padx, pady=pady, sticky=sticky)
+    else:
+        grid.pack(fill="x", padx=padx, pady=pady)
     for col in range(columns):
         grid.grid_columnconfigure(col, weight=1)
 
@@ -121,7 +136,7 @@ def _render_snapshot(parent, isin: str, full_data: dict, metrics: dict, risk: di
         ("Land", _display_value(profile.get("country"))),
         ("Website", _display_value(profile.get("website"))),
     ]
-    _metric_card_grid(body, summary_items, columns=2)
+    _metric_card_grid(body, summary_items, columns=2, layout="grid", row=2, column=0, columnspan=2)
 
     kpis = [
         ("Total Return", _fmt_pct(_extract_first(metrics, ["total_return", "totalReturn"]))),
@@ -133,7 +148,7 @@ def _render_snapshot(parent, isin: str, full_data: dict, metrics: dict, risk: di
     ]
     _, kpi_body = section_card(body, "KPI-Übersicht")
     kpi_body.grid(row=4, column=0, columnspan=2, sticky="ew")
-    _metric_card_grid(kpi_body, kpis, columns=3)
+    _metric_card_grid(kpi_body, kpis, columns=3, layout="grid", row=0, column=0, columnspan=1)
 
     meta = {}
     for source in (full_data.get("meta"), metrics.get("meta"), risk.get("meta")):
