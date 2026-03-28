@@ -56,7 +56,11 @@ def _fmt_currency(value, currency: str = "EUR", digits: int = 2):
 
 def _fmt_pct(value):
     val = _to_float(value)
-    return "—" if val is None else f"{val:.2f}%"
+    if val is None:
+        return "—"
+    if abs(val) <= 1.0:
+        val *= 100.0
+    return f"{val:.2f}%"
 
 
 def _display_value(value):
@@ -72,6 +76,12 @@ def _extract_first(payload: Any, keys: list[str]):
         if key in payload and payload.get(key) not in (None, ""):
             return payload.get(key)
     return None
+
+
+def _metric_value(payload: Any):
+    if isinstance(payload, dict):
+        return payload.get("value")
+    return payload
 
 
 def _render_warning_bar(parent, warnings: list[str]):
@@ -138,13 +148,17 @@ def _render_snapshot(parent, isin: str, full_data: dict, metrics: dict, risk: di
     ]
     _metric_card_grid(body, summary_items, columns=2, layout="grid", row=2, column=0, columnspan=2)
 
+    metrics_root = metrics.get("metrics", {}) if isinstance(metrics, dict) else {}
+    performance = metrics_root.get("performance", {}) if isinstance(metrics_root, dict) else {}
+    risk_root = risk.get("risk", {}) if isinstance(risk, dict) else {}
+
     kpis = [
-        ("Total Return", _fmt_pct(_extract_first(metrics, ["total_return", "totalReturn"]))),
-        ("CAGR", _fmt_pct(_extract_first(metrics, ["cagr"]))),
-        ("Volatilität", _fmt_pct(_extract_first(risk, ["volatility"]))),
-        ("Sharpe Ratio", _fmt_number(_extract_first(risk, ["sharpe_ratio", "sharpe"]), 3)),
-        ("Max Drawdown", _fmt_pct(_extract_first(risk, ["max_drawdown"]))),
-        ("Beta", _fmt_number(_extract_first(risk, ["beta"]), 3)),
+        ("Total Return", _fmt_pct(_metric_value(performance.get("total_return")))),
+        ("CAGR", _fmt_pct(_metric_value(performance.get("cagr")))),
+        ("Volatilität", _fmt_pct(_metric_value(risk_root.get("volatility")))),
+        ("Sharpe Ratio", _fmt_number(_metric_value(risk_root.get("sharpe_ratio")), 3)),
+        ("Max Drawdown", _fmt_pct(_metric_value(risk_root.get("max_drawdown")))),
+        ("Beta", _fmt_number(_metric_value(risk_root.get("beta")), 3)),
     ]
     kpi_card = ctk.CTkFrame(body, corner_radius=12)
     kpi_card.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(8, 0))
@@ -434,6 +448,7 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
         if tab == "risk":
             _load_risk(ws, isin)
             risk_payload = ws["payloads"].get(f"risk::{ws.get('benchmark') or '_none_'}", {})
+            risk_root = risk_payload.get("risk", {}) if isinstance(risk_payload, dict) else {}
             benchmark_payload = ws["payloads"].get(f"benchmark::{ws.get('benchmark') or '_none_'}", {})
 
             options = ws.get("benchmark_options") or [("Kein Benchmark", None)]
@@ -453,10 +468,10 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
             _metric_card_grid(
                 kpi_body,
                 [
-                    ("Volatilität", _fmt_pct(_extract_first(risk_payload, ["volatility"]))),
-                    ("Sharpe Ratio", _fmt_number(_extract_first(risk_payload, ["sharpe_ratio", "sharpe"]), 3)),
-                    ("Max Drawdown", _fmt_pct(_extract_first(risk_payload, ["max_drawdown"]))),
-                    ("Beta", _fmt_number(_extract_first(risk_payload, ["beta"]), 3)),
+                    ("Volatilität", _fmt_pct(_metric_value(risk_root.get("volatility")))),
+                    ("Sharpe Ratio", _fmt_number(_metric_value(risk_root.get("sharpe_ratio")), 3)),
+                    ("Max Drawdown", _fmt_pct(_metric_value(risk_root.get("max_drawdown")))),
+                    ("Beta", _fmt_number(_metric_value(risk_root.get("beta")), 3)),
                 ],
                 columns=4,
             )
