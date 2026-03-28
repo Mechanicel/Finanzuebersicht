@@ -250,9 +250,9 @@ def create_screen(
     chart_figure = Figure(figsize=(5, 4.2), dpi=100)
     chart_ax = chart_figure.add_subplot(111)
     chart_canvas = FigureCanvasTkAgg(chart_figure, master=chart_frame)
-    chart_actions = ctk.CTkFrame(chart_frame, fg_color="transparent")
-    chart_actions.pack(fill="x", padx=4, pady=(4, 0))
     chart_canvas.get_tk_widget().pack(fill="both", expand=True, padx=4, pady=4)
+    chart_actions = ctk.CTkFrame(chart_frame, fg_color="transparent")
+    chart_actions.pack(fill="x", padx=4, pady=(0, 2))
 
     tree_style = ttk.Style()
     try:
@@ -503,7 +503,15 @@ def create_screen(
                 wedge.set_picker(True)
             enable_pie_hover(popout_canvas, ax, wedges, labels_local, values_local)
 
-    ctk.CTkButton(chart_actions, text="🔍 Vollbild öffnen", width=160, command=_open_pie_popout).pack(side="right", padx=(0, 2))
+    ctk.CTkButton(
+        chart_actions,
+        text="🗖",
+        width=30,
+        height=28,
+        command=_open_pie_popout,
+        fg_color="#374151",
+        hover_color="#4b5563",
+    ).pack(side="right", padx=(0, 2), pady=(0, 2))
 
     def _on_group_change(label: str):
         stateful["group_by"] = GROUP_LABEL_TO_KEY.get(label, "position")

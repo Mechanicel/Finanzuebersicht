@@ -1,11 +1,11 @@
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 import customtkinter as ctk
 import matplotlib.dates as mdates
 from matplotlib.axes import Axes
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 from matplotlib.figure import Figure
 
 from finanzuebersicht_shared import get_settings
@@ -140,6 +140,225 @@ def _build_timeseries_figure(
     return fig, axes
 
 
+class TimeSeriesChartModule:
+    PRESETS = [
+        ("1M", 30),
+        ("3M", 90),
+        ("6M", 180),
+        ("1J", 365),
+        ("3J", 365 * 3),
+        ("Max", None),
+    ]
+
+    def __init__(
+        self,
+        parent,
+        isin: str,
+        visible_keys: list[str],
+        all_series: dict[str, list[tuple[datetime, float]]],
+        comparison_series: list[tuple[str, list[tuple[datetime, float]]]],
+    ):
+        self.parent = parent
+        self.isin = isin
+        self.visible_keys = visible_keys
+        self.all_series = all_series
+        self.comparison_series = comparison_series
+
+        self.canvas: FigureCanvasTkAgg | None = None
+        self.axes: list[Axes] = []
+        self.hover_ids: tuple[int, int, int] | None = None
+        self.toolbar: NavigationToolbar2Tk | None = None
+        self.date_error_var = ctk.StringVar(value="")
+
+        min_date, max_date = self._compute_bounds()
+        self.min_date = min_date
+        self.max_date = max_date
+        self.from_var = ctk.StringVar(value=self._fmt_date(min_date))
+        self.to_var = ctk.StringVar(value=self._fmt_date(max_date))
+
+        self._build_layout()
+        self.update_chart()
+
+    @staticmethod
+    def _fmt_date(value: datetime | None) -> str:
+        if not value:
+            return ""
+        return value.strftime("%Y-%m-%d")
+
+    @staticmethod
+    def _parse_date(value: str) -> datetime | None:
+        raw = str(value or "").strip()
+        if not raw:
+            return None
+        try:
+            return datetime.strptime(raw, "%Y-%m-%d")
+        except ValueError:
+            return None
+
+    def _compute_bounds(self) -> tuple[datetime | None, datetime | None]:
+        all_dates: list[datetime] = []
+        for key in self.visible_keys:
+            all_dates.extend([point[0] for point in self.all_series.get(key) or []])
+        for _, series in self.comparison_series:
+            all_dates.extend([point[0] for point in series])
+        if not all_dates:
+            return None, None
+        return min(all_dates), max(all_dates)
+
+    def _build_layout(self):
+        actions_frame = ctk.CTkFrame(self.parent, fg_color="transparent")
+        actions_frame.pack(fill="x", padx=2, pady=(0, 3))
+
+        controls_frame = ctk.CTkFrame(actions_frame)
+        controls_frame.pack(anchor="center", pady=(2, 2))
+
+        ctk.CTkLabel(controls_frame, text="Von", font=("Arial", 13, "bold")).grid(row=0, column=0, padx=(10, 6), pady=10)
+        from_entry = ctk.CTkEntry(controls_frame, textvariable=self.from_var, width=130, height=34)
+        from_entry.grid(row=0, column=1, padx=(0, 14), pady=10)
+
+        ctk.CTkLabel(controls_frame, text="Bis", font=("Arial", 13, "bold")).grid(row=0, column=2, padx=(0, 6), pady=10)
+        to_entry = ctk.CTkEntry(controls_frame, textvariable=self.to_var, width=130, height=34)
+        to_entry.grid(row=0, column=3, padx=(0, 14), pady=10)
+
+        ctk.CTkButton(controls_frame, text="Anwenden", width=100, height=34, command=self.update_chart).grid(row=0, column=4, padx=(0, 12), pady=10)
+
+        presets = ctk.CTkFrame(controls_frame, fg_color="transparent")
+        presets.grid(row=0, column=5, padx=(0, 10), pady=8)
+        for idx, (label, days) in enumerate(self.PRESETS):
+            ctk.CTkButton(
+                presets,
+                text=label,
+                width=50,
+                height=30,
+                command=lambda d=days: self.apply_preset(d),
+            ).grid(row=0, column=idx, padx=2)
+
+        for entry in (from_entry, to_entry):
+            entry.bind("<Return>", lambda *_: self.update_chart())
+
+        self.error_label = ctk.CTkLabel(self.parent, textvariable=self.date_error_var, text_color="#ffb347")
+        self.error_label.pack(anchor="center", pady=(0, 2))
+
+        chart_host = ctk.CTkFrame(self.parent, fg_color="transparent")
+        chart_host.pack(fill="both", expand=True)
+
+        self.chart_area = ctk.CTkFrame(chart_host, fg_color="transparent")
+        self.chart_area.pack(fill="both", expand=True)
+
+        footer = ctk.CTkFrame(chart_host, fg_color="transparent")
+        footer.pack(fill="x", pady=(0, 2))
+
+        self.toolbar_frame = ctk.CTkFrame(footer, fg_color="transparent")
+        self.toolbar_frame.pack(side="left", fill="x", expand=True)
+
+        ctk.CTkButton(
+            footer,
+            text="🗖",
+            width=30,
+            height=28,
+            command=self.open_popout,
+            fg_color="#374151",
+            hover_color="#4b5563",
+        ).pack(side="right", padx=(0, 2), pady=(0, 2))
+
+    def _filter_points(self, points: list[tuple[datetime, float]], start: datetime | None, end: datetime | None):
+        if not points:
+            return []
+        filtered = points
+        if start is not None:
+            filtered = [p for p in filtered if p[0] >= start]
+        if end is not None:
+            filtered = [p for p in filtered if p[0] <= end]
+        return filtered
+
+    def _destroy_canvas(self):
+        if self.canvas is not None:
+            self.canvas.get_tk_widget().destroy()
+            self.canvas = None
+        if self.toolbar is not None:
+            self.toolbar.destroy()
+            self.toolbar = None
+
+    def update_chart(self):
+        start = self._parse_date(self.from_var.get())
+        end = self._parse_date(self.to_var.get())
+        if self.from_var.get().strip() and start is None:
+            self.date_error_var.set("Ungültiges Datum für 'Von'. Format: YYYY-MM-DD")
+            return
+        if self.to_var.get().strip() and end is None:
+            self.date_error_var.set("Ungültiges Datum für 'Bis'. Format: YYYY-MM-DD")
+            return
+        if start and end and start > end:
+            self.date_error_var.set("'Von' muss vor 'Bis' liegen.")
+            return
+        self.date_error_var.set("")
+
+        visible_series = {key: self._filter_points(self.all_series.get(key) or [], start, end) for key in self.visible_keys}
+        comparison_series = [(label, self._filter_points(points, start, end)) for label, points in self.comparison_series]
+        comparison_series = [(label, points) for label, points in comparison_series if points]
+
+        lower = any(key in {"returns", "drawdown", "benchmark_relative"} for key in self.visible_keys)
+        fig, axes = _build_timeseries_figure(
+            visible_series=visible_series,
+            visible_keys=self.visible_keys,
+            comparison_series=comparison_series,
+            figsize=(7, 4.35 if lower else 3.05),
+        )
+
+        self._destroy_canvas()
+        self.canvas = FigureCanvasTkAgg(fig, master=self.chart_area)
+        self.axes = axes
+        self.canvas.draw()
+        self.canvas.get_tk_widget().pack(fill="both", expand=True)
+        self.hover_ids = enable_timeseries_hover(self.canvas, axes)
+
+        self.toolbar = NavigationToolbar2Tk(self.canvas, self.toolbar_frame)
+        self.toolbar.update()
+
+    def apply_preset(self, days: int | None):
+        if not self.max_date:
+            return
+        if days is None or not self.min_date:
+            self.from_var.set(self._fmt_date(self.min_date))
+            self.to_var.set(self._fmt_date(self.max_date))
+            self.update_chart()
+            return
+
+        start = self.max_date - timedelta(days=days)
+        if self.min_date and start < self.min_date:
+            start = self.min_date
+        self.from_var.set(self._fmt_date(start))
+        self.to_var.set(self._fmt_date(self.max_date))
+        self.update_chart()
+
+    def _collect_current_filter(self) -> tuple[datetime | None, datetime | None]:
+        return self._parse_date(self.from_var.get()), self._parse_date(self.to_var.get())
+
+    def open_popout(self):
+        start, end = self._collect_current_filter()
+
+        filtered_series = {key: self._filter_points(self.all_series.get(key) or [], start, end) for key in self.visible_keys}
+        filtered_comparisons = [
+            (label, self._filter_points(points, start, end)) for label, points in self.comparison_series
+        ]
+        filtered_comparisons = [(label, points) for label, points in filtered_comparisons if points]
+
+        popout, popout_canvas, popout_axes = open_chart_popout(
+            parent=self.parent,
+            title=f"Chart-Detailansicht: {self.isin}",
+            build_figure=lambda: _build_timeseries_figure(
+                visible_series=filtered_series,
+                visible_keys=self.visible_keys,
+                comparison_series=filtered_comparisons,
+                figsize=(13.5, 8.2),
+                linewidth=2.0,
+            ),
+            size="1500x920",
+        )
+        enable_timeseries_hover(popout_canvas, popout_axes)
+        popout.focus_force()
+
+
 def create_screen(
     parent,
     isin: str,
@@ -198,41 +417,13 @@ def create_screen(
             ctk.CTkLabel(frame, text="Hinweise: " + " | ".join(effective_warnings), text_color="#ffb347").pack(anchor="w")
         return
 
-    actions_frame = ctk.CTkFrame(frame, fg_color="transparent")
-    actions_frame.pack(fill="x", padx=2, pady=(0, 4))
-
-    def _build_normal_figure() -> tuple[Figure, list[Axes]]:
-        lower = any(key in {"returns", "drawdown", "benchmark_relative"} for key in visible_keys)
-        return _build_timeseries_figure(
-            visible_series=visible_series,
-            visible_keys=visible_keys,
-            comparison_series=comparison_series,
-            figsize=(7, 4.3 if lower else 3),
-        )
-
-    def _open_popout():
-        popout, popout_canvas, popout_axes = open_chart_popout(
-            parent=frame,
-            title=f"Chart-Detailansicht: {isin}",
-            build_figure=lambda: _build_timeseries_figure(
-                visible_series=visible_series,
-                visible_keys=visible_keys,
-                comparison_series=comparison_series,
-                figsize=(13.5, 8.2),
-                linewidth=2.05,
-            ),
-            size="1500x920",
-        )
-        enable_timeseries_hover(popout_canvas, popout_axes)
-        popout.focus_force()
-
-    ctk.CTkButton(actions_frame, text="🔍 Vollbild öffnen", width=170, command=_open_popout).pack(side="right", padx=(4, 0))
-
-    fig, axes = _build_normal_figure()
-    canvas = FigureCanvasTkAgg(fig, master=frame)
-    canvas.draw()
-    canvas.get_tk_widget().pack(fill="both", expand=True)
-    enable_timeseries_hover(canvas, axes)
+    TimeSeriesChartModule(
+        parent=frame,
+        isin=isin,
+        visible_keys=visible_keys,
+        all_series=visible_series,
+        comparison_series=comparison_series,
+    )
 
     if effective_warnings:
         ctk.CTkLabel(frame, text="Hinweise: " + " | ".join(effective_warnings), text_color="#ffb347").pack(anchor="w", pady=(8, 0))

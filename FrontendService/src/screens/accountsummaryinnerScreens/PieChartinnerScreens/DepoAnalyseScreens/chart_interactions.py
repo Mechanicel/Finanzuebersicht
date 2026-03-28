@@ -8,7 +8,7 @@ from typing import Callable
 import customtkinter as ctk
 import matplotlib.dates as mdates
 from matplotlib.axes import Axes
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 from matplotlib.figure import Figure
 
 
@@ -185,12 +185,24 @@ def open_chart_popout(
     except Exception:
         pass
 
-    container = ctk.CTkFrame(popout, fg_color="transparent")
-    container.pack(fill="both", expand=True, padx=8, pady=8)
+    root = ctk.CTkFrame(popout, fg_color="transparent")
+    root.pack(fill="both", expand=True, padx=8, pady=8)
+
+    actions = ctk.CTkFrame(root, fg_color="transparent")
+    actions.pack(fill="x", pady=(0, 4))
+    ctk.CTkButton(actions, text="Schließen", width=120, command=popout.destroy).pack(side="right")
+
+    container = ctk.CTkFrame(root, fg_color="transparent")
+    container.pack(fill="both", expand=True)
 
     figure, axes = build_figure()
     canvas = FigureCanvasTkAgg(figure, master=container)
     canvas.draw()
     canvas.get_tk_widget().pack(fill="both", expand=True)
+
+    toolbar_host = ctk.CTkFrame(root, fg_color="transparent")
+    toolbar_host.pack(fill="x", pady=(2, 0))
+    toolbar = NavigationToolbar2Tk(canvas, toolbar_host)
+    toolbar.update()
 
     return popout, canvas, axes

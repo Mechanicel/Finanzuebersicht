@@ -97,10 +97,21 @@ class AnalysisApiClient:
         params = {"benchmark": benchmark} if benchmark else None
         return self._cached_get(f"/analysis/company/{isin}/benchmark", params=params)
 
-    def load_timeseries(self, isin: str, series: str, benchmark: str | None = None):
+    def load_timeseries(
+        self,
+        isin: str,
+        series: str,
+        benchmark: str | None = None,
+        start_date: str | None = None,
+        end_date: str | None = None,
+    ):
         params = {"series": series}
         if benchmark:
             params["benchmark"] = benchmark
+        if start_date:
+            params["start_date"] = start_date
+        if end_date:
+            params["end_date"] = end_date
         return self._cached_get(f"/analysis/company/{isin}/timeseries", params=params)
 
     def load_financials(self, isin: str, period: str):
