@@ -15,7 +15,6 @@ from src.services.base_service import BaseService, handle_errors
 
 logger = logging.getLogger(__name__)
 
-PRICE_TTL_SECONDS = 15 * 60
 FUNDAMENTALS_TTL_SECONDS = 24 * 60 * 60
 
 
@@ -50,12 +49,12 @@ class StockService(BaseService):
         self.performance_logging = settings.performance_logging
         self.mongo_repo = MongoMarketDataRepository()
         self.provider = YFinanceProvider()
-        self.analysis = AnalysisMetricsService(self.provider)
+        self.analysis = AnalysisMetricsService(self.provider, benchmark_loader=self._get_benchmark_timeseries_cached)
 
     def _analysis_service(self) -> AnalysisMetricsService:
         analysis = getattr(self, "analysis", None)
         if analysis is None or getattr(analysis, "provider", None) is not self.provider:
-            self.analysis = AnalysisMetricsService(self.provider)
+            self.analysis = AnalysisMetricsService(self.provider, benchmark_loader=self._get_benchmark_timeseries_cached)
         return self.analysis
 
     @handle_errors
@@ -314,7 +313,8 @@ class StockService(BaseService):
         warnings: list[str] = []
         for symbol in requested_symbols:
             try:
-                series = self.provider.fetch_benchmark_timeseries(symbol)
+                cache_entry = self._get_symbol_timeseries_cached(symbol)
+                series = list(cache_entry.get("price_history") or [])
             except Exception:
                 logger.warning("Vergleichszeitreihe für %s fehlgeschlagen", symbol, exc_info=True)
                 warnings.append(f"Zeitreihe für {symbol} konnte nicht geladen werden")
@@ -395,11 +395,14 @@ class StockService(BaseService):
         elif include_fund and not can_have_fund:
             model.fund = {}
 
-        needs_prices = bool(updated_at) and ((now - updated_at).total_seconds() > PRICE_TTL_SECONDS)
-        if include_prices and (not self._has_usable_price_history(model.price_history, target_date) or needs_prices):
-            model.timeseries = self._provider_call("fetch_timeseries", normalized_isin, symbol, cache=provider_cache)
-            model.price_history = list((model.timeseries or {}).get("price_history") or [])
-            model.metrics_history = list((model.timeseries or {}).get("metrics_history") or [])
+        if include_prices:
+            self._ensure_company_timeseries(
+                model=model,
+                isin=normalized_isin,
+                symbol=symbol,
+                target_date=target_date,
+                provider_cache=provider_cache,
+            )
 
         provider_name = getattr(self.provider, "provider_name", "yfinance")
         model.meta.setdefault("provider_map", {
@@ -431,6 +434,84 @@ class StockService(BaseService):
                 include_fund,
             )
         return model
+
+    def _ensure_company_timeseries(
+        self,
+        *,
+        model: StockModel,
+        isin: str,
+        symbol: str,
+        target_date: Optional[datetime.date],
+        provider_cache: dict[tuple[str, str | None, tuple[tuple[str, Any], ...]], Any],
+    ) -> None:
+        model.timeseries = model.timeseries if isinstance(model.timeseries, dict) else {}
+        model.meta = model.meta if isinstance(model.meta, dict) else {}
+        existing_price_history = list(model.price_history or model.timeseries.get("price_history") or [])
+        existing_metrics_history = list(model.metrics_history or model.timeseries.get("metrics_history") or [])
+        ts_meta = dict((model.meta.get("timeseries") or {}))
+
+        if self._is_timeseries_fresh(existing_price_history, ts_meta) and self._has_usable_price_history(existing_price_history, target_date):
+            model.price_history = existing_price_history
+            model.metrics_history = existing_metrics_history
+            model.timeseries["price_history"] = existing_price_history
+            model.timeseries["metrics_history"] = existing_metrics_history
+            model.meta["last_timeseries_refresh"] = ts_meta.get("last_refresh_at") or model.meta.get("last_timeseries_refresh")
+            return
+
+        fetched = self._provider_call("fetch_timeseries", isin, symbol, cache=provider_cache) or {}
+        fetched_price_history = list((fetched or {}).get("price_history") or [])
+        fetched_metrics_history = list((fetched or {}).get("metrics_history") or [])
+
+        merged_price_history = self._merge_series_by_date(existing_price_history, fetched_price_history)
+        merged_metrics_history = self._merge_series_by_date(existing_metrics_history, fetched_metrics_history)
+        now_iso = datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat()
+        as_of = self._latest_history_date(merged_price_history)
+        provider_name = getattr(self.provider, "provider_name", "yfinance")
+
+        model.price_history = merged_price_history
+        model.metrics_history = merged_metrics_history
+        model.timeseries["price_history"] = merged_price_history
+        model.timeseries["metrics_history"] = merged_metrics_history
+        model.meta["timeseries"] = {
+            "as_of": as_of,
+            "updated_at": now_iso,
+            "source": provider_name,
+            "last_refresh_at": now_iso,
+            "record_count": len(merged_price_history),
+        }
+        model.meta["last_timeseries_refresh"] = now_iso
+
+    def _get_benchmark_timeseries_cached(self, symbol: str) -> dict[str, Any]:
+        return self._get_symbol_timeseries_cached(symbol)
+
+    def _get_symbol_timeseries_cached(self, symbol: str) -> dict[str, Any]:
+        normalized_symbol = (symbol or "").strip().upper()
+        if not normalized_symbol:
+            raise InvalidRequestError("Symbol darf nicht leer sein")
+
+        repo_read = getattr(self.mongo_repo, "read_symbol_timeseries", None)
+        cached = repo_read(normalized_symbol) if callable(repo_read) else None
+        cached = cached if isinstance(cached, dict) else {}
+        cached_history = list(cached.get("price_history") or [])
+        if self._is_timeseries_fresh(cached_history, cached):
+            return cached
+
+        fresh_history = self.provider.fetch_benchmark_timeseries(normalized_symbol)
+        merged_history = self._merge_series_by_date(cached_history, list(fresh_history or []))
+        now_iso = datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat()
+        payload = {
+            "symbol": normalized_symbol,
+            "price_history": merged_history,
+            "as_of": self._latest_history_date(merged_history),
+            "updated_at": now_iso,
+            "source": getattr(self.provider, "provider_name", "yfinance"),
+            "last_refresh_at": now_iso,
+            "record_count": len(merged_history),
+        }
+        repo_write = getattr(self.mongo_repo, "write_symbol_timeseries", None)
+        if callable(repo_write):
+            repo_write(normalized_symbol, payload)
+        return payload
 
     @staticmethod
     def _parse_symbols(symbols_raw: str) -> list[str]:
@@ -592,6 +673,58 @@ class StockService(BaseService):
         if not valid_dates:
             return False
         return True if target_date is None else any(dt <= target_date for dt in valid_dates)
+
+    @staticmethod
+    def _merge_series_by_date(existing: list[dict[str, Any]], incoming: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        merged: dict[str, dict[str, Any]] = {}
+        for entry in existing + incoming:
+            if not isinstance(entry, dict):
+                continue
+            date_str = entry.get("date")
+            if not isinstance(date_str, str):
+                continue
+            merged[date_str] = dict(entry)
+        return [merged[key] for key in sorted(merged.keys())]
+
+    @staticmethod
+    def _latest_history_date(history: list[dict[str, Any]]) -> str | None:
+        latest: datetime.date | None = None
+        for entry in history:
+            if not isinstance(entry, dict):
+                continue
+            date_raw = entry.get("date")
+            if not isinstance(date_raw, str):
+                continue
+            try:
+                parsed = datetime.date.fromisoformat(date_raw)
+            except ValueError:
+                continue
+            if latest is None or parsed > latest:
+                latest = parsed
+        return latest.isoformat() if latest else None
+
+    @staticmethod
+    def _current_reference_date(today: datetime.date | None = None) -> datetime.date:
+        ref = today or datetime.datetime.now(datetime.timezone.utc).date()
+        while ref.weekday() >= 5:
+            ref = ref - datetime.timedelta(days=1)
+        return ref
+
+    def _is_timeseries_fresh(self, history: list[dict[str, Any]], metadata: dict[str, Any] | None = None) -> bool:
+        latest_raw = (metadata or {}).get("as_of")
+        latest_date = None
+        if isinstance(latest_raw, str):
+            try:
+                latest_date = datetime.date.fromisoformat(latest_raw)
+            except ValueError:
+                latest_date = None
+        if latest_date is None:
+            latest_str = self._latest_history_date(history)
+            if latest_str:
+                latest_date = datetime.date.fromisoformat(latest_str)
+        if latest_date is None:
+            return False
+        return latest_date >= self._current_reference_date()
 
     @staticmethod
     def _meta(coverage: str) -> AnalysisMetaResponse:
