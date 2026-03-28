@@ -61,6 +61,7 @@ class Settings:
     marketdata_host: str
     marketdata_port: int
     log_verbosity: str
+    performance_logging: bool
 
     @property
     def mongo_collections(self) -> Iterable[str]:
@@ -98,6 +99,13 @@ def normalize_log_verbosity(value: str) -> str:
     if normalized in {"error", "debug", "trace"}:
         return normalized
     return "debug"
+
+
+def parse_bool_env(value: str, default: bool = False) -> bool:
+    normalized = (value or "").strip().lower()
+    if not normalized:
+        return default
+    return normalized in {"1", "true", "yes", "on"}
 
 
 def get_settings() -> Settings:
@@ -143,6 +151,7 @@ def get_settings() -> Settings:
         marketdata_host=env("MARKETDATA_HOST", "0.0.0.0"),
         marketdata_port=int(env("MARKETDATA_PORT", "5000")),
         log_verbosity=normalize_log_verbosity(env("LOG_VERBOSITY", "debug")),
+        performance_logging=parse_bool_env(env("PERFORMANCE_LOGGING", "false"), default=False),
     )
     return settings
 

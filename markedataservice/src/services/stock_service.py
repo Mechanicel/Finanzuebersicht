@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import datetime
 import logging
+import time
 from dataclasses import asdict, dataclass
 from typing import Any, Optional
 
+from finanzuebersicht_shared import get_settings
 from src.models.stock_model import StockModel
 from src.repositories.mongo_repository import MongoMarketDataRepository
 from src.repositories.providers.yfinance_provider import YFinanceProvider
@@ -44,6 +46,8 @@ class AnalysisMetaResponse:
 class StockService(BaseService):
     def __init__(self):
         super().__init__()
+        settings = get_settings()
+        self.performance_logging = settings.performance_logging
         self.mongo_repo = MongoMarketDataRepository()
         self.provider = YFinanceProvider()
         self.analysis = AnalysisMetricsService(self.provider)
@@ -276,6 +280,7 @@ class StockService(BaseService):
         include_analysts: bool = False,
         include_fund: bool = False,
     ) -> StockModel:
+        started_at = time.perf_counter()
         normalized_isin = (isin or "").strip().upper()
         if not normalized_isin:
             raise InvalidRequestError("ISIN darf nicht leer sein")
@@ -348,6 +353,18 @@ class StockService(BaseService):
         model.meta["updated_at"] = now.replace(microsecond=0).isoformat()
         model.sync_legacy_fields()
         self.mongo_repo.write(normalized_isin, model.to_dict())
+        if self.performance_logging:
+            duration_ms = (time.perf_counter() - started_at) * 1000
+            logger.info(
+                "StockService._get_or_build_model(%s) took %.0fms (market=%s, prices=%s, financials=%s, analysts=%s, fund=%s)",
+                normalized_isin,
+                duration_ms,
+                include_market,
+                include_prices,
+                include_financials,
+                include_analysts,
+                include_fund,
+            )
         return model
 
     @staticmethod
@@ -367,12 +384,16 @@ class StockService(BaseService):
         key = (method, symbol, key_kwargs)
         if cache is not None and key in cache:
             return cache[key]
+        started_at = time.perf_counter()
 
         provider_fn = getattr(self.provider, method, None)
         if callable(provider_fn):
             result = provider_fn(isin, symbol=symbol, **kwargs)
             if cache is not None:
                 cache[key] = result
+            if self.performance_logging:
+                duration_ms = (time.perf_counter() - started_at) * 1000
+                logger.info("Provider call %s for %s took %.0fms", method, isin, duration_ms)
             return result
 
         # Fallback für Tests mit vereinfachtem FakeProvider
@@ -388,18 +409,27 @@ class StockService(BaseService):
             }
             if cache is not None:
                 cache[key] = result
+            if self.performance_logging:
+                duration_ms = (time.perf_counter() - started_at) * 1000
+                logger.info("Provider call %s for %s took %.0fms", method, isin, duration_ms)
             return result
         if method == "fetch_profile":
             basic = self.provider.fetch_basic(isin, symbol=symbol)
             result = {"sector": basic.get("sector"), "industry": basic.get("industry"), "country": basic.get("country")}
             if cache is not None:
                 cache[key] = result
+            if self.performance_logging:
+                duration_ms = (time.perf_counter() - started_at) * 1000
+                logger.info("Provider call %s for %s took %.0fms", method, isin, duration_ms)
             return result
         if method == "fetch_market":
             metrics_fn = getattr(self.provider, "fetch_metrics", None)
             result = metrics_fn(isin, symbol=symbol) if callable(metrics_fn) else {}
             if cache is not None:
                 cache[key] = result
+            if self.performance_logging:
+                duration_ms = (time.perf_counter() - started_at) * 1000
+                logger.info("Provider call %s for %s took %.0fms", method, isin, duration_ms)
             return result
         if method == "fetch_timeseries":
             result = {
@@ -408,6 +438,9 @@ class StockService(BaseService):
             }
             if cache is not None:
                 cache[key] = result
+            if self.performance_logging:
+                duration_ms = (time.perf_counter() - started_at) * 1000
+                logger.info("Provider call %s for %s took %.0fms", method, isin, duration_ms)
             return result
         if method in {"fetch_fundamentals", "fetch_analysts", "fetch_fund", "fetch_financial_statements"}:
             return {}
