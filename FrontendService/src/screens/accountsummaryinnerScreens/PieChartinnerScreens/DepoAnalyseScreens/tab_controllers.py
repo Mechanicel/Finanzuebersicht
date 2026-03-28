@@ -11,7 +11,11 @@ from src.screens.accountsummaryinnerScreens.PieChartinnerScreens.DepoAnalyseScre
 from src.screens.accountsummaryinnerScreens.PieChartinnerScreens.DepoAnalyseScreens.ColumnSelectorScreen import (
     create_column_selector_screen,
 )
-from src.screens.accountsummaryinnerScreens.PieChartinnerScreens.ui_helpers import attach_tooltip, info_label
+from src.screens.accountsummaryinnerScreens.PieChartinnerScreens.ui_helpers import (
+    attach_tooltip,
+    create_hover_icon_button,
+    info_label,
+)
 from src.ui.components import section_card
 
 
@@ -203,20 +207,29 @@ class ReturnsTabController:
         chart_box, self.chart_body = section_card(self.frame, "Zeitreihen")
         chart_box.pack(fill="both", expand=True)
 
-        search_card = ctk.CTkFrame(self.frame)
+        search_card, search_body = section_card(self.frame, "Freie Vergleiche")
         search_card.pack(fill="x", pady=(8, 0))
-        ctk.CTkLabel(search_card, text="Freie Vergleiche", font=("Arial", 13, "bold")).pack(anchor="w", padx=10, pady=(8, 2))
-        row = ctk.CTkFrame(search_card, fg_color="transparent")
-        row.pack(fill="x", padx=10, pady=(0, 4))
+        hint_row = ctk.CTkFrame(search_body, fg_color="transparent")
+        hint_row.pack(fill="x", pady=(0, 4))
+        info_label(hint_row, "Vergleichssuche", "Freie Vergleichswerte ergänzen den Preset-Benchmark aus dem Segment-Menü.").pack(side="left")
+
+        row = ctk.CTkFrame(search_body, fg_color="transparent")
+        row.pack(fill="x", pady=(0, 6))
         self.query_var = ctk.StringVar(value="")
-        search_entry = ctk.CTkEntry(row, textvariable=self.query_var, placeholder_text="z. B. Apple, MSFT", height=30)
+        search_entry = ctk.CTkEntry(row, textvariable=self.query_var, placeholder_text="Symbol, Name oder ISIN", height=28)
         search_entry.pack(side="left", fill="x", expand=True, padx=(0, 6))
-        ctk.CTkButton(row, text="Suchen", width=80, height=30, command=self._on_search).pack(side="left")
+        ctk.CTkButton(row, text="Suchen", width=72, height=28, command=self._on_search).pack(side="left")
         search_entry.bind("<Return>", lambda *_: self._on_search())
-        self.results_frame = ctk.CTkFrame(search_card, fg_color="transparent")
-        self.results_frame.pack(fill="x", padx=10, pady=(2, 4))
-        self.selected_frame = ctk.CTkFrame(search_card, fg_color="transparent")
-        self.selected_frame.pack(fill="x", padx=10, pady=(2, 8))
+
+        dual_panel = ctk.CTkFrame(search_body, fg_color="transparent")
+        dual_panel.pack(fill="x", pady=(0, 4))
+        dual_panel.grid_columnconfigure(0, weight=3)
+        dual_panel.grid_columnconfigure(1, weight=2)
+
+        self.results_frame = ctk.CTkFrame(dual_panel, corner_radius=8)
+        self.results_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
+        self.selected_frame = ctk.CTkFrame(dual_panel, corner_radius=8)
+        self.selected_frame.grid(row=0, column=1, sticky="nsew", padx=(6, 0))
 
         self.warning_var = ctk.StringVar(value="")
         self.warning_label = ctk.CTkLabel(self.frame, textvariable=self.warning_var, text_color="#ffb347")
@@ -266,30 +279,73 @@ class ReturnsTabController:
         results = ws.get("comparison_search_results") or []
         selected_symbols = {str(entry).upper() for entry in (ws.get("comparison_symbols") or [])}
 
-        if results:
-            ctk.CTkLabel(self.results_frame, text="Suchergebnisse", font=("Arial", 12, "bold")).pack(anchor="w", pady=(0, 2))
-            for item in results[:12]:
+        ctk.CTkLabel(self.results_frame, text="Suchergebnisse", font=("Arial", 12, "bold")).pack(anchor="w", padx=8, pady=(8, 4))
+        if not results:
+            ctk.CTkLabel(
+                self.results_frame,
+                text="Suche starten, um Vergleichswerte zu finden.",
+                text_color="gray70",
+            ).pack(anchor="w", padx=8, pady=(0, 8))
+        else:
+            for item in results[:14]:
                 symbol = str(item.get("symbol") or "").upper()
                 if not symbol:
                     continue
                 row = ctk.CTkFrame(self.results_frame, fg_color="transparent")
-                row.pack(fill="x", pady=1)
+                row.pack(fill="x", padx=8, pady=(0, 3))
                 already_selected = symbol in selected_symbols
                 check = ctk.CTkCheckBox(row, text="", width=20, command=lambda s=symbol: self._on_toggle_symbol(s, True))
-                check.pack(side="left", padx=(0, 4))
+                check.pack(side="left", padx=(0, 6), anchor="n", pady=(2, 0))
                 if already_selected:
                     check.select()
                     check.configure(state="disabled")
-                ctk.CTkLabel(row, text=f"{symbol} · {item.get('name') or symbol}", anchor="w").pack(side="left")
+                text_box = ctk.CTkFrame(row, fg_color="transparent")
+                text_box.pack(side="left", fill="x", expand=True)
+                name = item.get("name") or symbol
+                line_1 = f"{symbol} · {name}"
+                if already_selected:
+                    line_1 += "  (bereits gewählt)"
+                ctk.CTkLabel(
+                    text_box,
+                    text=line_1,
+                    anchor="w",
+                    font=("Arial", 12, "bold"),
+                    text_color="gray65" if already_selected else None,
+                ).pack(anchor="w")
 
-        ctk.CTkLabel(self.selected_frame, text="Ausgewählte freie Vergleiche", font=("Arial", 12, "bold")).pack(anchor="w")
+                meta_parts = []
+                isin = item.get("isin")
+                exchange = item.get("exchange")
+                quote_type = item.get("quote_type")
+                currency = item.get("currency")
+                region = item.get("region")
+                if isin:
+                    meta_parts.append(f"ISIN: {isin}")
+                if exchange:
+                    meta_parts.append(f"Börse: {exchange}")
+                if quote_type:
+                    meta_parts.append(f"Typ: {quote_type}")
+                if currency:
+                    meta_parts.append(f"Währung: {currency}")
+                if region:
+                    meta_parts.append(f"Region: {region}")
+                ctk.CTkLabel(
+                    text_box,
+                    text=" | ".join(meta_parts) if meta_parts else "Keine Zusatzinfos verfügbar",
+                    anchor="w",
+                    text_color="gray70",
+                    font=("Arial", 10),
+                ).pack(anchor="w")
+
+        ctk.CTkLabel(self.selected_frame, text="Ausgewählt", font=("Arial", 12, "bold")).pack(anchor="w", padx=8, pady=(8, 4))
         if not selected_symbols:
-            ctk.CTkLabel(self.selected_frame, text="Keine freien Vergleichswerte ausgewählt.", text_color="gray70").pack(anchor="w")
+            ctk.CTkLabel(self.selected_frame, text="Keine freien Vergleichswerte ausgewählt.", text_color="gray70").pack(anchor="w", padx=8, pady=(0, 8))
         for symbol in sorted(selected_symbols):
             row = ctk.CTkFrame(self.selected_frame, fg_color="transparent")
-            row.pack(fill="x", pady=1)
+            row.pack(fill="x", padx=8, pady=(0, 3))
             ctk.CTkLabel(row, text=symbol, anchor="w").pack(side="left")
-            ctk.CTkButton(row, text="Entfernen", width=90, height=26, command=lambda s=symbol: self._on_toggle_symbol(s, False)).pack(side="right")
+            remove_btn = create_hover_icon_button(row, "🗑", command=lambda s=symbol: self._on_toggle_symbol(s, False))
+            remove_btn.pack(side="right")
 
     def update_loading(self, loading: bool, text: str = ""):
         if loading:
