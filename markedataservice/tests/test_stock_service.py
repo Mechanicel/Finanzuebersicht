@@ -61,6 +61,7 @@ class FakeProvider:
 def _build_service(repo: FakeMongoRepo, provider: FakeProvider) -> StockService:
     service = StockService.__new__(StockService)
     BaseService.__init__(service)
+    service.performance_logging = False
     service.mongo_repo = repo
     service.provider = provider
     return service
@@ -151,3 +152,30 @@ def test_optional_analyst_block_failure_is_non_fatal():
 
     assert provider.analyst_calls == 1
     assert payload["analysts"] == {}
+
+
+def test_get_depot_holdings_summary_is_lightweight_and_deduplicated():
+    repo = FakeMongoRepo()
+    provider = FakeProvider()
+    service = _build_service(repo, provider)
+
+    payload = service.get_depot_holdings_summary(["de000basf111", "DE000BASF111", "", "   "])
+
+    assert len(payload["holdings"]) == 1
+    assert payload["holdings"][0]["isin"] == "DE000BASF111"
+    assert payload["holdings"][0]["symbol"] == "BAS.DE"
+    assert payload["holdings"][0]["coverage"] == "depot_summary"
+    assert provider.price_history_calls == []
+
+
+def test_get_depot_holdings_summary_keeps_partial_results_on_single_failure():
+    repo = FakeMongoRepo()
+    provider = FakeProvider()
+    service = _build_service(repo, provider)
+
+    payload = service.get_depot_holdings_summary(["DE000BASF111", "INVALIDISIN"])
+
+    assert len(payload["holdings"]) == 1
+    assert payload["holdings"][0]["isin"] == "DE000BASF111"
+    assert payload["meta"]["failed"] == 1
+    assert payload["meta"]["errors"][0]["isin"] == "INVALIDISIN"

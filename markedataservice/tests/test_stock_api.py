@@ -47,6 +47,14 @@ class FakeStockService:
             "meta": {"source": "fake"},
         }
 
+    def get_depot_holdings_summary(self, isins: list[str]):
+        if not isins:
+            return {"holdings": [], "meta": {"coverage": "depot_summary"}}
+        return {
+            "holdings": [{"isin": isin, "coverage": "depot_summary"} for isin in isins if isin and isin.strip()],
+            "meta": {"coverage": "depot_summary", "requested": len(isins)},
+        }
+
 
 def _client():
     stock_api.service = FakeStockService()
@@ -156,3 +164,25 @@ def test_analysis_benchmark_catalog_alias_routes_return_same_payload():
     assert benchmark_catalog_response.status_code == 200
     assert benchmarks_response.status_code == 200
     assert benchmark_catalog_response.get_json() == benchmarks_response.get_json()
+
+
+def test_depot_holdings_summary_endpoint_returns_bulk_payload():
+    client = _client()
+
+    response = client.get("/analysis/depot/holdings-summary?isins=US0378331005,DE000BASF111")
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["meta"]["coverage"] == "depot_summary"
+    assert len(payload["holdings"]) == 2
+    assert payload["holdings"][0]["isin"] == "US0378331005"
+
+
+def test_depot_holdings_summary_endpoint_requires_isins_param():
+    client = _client()
+
+    response = client.get("/analysis/depot/holdings-summary")
+
+    assert response.status_code == 400
+    payload = response.get_json()
+    assert payload["error"]["code"] == "invalid_request"

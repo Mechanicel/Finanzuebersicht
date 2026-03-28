@@ -98,6 +98,68 @@ class StockService(BaseService):
         }
 
     @handle_errors
+    def get_depot_holdings_summary(self, isins: list[str]) -> dict[str, Any]:
+        if not isinstance(isins, list):
+            raise InvalidRequestError("isins muss eine Liste sein")
+
+        deduplicated_isins: list[str] = []
+        seen: set[str] = set()
+        skipped: int = 0
+        for raw_isin in isins:
+            normalized = (raw_isin or "").strip().upper()
+            if not normalized:
+                skipped += 1
+                continue
+            if normalized in seen:
+                continue
+            seen.add(normalized)
+            deduplicated_isins.append(normalized)
+
+        holdings: list[dict[str, Any]] = []
+        errors: list[dict[str, str]] = []
+        for isin in deduplicated_isins:
+            try:
+                model = self._get_or_build_model(isin, include_market=True)
+            except Exception as exc:
+                logger.warning("Depot summary für ISIN=%s fehlgeschlagen: %s", isin, exc)
+                errors.append({"isin": isin, "error": str(exc)})
+                continue
+
+            instrument = model.instrument if isinstance(model.instrument, dict) else {}
+            market = model.market if isinstance(model.market, dict) else {}
+            profile = model.profile if isinstance(model.profile, dict) else {}
+            meta = model.meta if isinstance(model.meta, dict) else {}
+            provider = (meta.get("provider_map") or {}).get("market") or getattr(self.provider, "provider_name", "yfinance")
+
+            holdings.append(
+                {
+                    "isin": isin,
+                    "name": instrument.get("long_name") or instrument.get("short_name"),
+                    "symbol": instrument.get("symbol"),
+                    "current_price": market.get("currentPrice"),
+                    "currency": market.get("currency") or instrument.get("currency"),
+                    "sector": profile.get("sector"),
+                    "country": profile.get("country"),
+                    "provider": provider,
+                    "as_of": meta.get("updated_at"),
+                    "coverage": "depot_summary",
+                }
+            )
+
+        return {
+            "holdings": holdings,
+            "meta": {
+                **asdict(self._meta("depot_summary")),
+                "requested": len(isins),
+                "processed": len(deduplicated_isins),
+                "returned": len(holdings),
+                "skipped_empty": skipped,
+                "failed": len(errors),
+                "errors": errors,
+            },
+        }
+
+    @handle_errors
     def get_analysis_financials(self, isin: str, period: str = "annual") -> dict[str, Any]:
         model = self._get_or_build_model(isin, include_financials=True)
         period = "quarterly" if period == "quarterly" else "annual"
