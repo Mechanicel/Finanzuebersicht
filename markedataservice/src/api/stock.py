@@ -145,6 +145,7 @@ def get_company_timeseries(isin: str):
         return _handle_service_error(exc, isin, "/analysis/company/<isin>/timeseries")
 
 
+@stock_bp.route("/analysis/benchmark-catalog", methods=["GET"])
 @stock_bp.route("/analysis/benchmarks", methods=["GET"])
 def get_benchmark_catalog():
     try:

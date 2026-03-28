@@ -36,6 +36,17 @@ class FakeStockService:
     def get_analysis_timeseries(self, isin: str, series: str, benchmark_key: str | None = None):
         return {"series": {"price": [{"date": "2026-03-24", "close": 51.0}]}, "benchmark": {"key": benchmark_key or "msci_world"}}
 
+    def get_analysis_benchmark_catalog(self):
+        return {
+            "benchmarks": {
+                "msci_world": {"label": "MSCI World"},
+                "sp500": {"label": "S&P 500"},
+                "ftse_all_world": {"label": "FTSE All-World"},
+            },
+            "default": "msci_world",
+            "meta": {"source": "fake"},
+        }
+
 
 def _client():
     stock_api.service = FakeStockService()
@@ -134,3 +145,14 @@ def test_analysis_timeseries_endpoint():
 
     assert response.status_code == 200
     assert response.get_json()["series"]["price"][0]["close"] == 51.0
+
+
+def test_analysis_benchmark_catalog_alias_routes_return_same_payload():
+    client = _client()
+
+    benchmark_catalog_response = client.get("/analysis/benchmark-catalog")
+    benchmarks_response = client.get("/analysis/benchmarks")
+
+    assert benchmark_catalog_response.status_code == 200
+    assert benchmarks_response.status_code == 200
+    assert benchmark_catalog_response.get_json() == benchmarks_response.get_json()
