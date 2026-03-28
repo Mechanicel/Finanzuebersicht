@@ -204,6 +204,9 @@ class ReturnsTabController:
         self._on_group_change = on_group_change
         self._on_benchmark_change = on_benchmark_change
 
+        chart_box, self.chart_body = section_card(self.frame, "Zeitreihen")
+        chart_box.pack(fill="both", expand=True, pady=(0, 8))
+
         controls, controls_body = section_card(self.frame, "Steuerung")
         controls.pack(fill="x", pady=(0, 8))
         benchmark_row = ctk.CTkFrame(controls_body, fg_color="transparent")
@@ -222,9 +225,6 @@ class ReturnsTabController:
         for key, checkbox in self.selector.checkboxes().items():
             if key in tooltip_texts:
                 attach_tooltip(checkbox, tooltip_texts[key])
-
-        chart_box, self.chart_body = section_card(self.frame, "Zeitreihen")
-        chart_box.pack(fill="both", expand=True)
 
         search_card, search_body = section_card(self.frame, "Freie Vergleiche")
         search_card.pack(fill="x", pady=(8, 0))
