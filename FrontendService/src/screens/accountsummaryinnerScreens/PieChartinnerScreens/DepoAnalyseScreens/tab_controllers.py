@@ -1,0 +1,492 @@
+from __future__ import annotations
+
+from tkinter import ttk
+from typing import Any, Callable
+
+import customtkinter as ctk
+
+from src.screens.accountsummaryinnerScreens.PieChartinnerScreens.DepoAnalyseScreens.ChartScreen import (
+    create_screen as create_chart_screen,
+)
+from src.screens.accountsummaryinnerScreens.PieChartinnerScreens.DepoAnalyseScreens.ColumnSelectorScreen import (
+    create_column_selector_screen,
+)
+from src.screens.accountsummaryinnerScreens.PieChartinnerScreens.ui_helpers import attach_tooltip, info_label
+from src.ui.components import section_card
+
+
+def _to_float(value):
+    try:
+        if value is None:
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _fmt_number(value, digits: int = 2):
+    val = _to_float(value)
+    return "—" if val is None else f"{val:,.{digits}f}".replace(",", " ")
+
+
+def _fmt_currency(value, currency: str = "EUR", digits: int = 2):
+    val = _to_float(value)
+    return "—" if val is None else f"{val:,.{digits}f} {currency}".replace(",", " ")
+
+
+def _fmt_pct(value):
+    val = _to_float(value)
+    if val is None:
+        return "—"
+    if abs(val) <= 1.0:
+        val *= 100.0
+    return f"{val:.2f}%"
+
+
+def _display_value(value):
+    if value in (None, ""):
+        return "—"
+    return str(value)
+
+
+def _extract_first(payload: Any, keys: list[str]):
+    if not isinstance(payload, dict):
+        return None
+    for key in keys:
+        if key in payload and payload.get(key) not in (None, ""):
+            return payload.get(key)
+    return None
+
+
+def _metric_value(payload: Any):
+    if isinstance(payload, dict):
+        return payload.get("value")
+    return payload
+
+
+class OverviewTabController:
+    def __init__(self, parent):
+        self.frame = ctk.CTkFrame(parent, fg_color="transparent")
+        self.title_var = ctk.StringVar(value="—")
+        self.subtitle_var = ctk.StringVar(value="Symbol: — | ISIN: —")
+        self.warning_var = ctk.StringVar(value="")
+
+        identity_card, identity_body = section_card(self.frame, "Instrument")
+        identity_card.pack(fill="x", pady=(0, 6))
+        ctk.CTkLabel(identity_body, textvariable=self.title_var, font=("Arial", 20, "bold")).pack(anchor="w")
+        ctk.CTkLabel(identity_body, textvariable=self.subtitle_var, text_color="gray70").pack(anchor="w", pady=(0, 6))
+
+        grid = ctk.CTkFrame(identity_body, fg_color="transparent")
+        grid.pack(fill="x")
+        grid.grid_columnconfigure((0, 1), weight=1)
+        self.summary_vars: dict[str, ctk.StringVar] = {}
+        for idx, key in enumerate(["Aktueller Kurs", "Marktkapitalisierung", "Sektor", "Branche"]):
+            row = idx // 2
+            col = idx % 2
+            box = ctk.CTkFrame(grid)
+            box.grid(row=row, column=col, sticky="ew", padx=4, pady=4)
+            ctk.CTkLabel(box, text=key, text_color="gray70", font=("Arial", 11)).pack(anchor="w", padx=10, pady=(6, 0))
+            self.summary_vars[key] = ctk.StringVar(value="—")
+            ctk.CTkLabel(box, textvariable=self.summary_vars[key], font=("Arial", 15, "bold")).pack(anchor="w", padx=10, pady=(0, 6))
+
+        kpi_card, kpi_body = section_card(self.frame, "KPI-Kompakt")
+        kpi_card.pack(fill="x", pady=(0, 6))
+        kpi_grid = ctk.CTkFrame(kpi_body, fg_color="transparent")
+        kpi_grid.pack(fill="x")
+        kpi_grid.grid_columnconfigure((0, 1, 2), weight=1)
+        self.kpi_vars: dict[str, ctk.StringVar] = {}
+        for idx, key in enumerate(["Total Return", "CAGR", "Volatilität", "Sharpe Ratio", "Max Drawdown", "Beta"]):
+            row = idx // 3
+            col = idx % 3
+            box = ctk.CTkFrame(kpi_grid)
+            box.grid(row=row, column=col, sticky="ew", padx=4, pady=4)
+            ctk.CTkLabel(box, text=key, text_color="gray70", font=("Arial", 10)).pack(anchor="w", padx=8, pady=(5, 0))
+            self.kpi_vars[key] = ctk.StringVar(value="—")
+            ctk.CTkLabel(box, textvariable=self.kpi_vars[key], font=("Arial", 14, "bold")).pack(anchor="w", padx=8, pady=(0, 5))
+
+        meta_card, meta_body = section_card(self.frame, "Meta")
+        meta_card.pack(fill="x")
+        self.meta_var = ctk.StringVar(value="Provider: — | As-of: — | Coverage: —")
+        ctk.CTkLabel(meta_body, textvariable=self.meta_var, text_color="gray70").pack(anchor="w")
+
+        self.warning_label = ctk.CTkLabel(self.frame, textvariable=self.warning_var, text_color="#ffb347")
+
+    def update_data(self, isin: str, full_data: dict, metrics: dict, risk: dict):
+        instrument = full_data.get("instrument", {}) if isinstance(full_data.get("instrument"), dict) else {}
+        market = full_data.get("market", {}) if isinstance(full_data.get("market"), dict) else {}
+        profile = full_data.get("profile", {}) if isinstance(full_data.get("profile"), dict) else {}
+
+        name = instrument.get("long_name") or instrument.get("short_name") or instrument.get("symbol") or isin
+        self.title_var.set(name)
+        self.subtitle_var.set(f"Symbol: {_display_value(instrument.get('symbol'))} | ISIN: {_display_value(instrument.get('isin') or isin)}")
+
+        currency = market.get("currency") or instrument.get("currency") or "EUR"
+        self.summary_vars["Aktueller Kurs"].set(_fmt_currency(market.get("currentPrice"), currency))
+        self.summary_vars["Marktkapitalisierung"].set(_fmt_currency(market.get("marketCap"), currency, 0))
+        self.summary_vars["Sektor"].set(_display_value(profile.get("sector")))
+        self.summary_vars["Branche"].set(_display_value(profile.get("industry")))
+
+        metrics_root = metrics.get("metrics", {}) if isinstance(metrics, dict) else {}
+        performance = metrics_root.get("performance", {}) if isinstance(metrics_root, dict) else {}
+        risk_root = risk.get("risk", {}) if isinstance(risk, dict) else {}
+
+        self.kpi_vars["Total Return"].set(_fmt_pct(_metric_value(performance.get("total_return"))))
+        self.kpi_vars["CAGR"].set(_fmt_pct(_metric_value(performance.get("cagr"))))
+        self.kpi_vars["Volatilität"].set(_fmt_pct(_metric_value(risk_root.get("volatility"))))
+        self.kpi_vars["Sharpe Ratio"].set(_fmt_number(_metric_value(risk_root.get("sharpe_ratio")), 3))
+        self.kpi_vars["Max Drawdown"].set(_fmt_pct(_metric_value(risk_root.get("max_drawdown"))))
+        self.kpi_vars["Beta"].set(_fmt_number(_metric_value(risk_root.get("beta")), 3))
+
+        meta = {}
+        for source in (full_data.get("meta"), metrics.get("meta"), risk.get("meta")):
+            if isinstance(source, dict):
+                meta.update({k: v for k, v in source.items() if v not in (None, "")})
+        self.meta_var.set(
+            f"Provider: {_display_value(meta.get('provider'))} | As-of: {_display_value(meta.get('as_of') or meta.get('asof'))} | Coverage: {_display_value(meta.get('coverage'))}"
+        )
+
+    def update_warnings(self, warnings: list[str]):
+        if warnings:
+            self.warning_var.set("Hinweise: " + " | ".join(warnings))
+            if not self.warning_label.winfo_manager():
+                self.warning_label.pack(anchor="w", pady=(6, 0))
+            return
+        self.warning_var.set("")
+        if self.warning_label.winfo_manager():
+            self.warning_label.pack_forget()
+
+    def update_loading(self, loading: bool):
+        return
+
+    def update_selection(self, _isin: str):
+        return
+
+
+class ReturnsTabController:
+    def __init__(
+        self,
+        parent,
+        series_options: list[str],
+        tooltip_texts: dict[str, str],
+        on_series_change: Callable[[list[str]], None],
+        on_benchmark_change: Callable[[str | None], None],
+        on_group_change: Callable[[str], None],
+        on_search: Callable[[], None],
+        on_toggle_symbol: Callable[[str, bool], None],
+    ):
+        self.frame = ctk.CTkFrame(parent, fg_color="transparent")
+        self._on_search = on_search
+        self._on_toggle_symbol = on_toggle_symbol
+        self._on_series_change = on_series_change
+        self._on_group_change = on_group_change
+        self._on_benchmark_change = on_benchmark_change
+
+        controls, controls_body = section_card(self.frame, "Steuerung")
+        controls.pack(fill="x", pady=(0, 8))
+        benchmark_row = ctk.CTkFrame(controls_body, fg_color="transparent")
+        benchmark_row.pack(fill="x", pady=(0, 4))
+        info_label(benchmark_row, "Benchmark", tooltip_texts.get("benchmark", "")).pack(side="left", padx=(0, 8))
+        ctk.CTkLabel(benchmark_row, text="Segment:").pack(side="left", padx=(0, 6))
+        self.group_menu = ctk.CTkOptionMenu(benchmark_row, values=["Alle"], width=170, command=self._on_group_change)
+        self.group_menu.pack(side="left", padx=(0, 8))
+        self.benchmark_menu = ctk.CTkOptionMenu(benchmark_row, values=["Kein Benchmark"], width=320, command=lambda _: None)
+        self.benchmark_menu.pack(side="left")
+
+        series_row = ctk.CTkFrame(controls_body, fg_color="transparent")
+        series_row.pack(fill="x")
+        ctk.CTkLabel(series_row, text="Serien:").pack(side="left", padx=(0, 6))
+        self.selector = create_column_selector_screen(series_row, series_options, callback=self._on_series_change)
+        for key, checkbox in self.selector.checkboxes().items():
+            if key in tooltip_texts:
+                attach_tooltip(checkbox, tooltip_texts[key])
+
+        chart_box, self.chart_body = section_card(self.frame, "Zeitreihen")
+        chart_box.pack(fill="both", expand=True)
+
+        search_card = ctk.CTkFrame(self.frame)
+        search_card.pack(fill="x", pady=(8, 0))
+        ctk.CTkLabel(search_card, text="Freie Vergleiche", font=("Arial", 13, "bold")).pack(anchor="w", padx=10, pady=(8, 2))
+        row = ctk.CTkFrame(search_card, fg_color="transparent")
+        row.pack(fill="x", padx=10, pady=(0, 4))
+        self.query_var = ctk.StringVar(value="")
+        search_entry = ctk.CTkEntry(row, textvariable=self.query_var, placeholder_text="z. B. Apple, MSFT", height=30)
+        search_entry.pack(side="left", fill="x", expand=True, padx=(0, 6))
+        ctk.CTkButton(row, text="Suchen", width=80, height=30, command=self._on_search).pack(side="left")
+        search_entry.bind("<Return>", lambda *_: self._on_search())
+        self.results_frame = ctk.CTkFrame(search_card, fg_color="transparent")
+        self.results_frame.pack(fill="x", padx=10, pady=(2, 4))
+        self.selected_frame = ctk.CTkFrame(search_card, fg_color="transparent")
+        self.selected_frame.pack(fill="x", padx=10, pady=(2, 8))
+
+        self.warning_var = ctk.StringVar(value="")
+        self.warning_label = ctk.CTkLabel(self.frame, textvariable=self.warning_var, text_color="#ffb347")
+        self.loading_var = ctk.StringVar(value="")
+        self.loading_label = ctk.CTkLabel(self.frame, textvariable=self.loading_var, text_color="gray70")
+
+    def update_data(self, isin: str, ws: dict):
+        options = ws.get("benchmark_options") or [("Kein Benchmark", None)]
+        groups = ws.get("benchmark_groups") or {"Alle": options[1:]}
+        active_group = ws.get("benchmark_active_group") or "Alle"
+        group_names = ["Alle", *[name for name in groups.keys() if name != "Alle"]]
+        if active_group not in group_names:
+            active_group = "Alle"
+            ws["benchmark_active_group"] = active_group
+
+        self.group_menu.configure(values=group_names, command=self._on_group_change)
+        self.group_menu.set(active_group)
+
+        scoped_options = [("Kein Benchmark", None)] + list(groups.get(active_group) or [])
+        labels = [label for label, _ in scoped_options]
+        reverse = {label: value for label, value in scoped_options}
+        selected_label = next((label for label, value in scoped_options if value == ws.get("benchmark")), "Kein Benchmark")
+        self.benchmark_menu.configure(values=labels, command=lambda label: self._on_benchmark_change(reverse.get(label)))
+        self.benchmark_menu.set(selected_label)
+
+        selected_set = set(ws.get("selected_series") or [])
+        for name, var in self.selector._vars.items():
+            var.set(name in selected_set)
+
+        self._render_search_rows(ws)
+        create_chart_screen(
+            self.chart_body,
+            isin=isin,
+            payload=ws.get("payloads", {}).get("timeseries_active", {}),
+            warnings=(ws.get("warnings", {}).get("timeseries_active", []) + ws.get("warnings", {}).get("comparison_active", [])),
+            selected_series=ws.get("selected_series"),
+            benchmark=ws.get("benchmark"),
+            comparison_payload=ws.get("payloads", {}).get("comparison_active", {}),
+        )
+
+    def _render_search_rows(self, ws: dict):
+        for widget in self.results_frame.winfo_children():
+            widget.destroy()
+        for widget in self.selected_frame.winfo_children():
+            widget.destroy()
+
+        results = ws.get("comparison_search_results") or []
+        selected_symbols = {str(entry).upper() for entry in (ws.get("comparison_symbols") or [])}
+
+        if results:
+            ctk.CTkLabel(self.results_frame, text="Suchergebnisse", font=("Arial", 12, "bold")).pack(anchor="w", pady=(0, 2))
+            for item in results[:12]:
+                symbol = str(item.get("symbol") or "").upper()
+                if not symbol:
+                    continue
+                row = ctk.CTkFrame(self.results_frame, fg_color="transparent")
+                row.pack(fill="x", pady=1)
+                already_selected = symbol in selected_symbols
+                check = ctk.CTkCheckBox(row, text="", width=20, command=lambda s=symbol: self._on_toggle_symbol(s, True))
+                check.pack(side="left", padx=(0, 4))
+                if already_selected:
+                    check.select()
+                    check.configure(state="disabled")
+                ctk.CTkLabel(row, text=f"{symbol} · {item.get('name') or symbol}", anchor="w").pack(side="left")
+
+        ctk.CTkLabel(self.selected_frame, text="Ausgewählte freie Vergleiche", font=("Arial", 12, "bold")).pack(anchor="w")
+        if not selected_symbols:
+            ctk.CTkLabel(self.selected_frame, text="Keine freien Vergleichswerte ausgewählt.", text_color="gray70").pack(anchor="w")
+        for symbol in sorted(selected_symbols):
+            row = ctk.CTkFrame(self.selected_frame, fg_color="transparent")
+            row.pack(fill="x", pady=1)
+            ctk.CTkLabel(row, text=symbol, anchor="w").pack(side="left")
+            ctk.CTkButton(row, text="Entfernen", width=90, height=26, command=lambda s=symbol: self._on_toggle_symbol(s, False)).pack(side="right")
+
+    def update_loading(self, loading: bool, text: str = ""):
+        if loading:
+            self.loading_var.set(text or "Lade Zeitreihen...")
+            if not self.loading_label.winfo_manager():
+                self.loading_label.pack(anchor="w", pady=(6, 0))
+            return
+        if self.loading_label.winfo_manager():
+            self.loading_label.pack_forget()
+
+    def update_warnings(self, warnings: list[str]):
+        if warnings:
+            self.warning_var.set("Hinweise: " + " | ".join(warnings))
+            if not self.warning_label.winfo_manager():
+                self.warning_label.pack(anchor="w", pady=(8, 0))
+            return
+        self.warning_var.set("")
+        if self.warning_label.winfo_manager():
+            self.warning_label.pack_forget()
+
+    def update_selection(self, _isin: str):
+        return
+
+
+class RiskTabController:
+    def __init__(self, parent, on_benchmark_change: Callable[[str | None], None], tooltip_texts: dict[str, str]):
+        self.frame = ctk.CTkFrame(parent, fg_color="transparent")
+        self._on_benchmark_change = on_benchmark_change
+        controls, controls_body = section_card(self.frame, "Benchmark-Auswahl")
+        controls.pack(fill="x", pady=(0, 8))
+        self.benchmark_menu = ctk.CTkOptionMenu(controls_body, values=["Kein Benchmark"], command=lambda _: None)
+        self.benchmark_menu.pack(side="left")
+
+        _, kpi_body = section_card(self.frame, "Risikokennzahlen")
+        info_label(kpi_body, "Volatilität / Sharpe / Beta", f"{tooltip_texts.get('volatility', '')} | {tooltip_texts.get('sharpe', '')} | {tooltip_texts.get('beta', '')}").pack(anchor="w", pady=(0, 4))
+        self.kpi_vars = {k: ctk.StringVar(value="—") for k in ("Volatilität", "Sharpe Ratio", "Max Drawdown", "Beta")}
+        kpi_grid = ctk.CTkFrame(kpi_body, fg_color="transparent")
+        kpi_grid.pack(fill="x")
+        kpi_grid.grid_columnconfigure((0, 1, 2, 3), weight=1)
+        for idx, key in enumerate(self.kpi_vars):
+            box = ctk.CTkFrame(kpi_grid)
+            box.grid(row=0, column=idx, sticky="ew", padx=4, pady=3)
+            ctk.CTkLabel(box, text=key, text_color="gray70", font=("Arial", 10)).pack(anchor="w", padx=8, pady=(5, 0))
+            ctk.CTkLabel(box, textvariable=self.kpi_vars[key], font=("Arial", 13, "bold")).pack(anchor="w", padx=8, pady=(0, 5))
+
+        _, cmp_body = section_card(self.frame, "Benchmark-Vergleich")
+        self.compare_vars = {k: ctk.StringVar(value="—") for k in ("Company Total Return", "Benchmark Total Return", "Excess Return")}
+        cmp_grid = ctk.CTkFrame(cmp_body, fg_color="transparent")
+        cmp_grid.pack(fill="x")
+        cmp_grid.grid_columnconfigure((0, 1, 2), weight=1)
+        for idx, key in enumerate(self.compare_vars):
+            box = ctk.CTkFrame(cmp_grid)
+            box.grid(row=0, column=idx, sticky="ew", padx=4, pady=3)
+            ctk.CTkLabel(box, text=key, text_color="gray70", font=("Arial", 10)).pack(anchor="w", padx=8, pady=(5, 0))
+            ctk.CTkLabel(box, textvariable=self.compare_vars[key], font=("Arial", 13, "bold")).pack(anchor="w", padx=8, pady=(0, 5))
+
+        _, self.rel_body = section_card(self.frame, "Relative Benchmark-Zeitreihe")
+        self.warning_var = ctk.StringVar(value="")
+        self.warning_label = ctk.CTkLabel(self.frame, textvariable=self.warning_var, text_color="#ffb347")
+        self.loading_var = ctk.StringVar(value="")
+        self.loading_label = ctk.CTkLabel(self.frame, textvariable=self.loading_var, text_color="gray70")
+
+    def update_data(self, isin: str, ws: dict):
+        options = ws.get("benchmark_options") or [("Kein Benchmark", None)]
+        reverse = {label: value for label, value in options}
+        selected_label = next((label for label, value in options if value == ws.get("benchmark")), "Kein Benchmark")
+        self.benchmark_menu.configure(values=[label for label, _ in options], command=lambda label: self._on_benchmark_change(reverse.get(label)))
+        self.benchmark_menu.set(selected_label)
+
+        benchmark = ws.get("benchmark")
+        risk_key = f"risk::{benchmark or '_none_'}"
+        benchmark_key = f"benchmark::{benchmark or '_none_'}"
+        rel_series_key = f"timeseries::risk::{benchmark or '_none_'}"
+
+        risk_payload = ws.get("payloads", {}).get(risk_key, {})
+        risk_root = risk_payload.get("risk", {}) if isinstance(risk_payload, dict) else {}
+        benchmark_payload = ws.get("payloads", {}).get(benchmark_key, {})
+
+        self.kpi_vars["Volatilität"].set(_fmt_pct(_metric_value(risk_root.get("volatility"))))
+        self.kpi_vars["Sharpe Ratio"].set(_fmt_number(_metric_value(risk_root.get("sharpe_ratio")), 3))
+        self.kpi_vars["Max Drawdown"].set(_fmt_pct(_metric_value(risk_root.get("max_drawdown"))))
+        self.kpi_vars["Beta"].set(_fmt_number(_metric_value(risk_root.get("beta")), 3))
+
+        self.compare_vars["Company Total Return"].set(_fmt_pct(_extract_first(benchmark_payload, ["company_total_return"])))
+        self.compare_vars["Benchmark Total Return"].set(_fmt_pct(_extract_first(benchmark_payload, ["benchmark_total_return"])))
+        self.compare_vars["Excess Return"].set(_fmt_pct(_extract_first(benchmark_payload, ["excess_return"])))
+
+        create_chart_screen(
+            self.rel_body,
+            isin=isin,
+            payload=ws.get("payloads", {}).get(rel_series_key, {}),
+            warnings=ws.get("warnings", {}).get(rel_series_key, []),
+            selected_series=["benchmark_relative"],
+            benchmark=benchmark,
+        )
+
+    def update_loading(self, loading: bool, text: str = ""):
+        if loading:
+            self.loading_var.set(text or "Lade Risiko/Benchmark...")
+            if not self.loading_label.winfo_manager():
+                self.loading_label.pack(anchor="w", pady=(8, 0))
+            return
+        if self.loading_label.winfo_manager():
+            self.loading_label.pack_forget()
+
+    def update_warnings(self, warnings: list[str]):
+        if warnings:
+            self.warning_var.set("Hinweise: " + " | ".join(warnings))
+            if not self.warning_label.winfo_manager():
+                self.warning_label.pack(anchor="w", pady=(8, 0))
+            return
+        self.warning_var.set("")
+        if self.warning_label.winfo_manager():
+            self.warning_label.pack_forget()
+
+    def update_selection(self, _isin: str):
+        return
+
+
+class FinancialsTabController:
+    def __init__(self, parent, on_period_change: Callable[[str], None]):
+        self.frame = ctk.CTkFrame(parent, fg_color="transparent")
+        self.on_period_change = on_period_change
+        switch_card, switch_body = section_card(self.frame, "Periode")
+        switch_card.pack(fill="x", pady=(0, 8))
+        self.period_var = ctk.StringVar(value="annual")
+        self.period_switch = ctk.CTkSegmentedButton(
+            switch_body,
+            values=["annual", "quarterly"],
+            command=self._handle_period,
+        )
+        self.period_switch.pack(anchor="w")
+        self.period_switch.set("annual")
+        self.body = ctk.CTkFrame(self.frame, fg_color="transparent")
+        self.body.pack(fill="both", expand=True)
+
+    def _handle_period(self, value: str):
+        self.period_var.set(value)
+        self.on_period_change(value)
+
+    def clear_body(self):
+        for widget in self.body.winfo_children():
+            widget.destroy()
+
+
+def render_financial_block(parent, title: str, payload: dict):
+    _, body = section_card(parent, title)
+
+    if not isinstance(payload, dict) or not payload:
+        ctk.CTkLabel(body, text="Keine Daten verfügbar.", text_color="gray70").pack(anchor="w")
+        return
+
+    metrics = sorted({metric for values in payload.values() if isinstance(values, dict) for metric in values.keys()})
+    periods = sorted(payload.keys())
+
+    wrapper = ctk.CTkFrame(body)
+    wrapper.pack(fill="both", expand=True)
+
+    tree = ttk.Treeview(wrapper, columns=["metric", *periods], show="headings", height=10)
+    tree.heading("metric", text="Kennzahl")
+    tree.column("metric", width=220, anchor="w", stretch=False)
+    for period in periods:
+        tree.heading(period, text=period)
+        tree.column(period, width=130, anchor="e")
+
+    for metric in metrics:
+        values = [metric.replace("_", " ").title()]
+        for period in periods:
+            val = payload.get(period, {}).get(metric) if isinstance(payload.get(period), dict) else None
+            values.append("—" if val in (None, "") else str(val))
+        tree.insert("", "end", values=values)
+
+    x_scroll = ttk.Scrollbar(wrapper, orient="horizontal", command=tree.xview)
+    y_scroll = ttk.Scrollbar(wrapper, orient="vertical", command=tree.yview)
+    tree.configure(xscrollcommand=x_scroll.set, yscrollcommand=y_scroll.set)
+    tree.grid(row=0, column=0, sticky="nsew")
+    y_scroll.grid(row=0, column=1, sticky="ns")
+    x_scroll.grid(row=1, column=0, sticky="ew")
+    wrapper.grid_columnconfigure(0, weight=1)
+    wrapper.grid_rowconfigure(0, weight=1)
+
+
+def render_fundamental_section(parent, title: str, payload: dict):
+    _, body = section_card(parent, title)
+    rows = []
+    for key, value in (payload or {}).items():
+        if value in (None, ""):
+            continue
+        rows.append((key.replace("_", " ").title(), f"{value:,.2f}".replace(",", " ") if isinstance(value, float) else str(value)))
+    if not rows:
+        ctk.CTkLabel(body, text="Keine Daten verfügbar.", text_color="gray70").pack(anchor="w")
+        return
+    grid = ctk.CTkFrame(body, fg_color="transparent")
+    grid.pack(fill="x")
+    grid.grid_columnconfigure((0, 1), weight=1)
+    for idx, (label, value) in enumerate(rows):
+        box = ctk.CTkFrame(grid)
+        box.grid(row=idx // 2, column=idx % 2, sticky="ew", padx=4, pady=4)
+        ctk.CTkLabel(box, text=label, text_color="gray70", font=("Arial", 10)).pack(anchor="w", padx=8, pady=(5, 0))
+        ctk.CTkLabel(box, text=value, font=("Arial", 13, "bold")).pack(anchor="w", padx=8, pady=(0, 5))

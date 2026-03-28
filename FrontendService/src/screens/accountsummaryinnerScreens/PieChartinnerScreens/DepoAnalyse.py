@@ -1,27 +1,27 @@
 import logging
 import time
-from tkinter import ttk
 from typing import Any
 
 import customtkinter as ctk
 
 from finanzuebersicht_shared import get_settings
-from src.screens.accountsummaryinnerScreens.PieChartinnerScreens.DepoAnalyseScreens.ChartScreen import (
-    create_screen as create_chart_screen,
-)
-from src.screens.accountsummaryinnerScreens.PieChartinnerScreens.DepoAnalyseScreens.ColumnSelectorScreen import (
-    create_column_selector_screen,
-)
 from src.screens.accountsummaryinnerScreens.PieChartinnerScreens.DepoAnalyseScreens.DepotPositionPieScreen import (
     create_screen as create_depot_pie,
 )
 from src.screens.accountsummaryinnerScreens.PieChartinnerScreens.DepoAnalyseScreens.TableScreen import (
     create_screen as create_table_screen,
 )
+from src.screens.accountsummaryinnerScreens.PieChartinnerScreens.DepoAnalyseScreens.tab_controllers import (
+    FinancialsTabController,
+    OverviewTabController,
+    ReturnsTabController,
+    RiskTabController,
+    render_financial_block,
+    render_fundamental_section,
+)
 from src.screens.accountsummaryinnerScreens.PieChartinnerScreens.analysis_api_client import AnalysisApiClient
-from src.screens.accountsummaryinnerScreens.PieChartinnerScreens.ui_helpers import attach_tooltip, info_label
-from src.ui.components import create_page, empty_state, section_card
 from src.ui.background_loader import run_in_background
+from src.ui.components import create_page, empty_state, section_card
 
 logger = logging.getLogger(__name__)
 performance_logger = logging.getLogger("performance")
@@ -50,165 +50,6 @@ TOOLTIP_TEXTS = {
 }
 
 
-def _to_float(value):
-    try:
-        if value is None:
-            return None
-        return float(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _fmt_number(value, digits: int = 2):
-    val = _to_float(value)
-    return "—" if val is None else f"{val:,.{digits}f}".replace(",", " ")
-
-
-def _fmt_currency(value, currency: str = "EUR", digits: int = 2):
-    val = _to_float(value)
-    return "—" if val is None else f"{val:,.{digits}f} {currency}".replace(",", " ")
-
-
-def _fmt_pct(value):
-    val = _to_float(value)
-    if val is None:
-        return "—"
-    if abs(val) <= 1.0:
-        val *= 100.0
-    return f"{val:.2f}%"
-
-
-def _display_value(value):
-    if value in (None, ""):
-        return "—"
-    return str(value)
-
-
-def _extract_first(payload: Any, keys: list[str]):
-    if not isinstance(payload, dict):
-        return None
-    for key in keys:
-        if key in payload and payload.get(key) not in (None, ""):
-            return payload.get(key)
-    return None
-
-
-def _metric_value(payload: Any):
-    if isinstance(payload, dict):
-        return payload.get("value")
-    return payload
-
-
-def _render_warning_bar(parent, warnings: list[str]):
-    if warnings:
-        ctk.CTkLabel(parent, text="Hinweise: " + " | ".join(warnings), text_color="#ffb347").pack(anchor="w", pady=(8, 0))
-
-
-def _metric_card_grid(
-    parent,
-    items: list[tuple[str, str]],
-    columns: int = 3,
-    layout: str = "pack",
-    row: int | None = None,
-    column: int = 0,
-    columnspan: int = 1,
-    padx=0,
-    pady=(2, 6),
-    sticky: str = "ew",
-):
-    grid = ctk.CTkFrame(parent, fg_color="transparent")
-    if layout == "grid":
-        grid_row = 0 if row is None else row
-        grid.grid(row=grid_row, column=column, columnspan=columnspan, padx=padx, pady=pady, sticky=sticky)
-    else:
-        grid.pack(fill="x", padx=padx, pady=pady)
-    for col in range(columns):
-        grid.grid_columnconfigure(col, weight=1)
-
-    for idx, (label, value) in enumerate(items):
-        card = ctk.CTkFrame(grid, corner_radius=10)
-        card.grid(row=idx // columns, column=idx % columns, sticky="ew", padx=6, pady=6)
-        ctk.CTkLabel(card, text=label, text_color="gray70", font=("Arial", 11)).pack(anchor="w", padx=10, pady=(8, 1))
-        ctk.CTkLabel(card, text=value, font=("Arial", 18, "bold")).pack(anchor="w", padx=10, pady=(0, 8))
-
-
-def _render_snapshot(parent, isin: str, full_data: dict, metrics: dict, risk: dict):
-    instrument = full_data.get("instrument", {}) if isinstance(full_data.get("instrument"), dict) else {}
-    market = full_data.get("market", {}) if isinstance(full_data.get("market"), dict) else {}
-    profile = full_data.get("profile", {}) if isinstance(full_data.get("profile"), dict) else {}
-
-    _, body = section_card(parent, "Header / Snapshot")
-    body.grid_columnconfigure((0, 1), weight=1)
-
-    name = instrument.get("long_name") or instrument.get("short_name") or instrument.get("symbol") or isin
-    ctk.CTkLabel(body, text=name, font=("Arial", 23, "bold")).grid(row=0, column=0, columnspan=2, sticky="w")
-    ctk.CTkLabel(
-        body,
-        text=(
-            f"Symbol: {_display_value(instrument.get('symbol'))}   |   "
-            f"ISIN: {_display_value(instrument.get('isin') or isin)}"
-        ),
-        text_color="gray70",
-    ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(2, 8))
-
-    currency = market.get("currency") or instrument.get("currency") or "EUR"
-    summary_items = [
-        ("Aktueller Kurs", _fmt_currency(market.get("currentPrice"), currency)),
-        ("Marktkapitalisierung", _fmt_currency(market.get("marketCap"), currency, 0)),
-        ("Ø Volumen", _fmt_number(market.get("averageVolume"), 0)),
-        ("Sektor", _display_value(profile.get("sector"))),
-        ("Branche", _display_value(profile.get("industry"))),
-        ("Land", _display_value(profile.get("country"))),
-        ("Website", _display_value(profile.get("website"))),
-    ]
-    _metric_card_grid(body, summary_items, columns=2, layout="grid", row=2, column=0, columnspan=2)
-
-    metrics_root = metrics.get("metrics", {}) if isinstance(metrics, dict) else {}
-    performance = metrics_root.get("performance", {}) if isinstance(metrics_root, dict) else {}
-    risk_root = risk.get("risk", {}) if isinstance(risk, dict) else {}
-
-    kpis = [
-        ("Total Return", _fmt_pct(_metric_value(performance.get("total_return")))),
-        ("CAGR", _fmt_pct(_metric_value(performance.get("cagr")))),
-        ("Volatilität", _fmt_pct(_metric_value(risk_root.get("volatility")))),
-        ("Sharpe Ratio", _fmt_number(_metric_value(risk_root.get("sharpe_ratio")), 3)),
-        ("Max Drawdown", _fmt_pct(_metric_value(risk_root.get("max_drawdown")))),
-        ("Beta", _fmt_number(_metric_value(risk_root.get("beta")), 3)),
-    ]
-    kpi_card = ctk.CTkFrame(body, corner_radius=12)
-    kpi_card.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(8, 0))
-    kpi_card.grid_columnconfigure(0, weight=1)
-    ctk.CTkLabel(kpi_card, text="KPI-Übersicht", font=("Arial", 16, "bold")).grid(
-        row=0, column=0, sticky="w", padx=16, pady=(12, 6)
-    )
-    kpi_body = ctk.CTkFrame(kpi_card, fg_color="transparent")
-    kpi_body.grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 10))
-    _metric_card_grid(kpi_body, kpis, columns=3, layout="grid", row=0, column=0, columnspan=1)
-
-    meta = {}
-    for source in (full_data.get("meta"), metrics.get("meta"), risk.get("meta")):
-        if isinstance(source, dict):
-            meta.update({k: v for k, v in source.items() if v not in (None, "")})
-
-    meta_card = ctk.CTkFrame(body, corner_radius=12)
-    meta_card.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(8, 0))
-    meta_card.grid_columnconfigure(0, weight=1)
-    ctk.CTkLabel(meta_card, text="Meta / As-of", font=("Arial", 16, "bold")).grid(
-        row=0, column=0, sticky="w", padx=16, pady=(12, 6)
-    )
-    meta_body = ctk.CTkFrame(meta_card, fg_color="transparent")
-    meta_body.grid(row=1, column=0, sticky="ew", padx=16, pady=(0, 12))
-    ctk.CTkLabel(
-        meta_body,
-        text=(
-            f"Provider: {_display_value(meta.get('provider'))}   |   "
-            f"As-of: {_display_value(meta.get('as_of') or meta.get('asof'))}   |   "
-            f"Coverage: {_display_value(meta.get('coverage'))}"
-        ),
-        text_color="gray75",
-    ).pack(anchor="w")
-
-
 def _ensure_workspace(registry: dict, isin: str):
     if isin not in registry:
         registry[isin] = {
@@ -217,6 +58,7 @@ def _ensure_workspace(registry: dict, isin: str):
             "benchmark": None,
             "benchmark_options": None,
             "benchmark_groups": None,
+            "benchmark_active_group": "Alle",
             "selected_series": list(SERIES_OPTIONS),
             "comparison_symbols": [],
             "comparison_search_results": [],
@@ -225,8 +67,6 @@ def _ensure_workspace(registry: dict, isin: str):
             "benchmark_catalog_loading": False,
             "benchmark_catalog_loaded": False,
             "benchmark_catalog_callbacks": [],
-            "render_in_progress": {},
-            "render_pending": set(),
         }
     return registry[isin]
 
@@ -237,44 +77,6 @@ def _load_into(workspace: dict, key: str, loader):
     payload, warning = loader()
     workspace["payloads"][key] = payload or {}
     workspace["warnings"][key] = [warning] if warning else []
-
-
-def _load_benchmark_catalog(client: AnalysisApiClient, workspace: dict):
-    if workspace.get("benchmark_options") is not None:
-        return
-    payload, warning = client.load_benchmark_catalog()
-    catalog = payload.get("benchmarks") if isinstance(payload, dict) else None
-    items = catalog.get("items") if isinstance(catalog, dict) and isinstance(catalog.get("items"), dict) else {}
-    groups_payload = catalog.get("groups") if isinstance(catalog, dict) and isinstance(catalog.get("groups"), dict) else {}
-
-    options: list[tuple[str, str | None]] = [("Kein Benchmark", None)]
-    for key, item in items.items():
-        label = item.get("name") if isinstance(item, dict) else key
-        options.append((str(label or key), str(key)))
-
-    grouped_options: dict[str, list[tuple[str, str | None]]] = {"Alle": options[1:]}
-    for segment, entries in groups_payload.items():
-        if not isinstance(entries, list):
-            continue
-        segment_options = []
-        for entry in entries:
-            if not isinstance(entry, dict):
-                continue
-            key = entry.get("key")
-            if not key:
-                continue
-            segment_options.append((str(entry.get("name") or key), str(key)))
-        if segment_options:
-            grouped_options[str(segment)] = segment_options
-
-    workspace["benchmark_options"] = options
-    workspace["benchmark_groups"] = grouped_options
-    workspace.setdefault("benchmark_active_group", "Alle")
-    default_key = payload.get("default") if isinstance(payload, dict) else None
-    if workspace.get("benchmark") is None and default_key:
-        workspace["benchmark"] = str(default_key)
-    if warning:
-        workspace["warnings"]["benchmark_catalog"] = [warning]
 
 
 def _series_cache_key(series: list[str], benchmark: str | None):
@@ -290,63 +92,6 @@ def _next_generation(ws: dict, key: str) -> int:
     generation = int(ws["request_generation"].get(key, 0)) + 1
     ws["request_generation"][key] = generation
     return generation
-
-
-def _render_fundamental_section(parent, title: str, payload: dict):
-    _, body = section_card(parent, title)
-    rows = []
-    for key, value in (payload or {}).items():
-        if value in (None, ""):
-            continue
-        if isinstance(value, float):
-            formatted = f"{value:,.2f}".replace(",", " ")
-        else:
-            formatted = str(value)
-        rows.append((key.replace("_", " ").title(), formatted))
-
-    if not rows:
-        ctk.CTkLabel(body, text="Keine Daten verfügbar.", text_color="gray70").pack(anchor="w")
-        return
-
-    _metric_card_grid(body, rows, columns=2)
-
-
-def _render_financial_block(parent, title: str, payload: dict):
-    _, body = section_card(parent, title)
-
-    if not isinstance(payload, dict) or not payload:
-        ctk.CTkLabel(body, text="Keine Daten verfügbar.", text_color="gray70").pack(anchor="w")
-        return
-
-    metrics = sorted({metric for values in payload.values() if isinstance(values, dict) for metric in values.keys()})
-    periods = sorted(payload.keys())
-
-    wrapper = ctk.CTkFrame(body)
-    wrapper.pack(fill="both", expand=True)
-
-    tree = ttk.Treeview(wrapper, columns=["metric", *periods], show="headings", height=10)
-    tree.heading("metric", text="Kennzahl")
-    tree.column("metric", width=220, anchor="w", stretch=False)
-    for period in periods:
-        tree.heading(period, text=period)
-        tree.column(period, width=130, anchor="e")
-
-    for metric in metrics:
-        values = [metric.replace("_", " ").title()]
-        for period in periods:
-            val = payload.get(period, {}).get(metric) if isinstance(payload.get(period), dict) else None
-            values.append("—" if val in (None, "") else str(val))
-        tree.insert("", "end", values=values)
-
-    x_scroll = ttk.Scrollbar(wrapper, orient="horizontal", command=tree.xview)
-    y_scroll = ttk.Scrollbar(wrapper, orient="vertical", command=tree.yview)
-    tree.configure(xscrollcommand=x_scroll.set, yscrollcommand=y_scroll.set)
-
-    tree.grid(row=0, column=0, sticky="nsew")
-    y_scroll.grid(row=0, column=1, sticky="ns")
-    x_scroll.grid(row=1, column=0, sticky="ew")
-    wrapper.grid_columnconfigure(0, weight=1)
-    wrapper.grid_rowconfigure(0, weight=1)
 
 
 def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
@@ -391,13 +136,8 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
         "tabs_host": None,
         "empty_box": None,
         "tab_frames": {},
-        "active_tab": None,
-        "returns": {"initialized": False},
+        "controllers": {},
     }
-
-    def _clear_children(parent):
-        for widget in parent.winfo_children():
-            widget.destroy()
 
     def _active_workspace():
         isin = current["isin"]
@@ -406,123 +146,10 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
     def _set_loading(ws: dict, area: str, active: bool):
         ws["loading"][area] = active
 
-    def _load_overview(ws: dict, isin: str):
-        _load_into(ws, "company", lambda: client.load_company_analysis(isin))
-        _load_into(ws, "metrics", lambda: client.load_metrics(isin))
-        _load_into(ws, f"risk::{ws.get('benchmark') or '_none_'}", lambda: client.load_risk(isin, ws.get("benchmark")))
-
-    def _load_timeseries(ws: dict, isin: str):
-        key = _series_cache_key(ws["selected_series"], ws.get("benchmark"))
-        _load_into(
-            ws,
-            key,
-            lambda: client.load_timeseries(isin, series=",".join(ws["selected_series"]), benchmark=ws.get("benchmark")),
-        )
-        ws["payloads"]["timeseries_active"] = ws["payloads"].get(key) or {}
-        ws["warnings"]["timeseries_active"] = ws["warnings"].get(key, [])
-
-    def _load_comparison_timeseries(ws: dict, isin: str):
-        symbols = ws.get("comparison_symbols") or []
-        if not symbols:
-            ws["payloads"]["comparison_active"] = {}
-            ws["warnings"]["comparison_active"] = []
+    def _show_warning(frame, warnings: list[str]):
+        if not warnings:
             return
-        key = _comparison_cache_key(symbols)
-        _load_into(ws, key, lambda: client.load_comparison_timeseries(isin, symbols))
-        ws["payloads"]["comparison_active"] = ws["payloads"].get(key) or {}
-        ws["warnings"]["comparison_active"] = ws["warnings"].get(key, [])
-
-    def _load_risk(ws: dict, isin: str):
-        benchmark = ws.get("benchmark")
-        _load_into(ws, f"risk::{benchmark or '_none_'}", lambda: client.load_risk(isin, benchmark))
-        _load_into(ws, f"benchmark::{benchmark or '_none_'}", lambda: client.load_benchmark(isin, benchmark))
-        _load_into(
-            ws,
-            f"timeseries::risk::{benchmark or '_none_'}",
-            lambda: client.load_timeseries(isin, series="benchmark_relative", benchmark=benchmark),
-        )
-
-    def _load_fundamentals(ws: dict, isin: str):
-        _load_into(ws, "fundamentals", lambda: client.load_fundamentals(isin))
-        if not ws["payloads"].get("fundamentals"):
-            _load_into(ws, "company", lambda: client.load_company_analysis(isin))
-
-    def _load_financials(ws: dict, isin: str, period: str):
-        _load_into(ws, f"financials::{period}", lambda: client.load_financials(isin, period=period))
-
-    def _gather_raw_payload(ws: dict):
-        raw = {}
-        for key, payload in ws["payloads"].items():
-            if payload:
-                raw[key] = payload
-        return raw
-
-    def _ensure_benchmark_catalog_async(ws: dict, callback=None):
-        if ws.get("benchmark_catalog_loaded") or ws.get("benchmark_options") is not None:
-            ws["benchmark_catalog_loaded"] = True
-            return
-
-        if callback:
-            ws["benchmark_catalog_callbacks"].append(callback)
-        if ws.get("benchmark_catalog_loading"):
-            return
-
-        ws["benchmark_catalog_loading"] = True
-
-        generation = _next_generation(ws, "benchmark_catalog")
-
-        def _worker():
-            return client.load_benchmark_catalog()
-
-        def _done(result):
-            if ws["request_generation"].get("benchmark_catalog") != generation:
-                return
-            ws["benchmark_catalog_loading"] = False
-            payload, warning = result
-            catalog = payload.get("benchmarks") if isinstance(payload, dict) else None
-            items = {}
-            groups_payload = {}
-            if isinstance(catalog, dict):
-                items = catalog.get("items") if isinstance(catalog.get("items"), dict) else {}
-                groups_payload = catalog.get("groups") if isinstance(catalog.get("groups"), dict) else {}
-            options: list[tuple[str, str | None]] = [("Kein Benchmark", None)]
-            for key, item in items.items():
-                if not key:
-                    continue
-                label = item.get("name") if isinstance(item, dict) else key
-                options.append((str(label or key), str(key)))
-
-            grouped_options: dict[str, list[tuple[str, str | None]]] = {"Alle": options[1:]}
-            for segment, entries in groups_payload.items():
-                segment_options: list[tuple[str, str | None]] = []
-                if not isinstance(entries, list):
-                    continue
-                for entry in entries:
-                    if not isinstance(entry, dict):
-                        continue
-                    key = entry.get("key")
-                    if not key:
-                        continue
-                    label = entry.get("name") or key
-                    segment_options.append((str(label), str(key)))
-                if segment_options:
-                    grouped_options[str(segment)] = segment_options
-
-            ws["benchmark_options"] = options
-            ws["benchmark_groups"] = grouped_options
-            ws.setdefault("benchmark_active_group", "Alle")
-            default_key = payload.get("default") if isinstance(payload, dict) else None
-            if ws.get("benchmark") is None and default_key:
-                ws["benchmark"] = str(default_key)
-            if warning:
-                ws["warnings"]["benchmark_catalog"] = [warning]
-            ws["benchmark_catalog_loaded"] = True
-            callbacks = list(ws.get("benchmark_catalog_callbacks") or [])
-            ws["benchmark_catalog_callbacks"].clear()
-            for done_callback in callbacks:
-                done_callback()
-
-        run_in_background(app, _worker, _done)
+        ctk.CTkLabel(frame, text="Hinweise: " + " | ".join(warnings), text_color="#ffb347").pack(anchor="w", pady=(8, 0))
 
     def _ensure_shell():
         if ui_state["tab_bar"] is not None:
@@ -534,6 +161,8 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
             command=lambda label: _set_tab(next(key for key, val in TAB_LABELS.items() if val == label)),
         )
         ui_state["tabs_host"] = ctk.CTkFrame(workspace_body, fg_color="transparent")
+        ui_state["tabs_host"].grid_columnconfigure(0, weight=1)
+        ui_state["tabs_host"].grid_rowconfigure(0, weight=1)
 
     def _show_empty():
         _ensure_shell()
@@ -550,227 +179,138 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
         if not ui_state["tabs_host"].winfo_manager():
             ui_state["tabs_host"].pack(fill="both", expand=True)
 
-    def _ensure_tab_frame(tab: str):
+    def _get_tab_frame(tab: str):
         frame = ui_state["tab_frames"].get(tab)
         if frame is None:
             frame = ctk.CTkFrame(ui_state["tabs_host"], fg_color="transparent")
+            frame.grid(row=0, column=0, sticky="nsew")
             ui_state["tab_frames"][tab] = frame
         return frame
 
-    def _show_tab_frame(tab: str):
-        frame = _ensure_tab_frame(tab)
-        if ui_state["active_tab"] and ui_state["active_tab"] != tab:
-            ui_state["tab_frames"][ui_state["active_tab"]].pack_forget()
-        if not frame.winfo_manager():
-            frame.pack(fill="both", expand=True)
-        ui_state["active_tab"] = tab
-        return frame
-
-    def _returns_state() -> dict[str, Any]:
-        return ui_state["returns"]
-
-    def _ensure_returns_frame(frame):
-        rs = _returns_state()
-        if rs.get("initialized"):
+    def _ensure_controllers():
+        controllers = ui_state["controllers"]
+        if controllers:
             return
 
-        controls, controls_body = section_card(frame, "Steuerung", "Serienauswahl und Benchmark")
-        controls.pack(fill="x", pady=(0, 8))
+        controllers["overview"] = OverviewTabController(_get_tab_frame("overview"))
+        controllers["overview"].frame.pack(fill="both", expand=True)
 
-        benchmark_row = ctk.CTkFrame(controls_body, fg_color="transparent")
-        benchmark_row.pack(fill="x", pady=(0, 6))
-        info_label(benchmark_row, "Benchmark", TOOLTIP_TEXTS["benchmark"]).pack(side="left", padx=(0, 8))
-        ctk.CTkLabel(benchmark_row, text="Segment:").pack(side="left", padx=(0, 6))
-        benchmark_group_menu = ctk.CTkOptionMenu(benchmark_row, values=["Alle"], width=170, command=lambda _: _on_benchmark_group_change())
-        benchmark_group_menu.pack(side="left", padx=(0, 8))
-        benchmark_menu = ctk.CTkOptionMenu(benchmark_row, values=["Kein Benchmark"], width=340, command=lambda _: None)
-        benchmark_menu.pack(side="left", padx=(0, 14))
-
-        series_row = ctk.CTkFrame(controls_body, fg_color="transparent")
-        series_row.pack(fill="x")
-        ctk.CTkLabel(series_row, text="Serien:").pack(side="left", padx=(0, 6))
-        selector = create_column_selector_screen(series_row, SERIES_OPTIONS, callback=lambda cols: _set_series(cols))
-        for series_key, checkbox in selector.checkboxes().items():
-            tooltip = TOOLTIP_TEXTS.get(series_key)
-            if tooltip:
-                attach_tooltip(checkbox, tooltip)
-
-        chart_box, chart_body = section_card(frame, "Zeitreihen")
-        chart_box.pack(fill="both", expand=True)
-
-        search_card = ctk.CTkFrame(frame)
-        search_card.pack(fill="x", pady=(8, 0))
-        ctk.CTkLabel(search_card, text="Freie Vergleiche (unter dem Chart)", font=("Arial", 13, "bold")).pack(anchor="w", padx=10, pady=(8, 2))
-        ctk.CTkLabel(search_card, text="Mehrfachauswahl via Checkbox. Bereits gewählte Symbole sind gesperrt.", text_color="gray70").pack(anchor="w", padx=10, pady=(0, 6))
-        search_row = ctk.CTkFrame(search_card, fg_color="transparent")
-        search_row.pack(fill="x", padx=10, pady=(0, 4))
-        query_var = ctk.StringVar(value="")
-        search_entry = ctk.CTkEntry(search_row, textvariable=query_var, placeholder_text="z. B. Apple, MSFT, S&P, World ETF", height=30)
-        search_entry.pack(side="left", fill="x", expand=True, padx=(0, 6))
-        ctk.CTkButton(search_row, text="Suchen", width=80, height=30, command=lambda: _run_returns_search()).pack(side="left")
-        search_entry.bind("<Return>", lambda *_: _run_returns_search())
-
-        results_frame = ctk.CTkFrame(search_card, fg_color="transparent")
-        results_frame.pack(fill="x", padx=10, pady=(2, 4))
-        selected_frame = ctk.CTkFrame(search_card, fg_color="transparent")
-        selected_frame.pack(fill="x", padx=10, pady=(2, 8))
-
-        warning_var = ctk.StringVar(value="")
-        warning_label = ctk.CTkLabel(frame, textvariable=warning_var, text_color="#ffb347")
-        warning_label.pack(anchor="w", pady=(8, 0))
-        warning_label.pack_forget()
-        loading_var = ctk.StringVar(value="")
-        loading_label = ctk.CTkLabel(frame, textvariable=loading_var, text_color="gray70")
-        loading_label.pack(anchor="w", pady=(6, 0))
-        loading_label.pack_forget()
-
-        rs.update(
-            {
-                "initialized": True,
-                "benchmark_menu": benchmark_menu,
-                "benchmark_group_menu": benchmark_group_menu,
-                "selector": selector,
-                "query_var": query_var,
-                "results_frame": results_frame,
-                "selected_frame": selected_frame,
-                "chart_body": chart_body,
-                "warning_var": warning_var,
-                "warning_label": warning_label,
-                "loading_var": loading_var,
-                "loading_label": loading_label,
-            }
+        controllers["returns"] = ReturnsTabController(
+            _get_tab_frame("returns"),
+            series_options=SERIES_OPTIONS,
+            tooltip_texts=TOOLTIP_TEXTS,
+            on_series_change=_set_series,
+            on_benchmark_change=_set_benchmark,
+            on_group_change=lambda g: _on_benchmark_group_change(g),
+            on_search=_run_returns_search,
+            on_toggle_symbol=_toggle_comparison_symbol,
         )
+        controllers["returns"].frame.pack(fill="both", expand=True)
 
-    def _update_returns_controls(ws: dict):
-        rs = _returns_state()
-        options = ws.get("benchmark_options") or [("Kein Benchmark", None)]
-        groups = ws.get("benchmark_groups") or {"Alle": options[1:]}
+        controllers["risk"] = RiskTabController(_get_tab_frame("risk"), on_benchmark_change=_set_benchmark, tooltip_texts=TOOLTIP_TEXTS)
+        controllers["risk"].frame.pack(fill="both", expand=True)
 
-        group_menu = rs.get("benchmark_group_menu")
-        menu = rs.get("benchmark_menu")
-        active_group = ws.get("benchmark_active_group") or "Alle"
-        available_group_names = ["Alle", *[name for name in groups.keys() if name != "Alle"]]
-        if active_group not in available_group_names:
-            active_group = "Alle"
-            ws["benchmark_active_group"] = active_group
+        controllers["financials"] = FinancialsTabController(_get_tab_frame("financials"), on_period_change=_reload_financials)
+        controllers["financials"].frame.pack(fill="both", expand=True)
 
-        if group_menu is not None:
-            group_menu.configure(values=available_group_names, command=lambda value: _on_benchmark_group_change(value))
-            group_menu.set(active_group)
+    def _show_tab(tab: str):
+        _show_shell()
+        _ensure_controllers()
+        ui_state["tab_bar"].set(TAB_LABELS[tab])
+        _get_tab_frame(tab).tkraise()
 
-        grouped_options = [("Kein Benchmark", None)] + list(groups.get(active_group) or [])
-        if menu is not None:
-            labels = [label for label, _ in grouped_options]
-            reverse = {label: value for label, value in grouped_options}
-            selected_label = next((label for label, value in grouped_options if value == ws.get("benchmark")), "Kein Benchmark")
-            menu.configure(values=labels, command=lambda label: _set_benchmark(reverse.get(label)))
-            menu.set(selected_label)
+    def _load_overview(ws: dict, isin: str):
+        _load_into(ws, "company", lambda: client.load_company_analysis(isin))
+        _load_into(ws, "metrics", lambda: client.load_metrics(isin))
+        _load_into(ws, f"risk::{ws.get('benchmark') or '_none_'}", lambda: client.load_risk(isin, ws.get("benchmark")))
 
-        selector = rs.get("selector")
-        if selector is not None:
-            selected_set = set(ws["selected_series"])
-            for name, var in selector._vars.items():
-                var.set(name in selected_set)
-
-    def _update_returns_search_selection(ws: dict):
-        rs = _returns_state()
-        results_frame = rs.get("results_frame")
-        selected_frame = rs.get("selected_frame")
-        if results_frame is None or selected_frame is None:
+    def _ensure_benchmark_catalog_async(ws: dict, callback=None):
+        if ws.get("benchmark_catalog_loaded") or ws.get("benchmark_options") is not None:
+            ws["benchmark_catalog_loaded"] = True
+            if callback:
+                callback()
+            return
+        if callback:
+            ws["benchmark_catalog_callbacks"].append(callback)
+        if ws.get("benchmark_catalog_loading"):
             return
 
-        _clear_children(results_frame)
-        _clear_children(selected_frame)
+        ws["benchmark_catalog_loading"] = True
+        generation = _next_generation(ws, "benchmark_catalog")
 
-        results = ws.get("comparison_search_results") or []
-        selected_symbols = {str(entry).upper() for entry in (ws.get("comparison_symbols") or [])}
+        def _worker():
+            return client.load_benchmark_catalog()
 
-        if results:
-            ctk.CTkLabel(results_frame, text="Suchergebnisse", font=("Arial", 12, "bold")).pack(anchor="w", pady=(0, 2))
-            for item in results[:12]:
-                symbol = str(item.get("symbol") or "").upper()
-                if not symbol:
+        def _done(result):
+            if ws["request_generation"].get("benchmark_catalog") != generation:
+                return
+            ws["benchmark_catalog_loading"] = False
+            payload, warning = result
+            catalog = payload.get("benchmarks") if isinstance(payload, dict) else None
+            items = catalog.get("items") if isinstance(catalog, dict) and isinstance(catalog.get("items"), dict) else {}
+            groups_payload = catalog.get("groups") if isinstance(catalog, dict) and isinstance(catalog.get("groups"), dict) else {}
+
+            options: list[tuple[str, str | None]] = [("Kein Benchmark", None)]
+            for key, item in items.items():
+                label = item.get("name") if isinstance(item, dict) else key
+                options.append((str(label or key), str(key)))
+
+            grouped_options: dict[str, list[tuple[str, str | None]]] = {"Alle": options[1:]}
+            for segment, entries in groups_payload.items():
+                if not isinstance(entries, list):
                     continue
-                name = item.get("name") or symbol
-                exchange = item.get("exchange") or "—"
-                quote_type = item.get("quote_type") or "—"
-                isin = item.get("isin") or "—"
-                currency = item.get("currency") or "—"
+                segment_options = []
+                for entry in entries:
+                    if not isinstance(entry, dict) or not entry.get("key"):
+                        continue
+                    segment_options.append((str(entry.get("name") or entry.get("key")), str(entry.get("key"))))
+                if segment_options:
+                    grouped_options[str(segment)] = segment_options
 
-                row = ctk.CTkFrame(results_frame, fg_color="transparent")
-                row.pack(fill="x", pady=1)
+            ws["benchmark_options"] = options
+            ws["benchmark_groups"] = grouped_options
+            default_key = payload.get("default") if isinstance(payload, dict) else None
+            if ws.get("benchmark") is None and default_key:
+                ws["benchmark"] = str(default_key)
+            if warning:
+                ws["warnings"]["benchmark_catalog"] = [warning]
+            ws["benchmark_catalog_loaded"] = True
+            callbacks = list(ws.get("benchmark_catalog_callbacks") or [])
+            ws["benchmark_catalog_callbacks"].clear()
+            for cb in callbacks:
+                cb()
 
-                already_selected = symbol in selected_symbols
-                check = ctk.CTkCheckBox(
-                    row,
-                    text="",
-                    width=20,
-                    command=lambda s=symbol: _toggle_comparison_symbol(s, True),
-                )
-                check.pack(side="left", padx=(0, 4))
-                if already_selected:
-                    check.select()
-                    check.configure(state="disabled")
+        run_in_background(app, _worker, _done)
 
-                info = ctk.CTkFrame(row, fg_color="transparent")
-                info.pack(side="left", fill="x", expand=True)
-                ctk.CTkLabel(info, text=f"{symbol} · {name}", anchor="w", font=("Arial", 12)).pack(anchor="w")
-                ctk.CTkLabel(
-                    info,
-                    text=f"ISIN: {isin} | Börse: {exchange} | Typ: {quote_type} | Währung: {currency}",
-                    text_color="gray70",
-                    anchor="w",
-                    font=("Arial", 10),
-                ).pack(anchor="w")
-                if already_selected:
-                    ctk.CTkLabel(row, text="bereits hinzugefügt", text_color="gray60", font=("Arial", 10)).pack(side="right")
+    def _refresh_overview():
+        ws = _active_workspace()
+        isin = current["isin"]
+        if ws is None or not isin:
+            return
+        _show_tab("overview")
+        _load_overview(ws, isin)
+        risk_key = f"risk::{ws.get('benchmark') or '_none_'}"
+        controller: OverviewTabController = ui_state["controllers"]["overview"]
+        controller.update_data(isin, ws["payloads"].get("company", {}), ws["payloads"].get("metrics", {}), ws["payloads"].get(risk_key, {}))
+        controller.update_warnings(ws["warnings"].get("company", []) + ws["warnings"].get("metrics", []))
 
-        ctk.CTkLabel(selected_frame, text="Ausgewählte freie Vergleiche", font=("Arial", 12, "bold")).pack(anchor="w")
-        if not selected_symbols:
-            ctk.CTkLabel(selected_frame, text="Keine freien Vergleichswerte ausgewählt.", text_color="gray70").pack(anchor="w")
+    def _refresh_returns():
+        ws = _active_workspace()
+        isin = current["isin"]
+        if ws is None or not isin:
+            return
+        _show_tab("returns")
+        controller: ReturnsTabController = ui_state["controllers"]["returns"]
+        _ensure_benchmark_catalog_async(ws, callback=lambda: current["isin"] == isin and controller.update_data(isin, ws))
 
-        for symbol in sorted(selected_symbols):
-            row = ctk.CTkFrame(selected_frame, fg_color="transparent")
-            row.pack(fill="x", pady=1)
-            ctk.CTkLabel(row, text=symbol, anchor="w").pack(side="left")
-            ctk.CTkButton(row, text="Entfernen", width=90, height=26, command=lambda s=symbol: _toggle_comparison_symbol(s, False)).pack(side="right")
-
-    def _render_returns_chart(ws: dict, isin: str):
-        rs = _returns_state()
-        warnings = ws["warnings"].get("timeseries_active", []) + ws["warnings"].get("comparison_active", []) + ws["warnings"].get("comparison_search", [])
-        create_chart_screen(
-            rs["chart_body"],
-            isin=isin,
-            payload=ws["payloads"].get("timeseries_active", {}),
-            warnings=warnings,
-            selected_series=ws["selected_series"],
-            benchmark=ws.get("benchmark"),
-            comparison_payload=ws["payloads"].get("comparison_active", {}),
-        )
-        warning_label = rs.get("warning_label")
-        warning_var = rs.get("warning_var")
-        if warning_label is not None and warning_var is not None:
-            if warnings:
-                warning_var.set("Hinweise: " + " | ".join(warnings))
-                if not warning_label.winfo_manager():
-                    warning_label.pack(anchor="w", pady=(8, 0))
-            else:
-                warning_var.set("")
-                if warning_label.winfo_manager():
-                    warning_label.pack_forget()
-
-    def _update_returns_chart_and_warnings(ws: dict, isin: str):
-        rs = _returns_state()
-        loading_label = rs.get("loading_label")
-        loading_var = rs.get("loading_var")
         benchmark = ws.get("benchmark")
-        selected_series = list(ws["selected_series"])
-        series_key = _series_cache_key(selected_series, benchmark)
+        series_key = _series_cache_key(list(ws["selected_series"]), benchmark)
         symbols = ws.get("comparison_symbols") or []
         comparison_key = _comparison_cache_key(symbols)
 
         has_series_cache = series_key in ws["payloads"]
         has_comparison_cache = not symbols or comparison_key in ws["payloads"]
+
         if has_series_cache:
             ws["payloads"]["timeseries_active"] = ws["payloads"].get(series_key) or {}
             ws["warnings"]["timeseries_active"] = ws["warnings"].get(series_key, [])
@@ -778,28 +318,20 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
             ws["payloads"]["comparison_active"] = ws["payloads"].get(comparison_key) or {}
             ws["warnings"]["comparison_active"] = ws["warnings"].get(comparison_key, [])
 
+        controller.update_data(isin, ws)
+        controller.update_warnings(ws["warnings"].get("timeseries_active", []) + ws["warnings"].get("comparison_active", []) + ws["warnings"].get("comparison_search", []))
         if has_series_cache and has_comparison_cache:
-            _set_loading(ws, "returns_chart", False)
-            _render_returns_chart(ws, isin)
-            if loading_label is not None and loading_label.winfo_manager():
-                loading_label.pack_forget()
-        else:
-            _set_loading(ws, "returns_chart", True)
-            if loading_var is not None:
-                loading_var.set("Lade Zeitreihen...")
-            if loading_label is not None and not loading_label.winfo_manager():
-                loading_label.pack(anchor="w", pady=(6, 0))
+            controller.update_loading(False)
+            return
 
+        controller.update_loading(True, "Lade Zeitreihen...")
+        _set_loading(ws, "returns_chart", True)
         generation = _next_generation(ws, "returns_chart")
 
         def _worker():
             result = {}
             if not has_series_cache:
-                result["series"] = client.load_timeseries(
-                    isin,
-                    series=",".join(selected_series),
-                    benchmark=benchmark,
-                )
+                result["series"] = client.load_timeseries(isin, series=",".join(ws["selected_series"]), benchmark=benchmark)
             if not has_comparison_cache and symbols:
                 result["comparison"] = client.load_comparison_timeseries(isin, symbols)
             return result
@@ -820,280 +352,172 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
             ws["payloads"]["comparison_active"] = ws["payloads"].get(comparison_key) or {}
             ws["warnings"]["comparison_active"] = ws["warnings"].get(comparison_key, [])
             _set_loading(ws, "returns_chart", False)
-            _render_returns_chart(ws, isin)
-            if loading_label is not None and loading_label.winfo_manager():
-                loading_label.pack_forget()
+            if current["tab"] == "returns" and current["isin"] == isin:
+                controller.update_data(isin, ws)
+                controller.update_loading(False)
+                controller.update_warnings(ws["warnings"].get("timeseries_active", []) + ws["warnings"].get("comparison_active", []) + ws["warnings"].get("comparison_search", []))
 
-        if not has_series_cache or (symbols and not has_comparison_cache):
-            run_in_background(app, _worker, _done)
-            return
+        run_in_background(app, _worker, _done)
 
-    def _render_tab(tab: str):
-        isin = current["isin"]
-        if not isin:
-            _show_empty()
-            return
-
+    def _refresh_risk():
         ws = _active_workspace()
-        if ws is None:
-            _show_empty()
+        isin = current["isin"]
+        if ws is None or not isin:
+            return
+        _show_tab("risk")
+        controller: RiskTabController = ui_state["controllers"]["risk"]
+        _ensure_benchmark_catalog_async(ws, callback=lambda: current["isin"] == isin and controller.update_data(isin, ws))
+
+        benchmark = ws.get("benchmark")
+        risk_key = f"risk::{benchmark or '_none_'}"
+        benchmark_key = f"benchmark::{benchmark or '_none_'}"
+        rel_series_key = f"timeseries::risk::{benchmark or '_none_'}"
+        has_cache = all(key in ws["payloads"] for key in (risk_key, benchmark_key, rel_series_key))
+
+        controller.update_data(isin, ws)
+        controller.update_warnings(ws["warnings"].get(risk_key, []) + ws["warnings"].get(benchmark_key, []))
+        if has_cache:
+            controller.update_loading(False)
             return
 
-        if ws["render_in_progress"].get(tab):
-            ws["render_pending"].add(tab)
+        controller.update_loading(True, "Lade Risiko/Benchmark...")
+        _set_loading(ws, "risk_panel", True)
+        generation = _next_generation(ws, "risk_panel")
+
+        def _worker():
+            return {
+                "risk": client.load_risk(isin, benchmark),
+                "benchmark": client.load_benchmark(isin, benchmark),
+                "relative": client.load_timeseries(isin, series="benchmark_relative", benchmark=benchmark),
+            }
+
+        def _done(result):
+            if ws["request_generation"].get("risk_panel") != generation:
+                return
+            risk_payload, risk_warning = result["risk"]
+            benchmark_payload, benchmark_warning = result["benchmark"]
+            relative_payload, relative_warning = result["relative"]
+            ws["payloads"][risk_key] = risk_payload or {}
+            ws["warnings"][risk_key] = [risk_warning] if risk_warning else []
+            ws["payloads"][benchmark_key] = benchmark_payload or {}
+            ws["warnings"][benchmark_key] = [benchmark_warning] if benchmark_warning else []
+            ws["payloads"][rel_series_key] = relative_payload or {}
+            ws["warnings"][rel_series_key] = [relative_warning] if relative_warning else []
+            _set_loading(ws, "risk_panel", False)
+            if current["tab"] == "risk" and current["isin"] == isin:
+                controller.update_data(isin, ws)
+                controller.update_loading(False)
+                controller.update_warnings(ws["warnings"].get(risk_key, []) + ws["warnings"].get(benchmark_key, []))
+
+        run_in_background(app, _worker, _done)
+
+    def _refresh_fundamentals():
+        ws = _active_workspace()
+        isin = current["isin"]
+        if ws is None or not isin:
             return
-        ws["render_in_progress"][tab] = True
+        _show_tab("fundamentals")
+        frame = _get_tab_frame("fundamentals")
+        for w in frame.winfo_children():
+            w.destroy()
+        _load_into(ws, "fundamentals", lambda: client.load_fundamentals(isin))
+        if not ws["payloads"].get("fundamentals"):
+            _load_into(ws, "company", lambda: client.load_company_analysis(isin))
+            company = ws["payloads"].get("company", {})
+            payload = {
+                "valuation": company.get("valuation", {}),
+                "quality": company.get("quality", {}),
+                "growth": company.get("growth", {}),
+            }
+        else:
+            payload = ws["payloads"].get("fundamentals", {})
+        render_fundamental_section(frame, "Valuation", payload.get("valuation", {}))
+        render_fundamental_section(frame, "Quality", payload.get("quality", {}))
+        render_fundamental_section(frame, "Growth", payload.get("growth", {}))
+        _show_warning(frame, ws["warnings"].get("fundamentals", []))
 
-        try:
-            _show_shell()
-            ui_state["tab_bar"].set(TAB_LABELS[tab])
-            content = _show_tab_frame(tab)
+    def _reload_financials(period: str):
+        if current["tab"] != "financials":
+            return
+        _refresh_financials(period)
 
-            if tab == "overview":
-                _clear_children(content)
-                _load_overview(ws, isin)
-                _render_snapshot(
-                    content,
-                    isin,
-                    ws["payloads"].get("company", {}),
-                    ws["payloads"].get("metrics", {}),
-                    ws["payloads"].get(f"risk::{ws.get('benchmark') or '_none_'}", {}),
-                )
-                _render_warning_bar(content, ws["warnings"].get("company", []) + ws["warnings"].get("metrics", []))
+    def _refresh_financials(period: str | None = None):
+        ws = _active_workspace()
+        isin = current["isin"]
+        if ws is None or not isin:
+            return
+        _show_tab("financials")
+        controller: FinancialsTabController = ui_state["controllers"]["financials"]
+        selected_period = period or controller.period_var.get()
+        controller.period_switch.set(selected_period)
+        controller.clear_body()
+        ctk.CTkLabel(controller.body, text="Lade Finanzberichte...", text_color="gray70").pack(anchor="w")
+        key = f"financials::{selected_period}"
+
+        def _render_payload():
+            controller.clear_body()
+            payload = ws["payloads"].get(key, {})
+            render_financial_block(controller.body, "Income Statement", payload.get("income_statement", {}))
+            render_financial_block(controller.body, "Balance Sheet", payload.get("balance_sheet", {}))
+            render_financial_block(controller.body, "Cash Flow", payload.get("cash_flow", {}))
+            _show_warning(controller.body, ws["warnings"].get(key, []))
+
+        if key in ws["payloads"]:
+            _render_payload()
+            return
+
+        generation = _next_generation(ws, "financials")
+
+        def _worker():
+            return client.load_financials(isin, period=selected_period)
+
+        def _done(result):
+            if ws["request_generation"].get("financials") != generation:
                 return
+            payload, warning = result
+            ws["payloads"][key] = payload or {}
+            ws["warnings"][key] = [warning] if warning else []
+            if current["tab"] == "financials" and current["isin"] == isin and controller.period_var.get() == selected_period:
+                _render_payload()
 
-            if tab == "returns":
-                _ensure_returns_frame(content)
-                _update_returns_controls(ws)
-                _ensure_benchmark_catalog_async(
-                    ws,
-                    callback=lambda: (
-                        _update_returns_controls(ws)
-                        if current["tab"] == "returns" and current["isin"] == isin
-                        else None
-                    ),
-                )
-                _update_returns_search_selection(ws)
-                _update_returns_chart_and_warnings(ws, isin)
-                return
+        run_in_background(app, _worker, _done)
 
-            if tab == "risk":
-                _clear_children(content)
-                _ensure_benchmark_catalog_async(
-                    ws,
-                    callback=lambda: (
-                        app.after(0, lambda: _render_tab("risk"))
-                        if current["tab"] == "risk" and current["isin"] == isin
-                        else None
-                    ),
-                )
-                benchmark = ws.get("benchmark")
-                risk_key = f"risk::{benchmark or '_none_'}"
-                benchmark_key = f"benchmark::{benchmark or '_none_'}"
-                rel_series_key = f"timeseries::risk::{benchmark or '_none_'}"
+    def _refresh_raw():
+        ws = _active_workspace()
+        isin = current["isin"]
+        if ws is None or not isin:
+            return
+        _show_tab("raw")
+        frame = _get_tab_frame("raw")
+        for w in frame.winfo_children():
+            w.destroy()
+        _load_overview(ws, isin)
+        _load_into(ws, "fundamentals", lambda: client.load_fundamentals(isin))
+        benchmark = ws.get("benchmark")
+        _load_into(ws, f"benchmark::{benchmark or '_none_'}", lambda: client.load_benchmark(isin, benchmark))
+        _load_into(ws, "financials::annual", lambda: client.load_financials(isin, period="annual"))
 
-                options = ws.get("benchmark_options") or [("Kein Benchmark", None)]
-                reverse = {label: value for label, value in options}
-                selected_label = next((label for label, value in options if value == ws.get("benchmark")), "Kein Benchmark")
+        raw_payload = {k: v for k, v in ws["payloads"].items() if v}
+        create_table_screen(frame, isin=isin, payload=raw_payload, warnings=sum(ws["warnings"].values(), []), mode="raw")
 
-                controls, controls_body = section_card(content, "Benchmark-Auswahl")
-                controls.pack(fill="x", pady=(0, 8))
-                ctk.CTkOptionMenu(
-                    controls_body,
-                    values=[label for label, _ in options],
-                    command=lambda label: _set_benchmark(reverse.get(label)),
-                ).pack(side="left")
-                controls_body.winfo_children()[-1].set(selected_label)
-
-                _, kpi_body = section_card(content, "Risikokennzahlen")
-                info_label(kpi_body, "Volatilität / Sharpe / Beta", f"{TOOLTIP_TEXTS['volatility']} | {TOOLTIP_TEXTS['sharpe']} | {TOOLTIP_TEXTS['beta']}").pack(anchor="w", pady=(0, 4))
-                _metric_card_grid(
-                    kpi_body,
-                    [
-                        ("Volatilität", "—"),
-                        ("Sharpe Ratio", "—"),
-                        ("Max Drawdown", "—"),
-                        ("Beta", "—"),
-                    ],
-                    columns=4,
-                )
-
-                _, cmp_body = section_card(content, "Benchmark-Vergleich")
-                _metric_card_grid(
-                    cmp_body,
-                    [
-                        ("Company Total Return", "—"),
-                        ("Benchmark Total Return", "—"),
-                        ("Excess Return", "—"),
-                    ],
-                    columns=3,
-                )
-
-                _, rel_body = section_card(content, "Relative Benchmark-Zeitreihe")
-                create_chart_screen(
-                    rel_body,
-                    isin=isin,
-                    payload=ws["payloads"].get(rel_series_key, {}),
-                    warnings=ws["warnings"].get(rel_series_key, []),
-                    selected_series=["benchmark_relative"],
-                    benchmark=ws.get("benchmark"),
-                )
-                loading_label = ctk.CTkLabel(content, text="Lade Risiko/Benchmark...", text_color="gray70")
-                loading_label.pack(anchor="w", pady=(8, 0))
-
-                has_cache = all(key in ws["payloads"] for key in (risk_key, benchmark_key, rel_series_key))
-                if has_cache:
-                    loading_label.pack_forget()
-                    risk_payload = ws["payloads"].get(risk_key, {})
-                    risk_root = risk_payload.get("risk", {}) if isinstance(risk_payload, dict) else {}
-                    benchmark_payload = ws["payloads"].get(benchmark_key, {})
-                    _clear_children(kpi_body)
-                    _metric_card_grid(
-                        kpi_body,
-                        [
-                            ("Volatilität", _fmt_pct(_metric_value(risk_root.get("volatility")))),
-                            ("Sharpe Ratio", _fmt_number(_metric_value(risk_root.get("sharpe_ratio")), 3)),
-                            ("Max Drawdown", _fmt_pct(_metric_value(risk_root.get("max_drawdown")))),
-                            ("Beta", _fmt_number(_metric_value(risk_root.get("beta")), 3)),
-                        ],
-                        columns=4,
-                    )
-                    _clear_children(cmp_body)
-                    _metric_card_grid(
-                        cmp_body,
-                        [
-                            ("Company Total Return", _fmt_pct(_extract_first(benchmark_payload, ["company_total_return"]))),
-                            ("Benchmark Total Return", _fmt_pct(_extract_first(benchmark_payload, ["benchmark_total_return"]))),
-                            ("Excess Return", _fmt_pct(_extract_first(benchmark_payload, ["excess_return"]))),
-                        ],
-                        columns=3,
-                    )
-                    _render_warning_bar(content, ws["warnings"].get(risk_key, []) + ws["warnings"].get(benchmark_key, []))
-                    return
-
-                _set_loading(ws, "risk_panel", True)
-                generation = _next_generation(ws, "risk_panel")
-
-                def _risk_worker():
-                    return {
-                        "risk": client.load_risk(isin, benchmark),
-                        "benchmark": client.load_benchmark(isin, benchmark),
-                        "relative": client.load_timeseries(isin, series="benchmark_relative", benchmark=benchmark),
-                    }
-
-                def _risk_done(result):
-                    if ws["request_generation"].get("risk_panel") != generation:
-                        return
-                    risk_payload, risk_warning = result["risk"]
-                    benchmark_payload, benchmark_warning = result["benchmark"]
-                    relative_payload, relative_warning = result["relative"]
-                    ws["payloads"][risk_key] = risk_payload or {}
-                    ws["warnings"][risk_key] = [risk_warning] if risk_warning else []
-                    ws["payloads"][benchmark_key] = benchmark_payload or {}
-                    ws["warnings"][benchmark_key] = [benchmark_warning] if benchmark_warning else []
-                    ws["payloads"][rel_series_key] = relative_payload or {}
-                    ws["warnings"][rel_series_key] = [relative_warning] if relative_warning else []
-                    _set_loading(ws, "risk_panel", False)
-                    if current["tab"] == "risk" and current["isin"] == isin:
-                        app.after(0, lambda: _render_tab("risk"))
-
-                run_in_background(app, _risk_worker, _risk_done)
-                return
-
-            _clear_children(content)
-            if tab == "fundamentals":
-                _load_fundamentals(ws, isin)
-                payload = ws["payloads"].get("fundamentals", {})
-                if not payload:
-                    company = ws["payloads"].get("company", {})
-                    payload = {
-                        "valuation": company.get("valuation", {}),
-                        "quality": company.get("quality", {}),
-                        "growth": company.get("growth", {}),
-                    }
-
-                _render_fundamental_section(content, "Valuation", payload.get("valuation", {}))
-                _render_fundamental_section(content, "Quality", payload.get("quality", {}))
-                _render_fundamental_section(content, "Growth", payload.get("growth", {}))
-                _render_warning_bar(content, ws["warnings"].get("fundamentals", []))
-                return
-
-            if tab == "financials":
-                switch_card, switch_body = section_card(content, "Periode")
-                switch_card.pack(fill="x", pady=(0, 8))
-
-                period_var = ctk.StringVar(value="annual")
-
-                def _reload_financials(*_):
-                    period = period_var.get()
-                    key = f"financials::{period}"
-                    _clear_children(financial_area)
-                    ctk.CTkLabel(financial_area, text="Lade Finanzberichte...", text_color="gray70").pack(anchor="w")
-
-                    def _render_financial_payload():
-                        payload = ws["payloads"].get(key, {})
-                        _clear_children(financial_area)
-                        _render_financial_block(financial_area, "Income Statement", payload.get("income_statement", {}))
-                        _render_financial_block(financial_area, "Balance Sheet", payload.get("balance_sheet", {}))
-                        _render_financial_block(financial_area, "Cash Flow", payload.get("cash_flow", {}))
-                        _render_warning_bar(financial_area, ws["warnings"].get(key, []))
-
-                    if key in ws["payloads"]:
-                        _render_financial_payload()
-                        return
-
-                    _set_loading(ws, "financials", True)
-                    generation = _next_generation(ws, "financials")
-
-                    def _worker():
-                        return client.load_financials(isin, period=period)
-
-                    def _done(result):
-                        if ws["request_generation"].get("financials") != generation:
-                            return
-                        payload, warning = result
-                        ws["payloads"][key] = payload or {}
-                        ws["warnings"][key] = [warning] if warning else []
-                        _set_loading(ws, "financials", False)
-                        if current["tab"] == "financials" and current["isin"] == isin and period_var.get() == period:
-                            _render_financial_payload()
-
-                    run_in_background(app, _worker, _done)
-
-                ctk.CTkSegmentedButton(
-                    switch_body,
-                    values=["annual", "quarterly"],
-                    command=lambda value: (period_var.set(value), _reload_financials()),
-                ).pack(anchor="w")
-                switch_body.winfo_children()[-1].set("annual")
-
-                financial_area = ctk.CTkFrame(content, fg_color="transparent")
-                financial_area.pack(fill="both", expand=True)
-                _reload_financials()
-                return
-
-            if tab == "raw":
-                _load_overview(ws, isin)
-                _load_fundamentals(ws, isin)
-                _load_risk(ws, isin)
-                _load_financials(ws, isin, "annual")
-                raw_payload = _gather_raw_payload(ws)
-                create_table_screen(
-                    content,
-                    isin=isin,
-                    payload=raw_payload,
-                    warnings=sum(ws["warnings"].values(), []),
-                    mode="raw",
-                )
-        finally:
-            ws["render_in_progress"][tab] = False
-            if tab in ws["render_pending"]:
-                ws["render_pending"].remove(tab)
-                app.after(0, lambda: _render_tab(tab))
+    def _refresh_tab(tab: str):
+        if tab == "overview":
+            _refresh_overview()
+        elif tab == "returns":
+            _refresh_returns()
+        elif tab == "risk":
+            _refresh_risk()
+        elif tab == "fundamentals":
+            _refresh_fundamentals()
+        elif tab == "financials":
+            _refresh_financials()
+        elif tab == "raw":
+            _refresh_raw()
 
     def _set_tab(tab: str):
         current["tab"] = tab
-        _render_tab(tab)
+        if current["isin"]:
+            _refresh_tab(tab)
 
     def _set_benchmark(benchmark: str | None):
         ws = _active_workspace()
@@ -1102,11 +526,8 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
         if ws.get("benchmark") == benchmark:
             return
         ws["benchmark"] = benchmark
-        if current["tab"] == "returns" and current["isin"]:
-            _update_returns_controls(ws)
-            _update_returns_chart_and_warnings(ws, current["isin"])
-            return
-        _render_tab(current["tab"])
+        if current["tab"] in {"overview", "returns", "risk", "raw"} and current["isin"]:
+            _refresh_tab(current["tab"])
 
     def _set_series(columns: list[str]):
         ws = _active_workspace()
@@ -1114,16 +535,15 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
             return
         ws["selected_series"] = columns or ["price"]
         if current["tab"] == "returns" and current["isin"]:
-            _update_returns_controls(ws)
-            _update_returns_chart_and_warnings(ws, current["isin"])
+            _refresh_returns()
 
     def _on_benchmark_group_change(group: str | None = None):
         ws = _active_workspace()
         if ws is None:
             return
-        ws["benchmark_active_group"] = (group or "Alle")
-        if current["tab"] == "returns":
-            _update_returns_controls(ws)
+        ws["benchmark_active_group"] = group or "Alle"
+        if current["tab"] == "returns" and current["isin"]:
+            ui_state["controllers"]["returns"].update_data(current["isin"], ws)
 
     def _toggle_comparison_symbol(symbol: str, selected: bool):
         ws = _active_workspace()
@@ -1140,26 +560,25 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
             current_symbols = [entry for entry in current_symbols if entry.upper() != normalized]
         ws["comparison_symbols"] = list(dict.fromkeys(current_symbols))
         if current["tab"] == "returns" and current["isin"]:
-            _update_returns_search_selection(ws)
-            _update_returns_chart_and_warnings(ws, current["isin"])
+            _refresh_returns()
 
     def _run_returns_search():
         ws = _active_workspace()
         isin = current["isin"]
         if ws is None or not isin:
             return
-        query_var = _returns_state().get("query_var")
-        query = query_var.get().strip() if query_var is not None else ""
+        controller: ReturnsTabController = ui_state["controllers"]["returns"]
+        query = controller.query_var.get().strip()
         results, search_warning = client.search_benchmark_candidates(query)
         ws["comparison_search_results"] = list((results or {}).get("results") or [])
         ws["warnings"]["comparison_search"] = [search_warning] if search_warning else []
-        _update_returns_search_selection(ws)
-        _update_returns_chart_and_warnings(ws, isin)
+        if current["tab"] == "returns":
+            controller.update_data(isin, ws)
+            controller.update_warnings(ws["warnings"].get("timeseries_active", []) + ws["warnings"].get("comparison_active", []) + ws["warnings"].get("comparison_search", []))
 
     def on_stock_selected(ev):
         selection_started = time.perf_counter()
         sel_isin = ev.get("isin")
-        logger.debug("DepoAnalyse: Instrument ausgewählt ISIN=%s", sel_isin)
         if not sel_isin:
             _show_empty()
             return
@@ -1173,12 +592,11 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
         )
 
         current["isin"] = sel_isin
-        current["tab"] = "overview"
         _ensure_workspace(workspace_registry, sel_isin)
-        _render_tab("overview")
+        _refresh_tab(current["tab"])
         if settings.performance_logging:
             performance_logger.info(
-                "DepoAnalyse initial workspace render for %s took %.2fs", sel_isin, time.perf_counter() - selection_started
+                "DepoAnalyse workspace render for %s took %.2fs", sel_isin, time.perf_counter() - selection_started
             )
 
     _show_empty()

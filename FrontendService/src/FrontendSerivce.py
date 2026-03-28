@@ -16,13 +16,24 @@ def create_app() -> customtkinter.CTk:
     app.geometry("1100x780")
     app.minsize(980, 680)
     app.title("Finanzübersicht")
-    try:
-        app.state("zoomed")
-    except Exception:
+
+    # Stabiler Maximized-Start: manche Umgebungen setzen nach dem ersten Zeichnen
+    # den gespeicherten Geometry-Wert erneut zurück.
+    def _apply_zoomed(*_):
+        try:
+            app.state("zoomed")
+            return
+        except Exception:
+            pass
         try:
             app.attributes("-zoomed", True)
+            return
         except Exception:
             app.attributes("-fullscreen", True)
+
+    _apply_zoomed()
+    app.after_idle(_apply_zoomed)
+    app.after(250, _apply_zoomed)
     return app
 
 
