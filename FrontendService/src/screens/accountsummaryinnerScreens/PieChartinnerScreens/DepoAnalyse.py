@@ -38,6 +38,7 @@ SERIES_OPTIONS = ["price", "returns", "drawdown", "benchmark_relative", "benchma
 
 TOOLTIP_TEXTS = {
     "benchmark": "Vergleichsindex oder ETF-Proxy als Referenzmaßstab.",
+    "comparison_search": "Freie Vergleiche sind zusätzliche Symbole aus der Suche; Presets kommen aus dem Benchmark-Segment. Die freie Auswahl bleibt global erhalten.",
     "benchmark_relative": "Relative Entwicklung der Aktie gegenüber dem gewählten Benchmark.",
     "benchmark_price": "Kursverlauf des Benchmark-Instruments.",
     "drawdown": "Prozentualer Rückgang vom jeweils vorherigen Hochpunkt.",
@@ -328,6 +329,7 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
 
         ws["comparison_symbols"] = list(dict.fromkeys(symbols))
         ws["comparison_search_results"] = list(comparison_state.get("search_results") or [])
+        ws["comparison_last_query"] = str(comparison_state.get("last_query") or "")
         ws["warnings"]["comparison_search"] = list(comparison_state.get("search_warnings") or [])
         controller.update_data(isin, ws)
         controller.update_warnings(ws["warnings"].get("timeseries_active", []) + ws["warnings"].get("comparison_active", []) + ws["warnings"].get("comparison_search", []))
@@ -580,6 +582,7 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
         comparison_state["search_warnings"] = [search_warning] if search_warning else []
         if current["tab"] == "returns":
             ws["comparison_search_results"] = list(comparison_state["search_results"])
+            ws["comparison_last_query"] = query
             ws["warnings"]["comparison_search"] = list(comparison_state["search_warnings"])
             controller.update_data(isin, ws)
             controller.update_warnings(ws["warnings"].get("timeseries_active", []) + ws["warnings"].get("comparison_active", []) + ws["warnings"].get("comparison_search", []))
@@ -603,6 +606,7 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
         ws = _ensure_workspace(workspace_registry, sel_isin)
         ws["comparison_symbols"] = list(comparison_state.get("symbols") or [])
         ws["comparison_search_results"] = list(comparison_state.get("search_results") or [])
+        ws["comparison_last_query"] = str(comparison_state.get("last_query") or "")
         ws["warnings"]["comparison_search"] = list(comparison_state.get("search_warnings") or [])
         _refresh_tab(current["tab"])
         if settings.performance_logging:

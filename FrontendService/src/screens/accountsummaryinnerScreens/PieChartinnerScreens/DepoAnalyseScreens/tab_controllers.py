@@ -230,7 +230,14 @@ class ReturnsTabController:
         search_card.pack(fill="x", pady=(8, 0))
         hint_row = ctk.CTkFrame(search_body, fg_color="transparent")
         hint_row.pack(fill="x", pady=(0, 4))
-        info_label(hint_row, "Vergleichssuche", "Freie Vergleichswerte ergänzen den Preset-Benchmark aus dem Segment-Menü.").pack(side="left")
+        info_label(
+            hint_row,
+            "Vergleichssuche",
+            tooltip_texts.get(
+                "comparison_search",
+                "Freie Vergleichswerte ergänzen den Preset-Benchmark aus dem Segment-Menü und bleiben global im Analyse-Screen erhalten.",
+            ),
+        ).pack(side="left")
 
         row = ctk.CTkFrame(search_body, fg_color="transparent")
         row.pack(fill="x", pady=(0, 6))
@@ -245,9 +252,9 @@ class ReturnsTabController:
         dual_panel.grid_columnconfigure(0, weight=3)
         dual_panel.grid_columnconfigure(1, weight=2)
 
-        self.results_frame = ctk.CTkFrame(dual_panel, corner_radius=8)
+        self.results_frame = ctk.CTkScrollableFrame(dual_panel, corner_radius=8, height=210)
         self.results_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
-        self.selected_frame = ctk.CTkFrame(dual_panel, corner_radius=8)
+        self.selected_frame = ctk.CTkScrollableFrame(dual_panel, corner_radius=8, height=210)
         self.selected_frame.grid(row=0, column=1, sticky="nsew", padx=(6, 0))
 
         self.warning_var = ctk.StringVar(value="")
@@ -257,6 +264,10 @@ class ReturnsTabController:
         self._chart_signature = None
 
     def update_data(self, isin: str, ws: dict):
+        desired_query = str(ws.get("comparison_last_query") or "")
+        if self.query_var.get() != desired_query:
+            self.query_var.set(desired_query)
+
         options = ws.get("benchmark_options") or [("Kein Benchmark", None)]
         groups = ws.get("benchmark_groups") or {"Alle": options[1:]}
         active_group = ws.get("benchmark_active_group") or "Alle"
@@ -324,16 +335,23 @@ class ReturnsTabController:
                 symbol = str(item.get("symbol") or "").upper()
                 if not symbol:
                     continue
-                row = ctk.CTkFrame(self.results_frame, fg_color="transparent")
-                row.pack(fill="x", padx=8, pady=(0, 3))
+                row = ctk.CTkFrame(self.results_frame, corner_radius=8)
+                row.pack(fill="x", padx=6, pady=(0, 4))
                 already_selected = symbol in selected_symbols
-                check = ctk.CTkCheckBox(row, text="", width=20, command=lambda s=symbol: self._on_toggle_symbol(s, True))
-                check.pack(side="left", padx=(0, 6), anchor="n", pady=(2, 0))
+                check = ctk.CTkCheckBox(
+                    row,
+                    text="",
+                    width=20,
+                    command=lambda s=symbol, w=None: self._on_toggle_symbol(s, True),
+                )
+                check.pack(side="left", padx=(8, 6), anchor="n", pady=(8, 0))
                 if already_selected:
                     check.select()
                     check.configure(state="disabled")
+                else:
+                    check.deselect()
                 text_box = ctk.CTkFrame(row, fg_color="transparent")
-                text_box.pack(side="left", fill="x", expand=True)
+                text_box.pack(side="left", fill="x", expand=True, padx=(0, 8), pady=(6, 6))
                 name = item.get("name") or symbol
                 line_1 = f"{symbol} · {name}"
                 if already_selected:
@@ -374,10 +392,19 @@ class ReturnsTabController:
         if not selected_symbols:
             ctk.CTkLabel(self.selected_frame, text="Keine freien Vergleichswerte ausgewählt.", text_color="gray70").pack(anchor="w", padx=8, pady=(0, 8))
         for symbol in sorted(selected_symbols):
-            row = ctk.CTkFrame(self.selected_frame, fg_color="transparent")
-            row.pack(fill="x", padx=8, pady=(0, 3))
-            ctk.CTkLabel(row, text=symbol, anchor="w").pack(side="left")
-            remove_btn = create_hover_icon_button(row, "🗑", command=lambda s=symbol: self._on_toggle_symbol(s, False))
+            row = ctk.CTkFrame(self.selected_frame, corner_radius=8)
+            row.pack(fill="x", padx=6, pady=(0, 4))
+            ctk.CTkLabel(row, text=symbol, anchor="w").pack(side="left", padx=(8, 0), pady=6)
+            remove_btn = create_hover_icon_button(
+                row,
+                "🗑",
+                command=lambda s=symbol: self._on_toggle_symbol(s, False),
+                width=22,
+                height=20,
+                corner_radius=5,
+                text_color="gray75",
+                hover_text_color="#ff4d4f",
+            )
             remove_btn.pack(side="right")
 
     def update_loading(self, loading: bool, text: str = ""):
