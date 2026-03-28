@@ -212,8 +212,8 @@ def create_screen(
 
     root = ctk.CTkFrame(app, fg_color="transparent")
     root.grid(row=0, column=0, sticky="nsew")
-    root.grid_columnconfigure(0, weight=3)
-    root.grid_columnconfigure(1, weight=2)
+    root.grid_columnconfigure(0, weight=5, minsize=720)
+    root.grid_columnconfigure(1, weight=3, minsize=380)
     root.grid_rowconfigure(1, weight=1)
     root.grid_rowconfigure(2, weight=0)
 
@@ -247,12 +247,30 @@ def create_screen(
                 }
             )
 
-    chart_figure = Figure(figsize=(5, 4.2), dpi=100)
+    chart_frame.grid_rowconfigure(0, weight=1)
+    chart_frame.grid_columnconfigure(0, weight=3, minsize=560)
+    chart_frame.grid_columnconfigure(1, weight=2, minsize=240)
+
+    chart_canvas_host = ctk.CTkFrame(chart_frame)
+    chart_canvas_host.grid(row=0, column=0, sticky="nsew", padx=(4, 6), pady=4)
+    chart_canvas_host.pack_propagate(False)
+    chart_canvas_host.configure(width=620, height=420)
+
+    reserved_slot = ctk.CTkFrame(chart_frame, fg_color="transparent", border_width=1, border_color="#30363d")
+    reserved_slot.grid(row=0, column=1, sticky="nsew", padx=(6, 4), pady=4)
+    ctk.CTkLabel(
+        reserved_slot,
+        text="Freie Fläche für zukünftiges Widget",
+        text_color="gray60",
+    ).pack(anchor="center", expand=True)
+
+    chart_figure = Figure(figsize=(6.2, 4.2), dpi=100)
     chart_ax = chart_figure.add_subplot(111)
-    chart_canvas = FigureCanvasTkAgg(chart_figure, master=chart_frame)
-    chart_canvas.get_tk_widget().pack(fill="both", expand=True, padx=4, pady=4)
+    chart_canvas = FigureCanvasTkAgg(chart_figure, master=chart_canvas_host)
+    chart_canvas.get_tk_widget().pack(fill="both", expand=True, padx=2, pady=2)
     chart_actions = ctk.CTkFrame(chart_frame, fg_color="transparent")
-    chart_actions.pack(fill="x", padx=4, pady=(0, 2))
+    chart_actions.grid(row=1, column=0, sticky="ew", padx=4, pady=(0, 2))
+    ctk.CTkFrame(chart_frame, fg_color="transparent").grid(row=1, column=1, sticky="ew")
 
     tree_style = ttk.Style()
     try:
@@ -444,6 +462,7 @@ def create_screen(
         values_local = [float(item.get("value") or 0.0) for item in summary_rows]
         wedges, *_ = chart_ax.pie(values_local, labels=labels_local, autopct="%1.1f%%", startangle=90)
         chart_ax.axis("equal")
+        chart_ax.set_aspect("equal", adjustable="box")
 
         for idx, summary in enumerate(summary_rows):
             iid = summary_tree.insert(

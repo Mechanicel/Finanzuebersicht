@@ -8,16 +8,14 @@ from finanzuebersicht_shared import get_settings
 from src.screens.accountsummaryinnerScreens.PieChartinnerScreens.DepoAnalyseScreens.DepotPositionPieScreen import (
     create_screen as create_depot_pie,
 )
-from src.screens.accountsummaryinnerScreens.PieChartinnerScreens.DepoAnalyseScreens.TableScreen import (
-    create_screen as create_table_screen,
-)
 from src.screens.accountsummaryinnerScreens.PieChartinnerScreens.DepoAnalyseScreens.tab_controllers import (
     FinancialsTabController,
+    FundamentalsTabController,
     OverviewTabController,
+    RawTabController,
     ReturnsTabController,
     RiskTabController,
     render_financial_block,
-    render_fundamental_section,
 )
 from src.screens.accountsummaryinnerScreens.PieChartinnerScreens.analysis_api_client import AnalysisApiClient
 from src.ui.background_loader import run_in_background
@@ -60,8 +58,6 @@ def _ensure_workspace(registry: dict, isin: str):
             "benchmark_groups": None,
             "benchmark_active_group": "Alle",
             "selected_series": list(SERIES_OPTIONS),
-            "comparison_symbols": [],
-            "comparison_search_results": [],
             "request_generation": {},
             "loading": {},
             "benchmark_catalog_loading": False,
@@ -108,6 +104,12 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
     )
     client = AnalysisApiClient(settings.marketdata_base_url)
     workspace_registry: dict[str, dict] = {}
+    comparison_state: dict[str, Any] = {
+        "symbols": [],
+        "search_results": [],
+        "last_query": "",
+        "search_warnings": [],
+    }
 
     _, top_body = section_card(ui["content"], "Depot-Aufteilung", "Klicken Sie auf eine Position, um den Workspace zu laden.")
     method_card = ctk.CTkFrame(top_body)
@@ -210,8 +212,14 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
         controllers["risk"] = RiskTabController(_get_tab_frame("risk"), on_benchmark_change=_set_benchmark, tooltip_texts=TOOLTIP_TEXTS)
         controllers["risk"].frame.pack(fill="both", expand=True)
 
+        controllers["fundamentals"] = FundamentalsTabController(_get_tab_frame("fundamentals"))
+        controllers["fundamentals"].frame.pack(fill="both", expand=True)
+
         controllers["financials"] = FinancialsTabController(_get_tab_frame("financials"), on_period_change=_reload_financials)
         controllers["financials"].frame.pack(fill="both", expand=True)
+
+        controllers["raw"] = RawTabController(_get_tab_frame("raw"))
+        controllers["raw"].frame.pack(fill="both", expand=True)
 
     def _show_tab(tab: str):
         _show_shell()
@@ -305,7 +313,7 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
 
         benchmark = ws.get("benchmark")
         series_key = _series_cache_key(list(ws["selected_series"]), benchmark)
-        symbols = ws.get("comparison_symbols") or []
+        symbols = comparison_state.get("symbols") or []
         comparison_key = _comparison_cache_key(symbols)
 
         has_series_cache = series_key in ws["payloads"]
@@ -318,6 +326,9 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
             ws["payloads"]["comparison_active"] = ws["payloads"].get(comparison_key) or {}
             ws["warnings"]["comparison_active"] = ws["warnings"].get(comparison_key, [])
 
+        ws["comparison_symbols"] = list(dict.fromkeys(symbols))
+        ws["comparison_search_results"] = list(comparison_state.get("search_results") or [])
+        ws["warnings"]["comparison_search"] = list(comparison_state.get("search_warnings") or [])
         controller.update_data(isin, ws)
         controller.update_warnings(ws["warnings"].get("timeseries_active", []) + ws["warnings"].get("comparison_active", []) + ws["warnings"].get("comparison_search", []))
         if has_series_cache and has_comparison_cache:
@@ -417,9 +428,7 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
         if ws is None or not isin:
             return
         _show_tab("fundamentals")
-        frame = _get_tab_frame("fundamentals")
-        for w in frame.winfo_children():
-            w.destroy()
+        controller: FundamentalsTabController = ui_state["controllers"]["fundamentals"]
         _load_into(ws, "fundamentals", lambda: client.load_fundamentals(isin))
         if not ws["payloads"].get("fundamentals"):
             _load_into(ws, "company", lambda: client.load_company_analysis(isin))
@@ -431,10 +440,8 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
             }
         else:
             payload = ws["payloads"].get("fundamentals", {})
-        render_fundamental_section(frame, "Valuation", payload.get("valuation", {}))
-        render_fundamental_section(frame, "Quality", payload.get("quality", {}))
-        render_fundamental_section(frame, "Growth", payload.get("growth", {}))
-        _show_warning(frame, ws["warnings"].get("fundamentals", []))
+        controller.update_data(isin, payload)
+        controller.update_warnings(ws["warnings"].get("fundamentals", []))
 
     def _reload_financials(period: str):
         if current["tab"] != "financials":
@@ -488,9 +495,7 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
         if ws is None or not isin:
             return
         _show_tab("raw")
-        frame = _get_tab_frame("raw")
-        for w in frame.winfo_children():
-            w.destroy()
+        controller: RawTabController = ui_state["controllers"]["raw"]
         _load_overview(ws, isin)
         _load_into(ws, "fundamentals", lambda: client.load_fundamentals(isin))
         benchmark = ws.get("benchmark")
@@ -498,7 +503,7 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
         _load_into(ws, "financials::annual", lambda: client.load_financials(isin, period="annual"))
 
         raw_payload = {k: v for k, v in ws["payloads"].items() if v}
-        create_table_screen(frame, isin=isin, payload=raw_payload, warnings=sum(ws["warnings"].values(), []), mode="raw")
+        controller.update_data(isin, raw_payload, warnings=sum(ws["warnings"].values(), []))
 
     def _refresh_tab(tab: str):
         if tab == "overview":
@@ -552,13 +557,13 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
         normalized = (symbol or "").strip().upper()
         if not normalized:
             return
-        current_symbols = list(ws.get("comparison_symbols") or [])
+        current_symbols = list(comparison_state.get("symbols") or [])
         symbol_set = {entry.upper() for entry in current_symbols}
         if selected and normalized not in symbol_set:
             current_symbols.append(normalized)
         if not selected:
             current_symbols = [entry for entry in current_symbols if entry.upper() != normalized]
-        ws["comparison_symbols"] = list(dict.fromkeys(current_symbols))
+        comparison_state["symbols"] = list(dict.fromkeys(current_symbols))
         if current["tab"] == "returns" and current["isin"]:
             _refresh_returns()
 
@@ -570,9 +575,12 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
         controller: ReturnsTabController = ui_state["controllers"]["returns"]
         query = controller.query_var.get().strip()
         results, search_warning = client.search_benchmark_candidates(query)
-        ws["comparison_search_results"] = list((results or {}).get("results") or [])
-        ws["warnings"]["comparison_search"] = [search_warning] if search_warning else []
+        comparison_state["last_query"] = query
+        comparison_state["search_results"] = list((results or {}).get("results") or [])
+        comparison_state["search_warnings"] = [search_warning] if search_warning else []
         if current["tab"] == "returns":
+            ws["comparison_search_results"] = list(comparison_state["search_results"])
+            ws["warnings"]["comparison_search"] = list(comparison_state["search_warnings"])
             controller.update_data(isin, ws)
             controller.update_warnings(ws["warnings"].get("timeseries_active", []) + ws["warnings"].get("comparison_active", []) + ws["warnings"].get("comparison_search", []))
 
@@ -592,7 +600,10 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
         )
 
         current["isin"] = sel_isin
-        _ensure_workspace(workspace_registry, sel_isin)
+        ws = _ensure_workspace(workspace_registry, sel_isin)
+        ws["comparison_symbols"] = list(comparison_state.get("symbols") or [])
+        ws["comparison_search_results"] = list(comparison_state.get("search_results") or [])
+        ws["warnings"]["comparison_search"] = list(comparison_state.get("search_warnings") or [])
         _refresh_tab(current["tab"])
         if settings.performance_logging:
             performance_logger.info(
