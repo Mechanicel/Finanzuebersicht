@@ -22,6 +22,18 @@ class AnalysisApiClient:
         normalized = tuple(sorted((str(k), str(v)) for k, v in (params or {}).items() if v is not None))
         return path, normalized
 
+    @staticmethod
+    def _normalize_isins(isins: list[str] | None) -> list[str]:
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for raw_isin in isins or []:
+            isin = str(raw_isin or "").strip().upper()
+            if not isin or isin in seen:
+                continue
+            seen.add(isin)
+            normalized.append(isin)
+        return normalized
+
     def _get(self, path: str, params: dict[str, Any] | None = None) -> tuple[dict[str, Any] | None, str | None]:
         url = f"{self.base_url}{path}"
         start = time.perf_counter()
@@ -119,6 +131,17 @@ class AnalysisApiClient:
             return {"company": {"isin": isin, "series": []}, "comparisons": []}, None
         params = {"symbols": ",".join(normalized)}
         return self._cached_get(f"/analysis/company/{isin}/comparison-timeseries", params=params)
+
+    def load_depot_holdings_summary(self, isins: list[str]):
+        normalized = self._normalize_isins(isins)
+        if not normalized:
+            return {"holdings": [], "meta": {"requested": 0, "processed": 0, "returned": 0, "skipped_empty": 0, "failed": 0, "errors": []}}, None
+
+        # Sortierung sorgt dafür, dass die gleiche ISIN-Menge unabhängig von der Input-Reihenfolge
+        # den gleichen Cache-Key nutzt.
+        sorted_isins = sorted(normalized)
+        params = {"isins": ",".join(sorted_isins)}
+        return self._cached_get("/analysis/depot/holdings-summary", params=params)
 
     def load_company_analysis(self, isin: str) -> tuple[dict[str, Any], list[str]]:
         """Lädt Snapshot + Full und merged die wichtigsten Blöcke robust zusammen."""

@@ -1,10 +1,8 @@
 import logging
 import time
-from datetime import datetime
 from tkinter import ttk
 
 import customtkinter as ctk
-import requests
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 
@@ -18,11 +16,11 @@ from src.screens.accountsummaryinnerScreens.PieChartinnerScreens.depot_holdings_
     build_holdings_rows,
     sort_rows,
     summarize_groups,
+    to_float,
     with_weight_percent,
 )
 
 settings = get_settings()
-BACKEND_URL = settings.marketdata_base_url.replace("0.0.0.0", "127.0.0.1").rstrip("/")
 
 logger = logging.getLogger(__name__)
 
@@ -123,58 +121,87 @@ def create_screen(
     depot_details = konto.get("DepotDetails", [])
 
     client = api_client or AnalysisApiClient(settings.marketdata_base_url)
-    backend_session = requests.Session()
     client_calls_before = client.request_count
-    now = datetime.now().strftime("%Y-%m-%d")
+
+    unique_isins: list[str] = []
+    seen_isins: set[str] = set()
+    for detail in depot_details:
+        isin = str((detail or {}).get("ISIN") or "").strip().upper()
+        if not isin or isin in seen_isins:
+            continue
+        seen_isins.add(isin)
+        unique_isins.append(isin)
+
+    summary_payload, summary_warning = client.load_depot_holdings_summary(unique_isins)
+    if summary_warning:
+        logger.warning("Depot-Summary konnte nicht vollständig geladen werden: %s", summary_warning)
+
+    summary_holdings = (summary_payload or {}).get("holdings")
+    holdings_meta = (summary_payload or {}).get("meta")
+    if not isinstance(summary_holdings, list):
+        summary_holdings = []
+    if not isinstance(holdings_meta, dict):
+        holdings_meta = {}
 
     price_cache: dict[str, float] = {}
     company_cache: dict[str, str] = {}
     metadata_cache: dict[str, dict] = {}
     holdings_warnings: list[str] = []
-    direct_http_requests = 0
 
-    for detail in depot_details:
-        isin = str((detail or {}).get("ISIN") or "").strip()
+    for holding in summary_holdings:
+        if not isinstance(holding, dict):
+            continue
+        isin = str(holding.get("isin") or "").strip().upper()
         if not isin:
             continue
+        company_cache[isin] = str(holding.get("name") or holding.get("symbol") or isin)
+        metadata_cache[isin] = {
+            "name": holding.get("name") or holding.get("symbol"),
+            "sector": holding.get("sector") or UNKNOWN_GROUP_LABEL,
+            "country": holding.get("country") or UNKNOWN_GROUP_LABEL,
+            "currency": holding.get("currency") or "EUR",
+            "current_price": holding.get("current_price"),
+            "provider": holding.get("provider"),
+            "as_of": holding.get("as_of"),
+            "coverage": holding.get("coverage"),
+        }
+        try:
+            price_cache[isin] = float(holding.get("current_price"))
+        except (TypeError, ValueError):
+            price_cache[isin] = 0.0
 
-        if isin not in price_cache:
-            try:
-                direct_http_requests += 1
-                resp_price = backend_session.get(f"{BACKEND_URL}/price/{isin}", params={"date": now}, timeout=6)
-                resp_price.raise_for_status()
-                price_cache[isin] = float(resp_price.json().get("price") or 0.0)
-            except Exception as exc:
-                logger.error("Preisabruf fehlgeschlagen für %s: %s", isin, exc)
-                if isin not in metadata_cache:
-                    metadata_cache[isin] = _resolve_metadata(client, isin)
-                fallback_price = (metadata_cache.get(isin) or {}).get("current_price")
-                try:
-                    price_cache[isin] = float(fallback_price)
-                    holdings_warnings.append(
-                        f"Preis für {isin} konnte nicht über /price geladen werden; fallback auf market.currentPrice."
-                    )
-                except (TypeError, ValueError):
-                    price_cache[isin] = 0.0
-                    holdings_warnings.append(f"Preis für {isin} konnte nicht geladen werden (0 angesetzt).")
+    # Defensiver Fallback nur für wenige Sonderfälle mit fehlenden Kernfeldern.
+    fallback_candidates = []
+    for isin in unique_isins:
+        meta = metadata_cache.get(isin) or {}
+        missing_name = not (company_cache.get(isin) and company_cache.get(isin) != isin)
+        missing_price = to_float(price_cache.get(isin)) in (None, 0.0) and meta.get("current_price") in (None, "")
+        if isin not in metadata_cache or (missing_name and missing_price):
+            fallback_candidates.append(isin)
 
-        if isin not in company_cache:
-            try:
-                company_payload, company_warning = client.load_company_name(isin)
-                if company_warning:
-                    raise RuntimeError(company_warning)
-                company_cache[isin] = (company_payload or {}).get("company_name") or isin
-            except Exception as exc:
-                logger.error("Company-Abruf fehlgeschlagen für %s: %s", isin, exc)
-                company_cache[isin] = isin
-                holdings_warnings.append(f"Name für {isin} nicht gefunden (ISIN wird angezeigt).")
-
-        if isin not in metadata_cache:
-            metadata_cache[isin] = _resolve_metadata(client, isin)
+    fallback_limit = 2
+    if fallback_candidates:
+        holdings_warnings.append(
+            "Für einzelne Positionen waren Summary-Daten unvollständig; defensiver Snapshot-Fallback wurde genutzt."
+        )
+    for isin in fallback_candidates[:fallback_limit]:
+        fallback_meta = _resolve_metadata(client, isin)
+        metadata_cache[isin] = {**fallback_meta, **(metadata_cache.get(isin) or {})}
+        company_cache[isin] = company_cache.get(isin) or fallback_meta.get("name") or isin
+        if to_float(price_cache.get(isin)) in (None, 0.0):
+            fallback_price = to_float(fallback_meta.get("current_price"))
+            if fallback_price is not None:
+                price_cache[isin] = fallback_price
 
     rows, helper_warnings = build_holdings_rows(depot_details, price_cache, company_cache, metadata_cache)
     rows = sort_rows(with_weight_percent(rows), key="market_value", reverse=True)
     holdings_warnings.extend(helper_warnings)
+    if summary_warning:
+        holdings_warnings.append(f"Depot-Summary Warnung: {summary_warning}")
+    if holdings_meta.get("failed"):
+        holdings_warnings.append(
+            f"Depot-Summary konnte {holdings_meta.get('failed')} ISIN(s) nicht verarbeiten."
+        )
 
     root = ctk.CTkFrame(app, fg_color="transparent")
     root.grid(row=0, column=0, sticky="nsew")
@@ -413,12 +440,11 @@ def create_screen(
     app.grid_columnconfigure(0, weight=1)
     if settings.performance_logging:
         analysis_requests = client.request_count - client_calls_before
-        total_requests = direct_http_requests + analysis_requests
         logger.info(
-            "DepotPositionPieScreen loaded in %.2fs (holdings=%s, requests=%s, direct=%s, analysis=%s)",
+            "DepotPositionPieScreen loaded in %.2fs (holdings=%s, analysis_requests=%s, summary_returned=%s, summary_failed=%s)",
             time.perf_counter() - create_started,
             len(rows),
-            total_requests,
-            direct_http_requests,
             analysis_requests,
+            holdings_meta.get("returned"),
+            holdings_meta.get("failed"),
         )
