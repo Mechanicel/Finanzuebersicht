@@ -1,9 +1,12 @@
 import logging
+import time
 from typing import Any
 
 import requests
+from finanzuebersicht_shared import get_settings
 
 logger = logging.getLogger(__name__)
+settings = get_settings()
 
 
 class AnalysisApiClient:
@@ -12,6 +15,7 @@ class AnalysisApiClient:
     def __init__(self, base_url: str):
         self.base_url = (base_url or "").rstrip("/")
         self._cache: dict[tuple[str, tuple[tuple[str, Any], ...]], tuple[dict[str, Any] | None, str | None]] = {}
+        self.request_count = 0
 
     def _cache_key(self, path: str, params: dict[str, Any] | None = None) -> tuple[str, tuple[tuple[str, Any], ...]]:
         normalized = tuple(sorted((str(k), str(v)) for k, v in (params or {}).items() if v is not None))
@@ -19,21 +23,35 @@ class AnalysisApiClient:
 
     def _get(self, path: str, params: dict[str, Any] | None = None) -> tuple[dict[str, Any] | None, str | None]:
         url = f"{self.base_url}{path}"
+        start = time.perf_counter()
+        self.request_count += 1
         try:
             response = requests.get(url, params=params, timeout=10)
             response.raise_for_status()
             payload = response.json()
+            if settings.performance_logging:
+                duration_ms = (time.perf_counter() - start) * 1000
+                logger.info("GET %s took %.0fms", path, duration_ms)
             if isinstance(payload, dict):
                 return payload, None
             return {"data": payload}, None
         except requests.HTTPError as exc:
             status_code = exc.response.status_code if exc.response is not None else "unknown"
+            if settings.performance_logging:
+                duration_ms = (time.perf_counter() - start) * 1000
+                logger.info("GET %s took %.0fms (status=%s)", path, duration_ms, status_code)
             logger.error("AnalysisApiClient HTTP-Fehler bei %s: %s", url, status_code)
             return None, f"API-Fehler ({status_code}) beim Laden von {path}"
         except requests.RequestException as exc:
+            if settings.performance_logging:
+                duration_ms = (time.perf_counter() - start) * 1000
+                logger.info("GET %s took %.0fms (request_error)", path, duration_ms)
             logger.error("AnalysisApiClient Request-Fehler bei %s: %s", url, exc)
             return None, "Netzwerkfehler beim Laden der Analyse-Daten"
         except ValueError:
+            if settings.performance_logging:
+                duration_ms = (time.perf_counter() - start) * 1000
+                logger.info("GET %s took %.0fms (json_error)", path, duration_ms)
             logger.exception("AnalysisApiClient JSON-Fehler bei %s", url)
             return None, "Ungültige Serverantwort"
 

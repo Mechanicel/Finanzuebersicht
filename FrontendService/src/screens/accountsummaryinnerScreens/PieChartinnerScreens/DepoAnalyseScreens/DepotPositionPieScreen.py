@@ -1,4 +1,5 @@
 import logging
+import time
 from datetime import datetime
 from tkinter import ttk
 
@@ -74,6 +75,10 @@ def _resolve_metadata(client: AnalysisApiClient, isin: str) -> dict:
 
 
 def create_screen(app, navigator, state: AppState, depot_index, pick_callback: callable = None, **kwargs):
+    create_started = time.perf_counter()
+    if settings.performance_logging:
+        logger.info("DepotPositionPieScreen.create_screen started (depot_index=%s)", depot_index)
+
     logger.debug("create_screen: Öffne DepotPositionPieScreen für depot_index=%s", depot_index)
     if kwargs.get("clear_before_render", True):
         clear_ui(app)
@@ -92,12 +97,14 @@ def create_screen(app, navigator, state: AppState, depot_index, pick_callback: c
     depot_details = konto.get("DepotDetails", [])
 
     client = AnalysisApiClient(settings.marketdata_base_url)
+    client_calls_before = client.request_count
     now = datetime.now().strftime("%Y-%m-%d")
 
     price_cache: dict[str, float] = {}
     company_cache: dict[str, str] = {}
     metadata_cache: dict[str, dict] = {}
     holdings_warnings: list[str] = []
+    direct_http_requests = 0
 
     for detail in depot_details:
         isin = str((detail or {}).get("ISIN") or "").strip()
@@ -106,6 +113,7 @@ def create_screen(app, navigator, state: AppState, depot_index, pick_callback: c
 
         if isin not in price_cache:
             try:
+                direct_http_requests += 1
                 resp_price = requests.get(f"{BACKEND_URL}/price/{isin}", params={"date": now}, timeout=6)
                 resp_price.raise_for_status()
                 price_cache[isin] = float(resp_price.json().get("price") or 0.0)
@@ -125,6 +133,7 @@ def create_screen(app, navigator, state: AppState, depot_index, pick_callback: c
 
         if isin not in company_cache:
             try:
+                direct_http_requests += 1
                 resp_company = requests.get(f"{BACKEND_URL}/company/{isin}", timeout=6)
                 resp_company.raise_for_status()
                 company_cache[isin] = resp_company.json().get("company_name") or isin
@@ -375,3 +384,14 @@ def create_screen(app, navigator, state: AppState, depot_index, pick_callback: c
 
     app.grid_rowconfigure(0, weight=1)
     app.grid_columnconfigure(0, weight=1)
+    if settings.performance_logging:
+        analysis_requests = client.request_count - client_calls_before
+        total_requests = direct_http_requests + analysis_requests
+        logger.info(
+            "DepotPositionPieScreen loaded in %.2fs (holdings=%s, requests=%s, direct=%s, analysis=%s)",
+            time.perf_counter() - create_started,
+            len(rows),
+            total_requests,
+            direct_http_requests,
+            analysis_requests,
+        )

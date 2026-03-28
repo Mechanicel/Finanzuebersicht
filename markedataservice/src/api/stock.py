@@ -1,8 +1,10 @@
 import logging
+import time
 from datetime import date, datetime as dt
 from typing import Optional
 
 from flask import Blueprint, jsonify, request
+from finanzuebersicht_shared import get_settings
 
 from src.services.stock_service import (
     InstrumentNotFoundError,
@@ -14,6 +16,7 @@ from src.services.stock_service import (
 stock_bp = Blueprint("stock", __name__)
 service = StockService()
 logger = logging.getLogger(__name__)
+settings = get_settings()
 
 
 def _error_response(status_code: int, message: str, code: str):
@@ -30,6 +33,13 @@ def _handle_service_error(exc: Exception, isin: str, endpoint_name: str):
 
     logger.exception("Interner Fehler in %s für ISIN=%s", endpoint_name, isin)
     return _error_response(500, f"Internal server error: {exc}", "internal_error")
+
+
+def _log_endpoint_timing(endpoint_name: str, started_at: float):
+    if not settings.performance_logging:
+        return
+    duration_ms = (time.perf_counter() - started_at) * 1000
+    logger.info("GET %s took %.0fms", endpoint_name, duration_ms)
 
 
 @stock_bp.route("/stock/<isin>", methods=["GET"])
@@ -60,10 +70,13 @@ def get_stock(isin: str):
 
 @stock_bp.route("/analysis/company/<isin>/snapshot", methods=["GET"])
 def get_company_snapshot(isin: str):
+    started_at = time.perf_counter()
     try:
         return jsonify(service.get_analysis_snapshot(isin))
     except Exception as exc:
         return _handle_service_error(exc, isin, "/analysis/company/<isin>/snapshot")
+    finally:
+        _log_endpoint_timing("/analysis/company/<isin>/snapshot", started_at)
 
 
 @stock_bp.route("/analysis/company/<isin>/financials", methods=["GET"])
@@ -103,27 +116,36 @@ def get_company_fund(isin: str):
 
 @stock_bp.route("/analysis/company/<isin>/full", methods=["GET"])
 def get_company_full(isin: str):
+    started_at = time.perf_counter()
     try:
         return jsonify(service.get_analysis_full(isin))
     except Exception as exc:
         return _handle_service_error(exc, isin, "/analysis/company/<isin>/full")
+    finally:
+        _log_endpoint_timing("/analysis/company/<isin>/full", started_at)
 
 
 @stock_bp.route("/analysis/company/<isin>/metrics", methods=["GET"])
 def get_company_metrics(isin: str):
+    started_at = time.perf_counter()
     try:
         return jsonify(service.get_analysis_metrics(isin))
     except Exception as exc:
         return _handle_service_error(exc, isin, "/analysis/company/<isin>/metrics")
+    finally:
+        _log_endpoint_timing("/analysis/company/<isin>/metrics", started_at)
 
 
 @stock_bp.route("/analysis/company/<isin>/risk", methods=["GET"])
 def get_company_risk(isin: str):
+    started_at = time.perf_counter()
     benchmark = request.args.get("benchmark")
     try:
         return jsonify(service.get_analysis_risk(isin, benchmark_key=benchmark))
     except Exception as exc:
         return _handle_service_error(exc, isin, "/analysis/company/<isin>/risk")
+    finally:
+        _log_endpoint_timing("/analysis/company/<isin>/risk", started_at)
 
 
 @stock_bp.route("/analysis/company/<isin>/benchmark", methods=["GET"])
@@ -137,12 +159,15 @@ def get_company_benchmark(isin: str):
 
 @stock_bp.route("/analysis/company/<isin>/timeseries", methods=["GET"])
 def get_company_timeseries(isin: str):
+    started_at = time.perf_counter()
     series = request.args.get("series", "price,returns,drawdown")
     benchmark = request.args.get("benchmark")
     try:
         return jsonify(service.get_analysis_timeseries(isin, series=series, benchmark_key=benchmark))
     except Exception as exc:
         return _handle_service_error(exc, isin, "/analysis/company/<isin>/timeseries")
+    finally:
+        _log_endpoint_timing("/analysis/company/<isin>/timeseries", started_at)
 
 
 @stock_bp.route("/analysis/benchmark-catalog", methods=["GET"])
@@ -192,6 +217,7 @@ def get_sharpe():
 
 @stock_bp.route("/price/<isin>", methods=["GET"])
 def get_price(isin: str):
+    started_at = time.perf_counter()
     date_str = request.args.get("date")
     target_date: Optional[date] = None
     if date_str:
@@ -205,12 +231,17 @@ def get_price(isin: str):
         return jsonify({"price": price})
     except Exception as exc:
         return _handle_service_error(exc, isin, "/price")
+    finally:
+        _log_endpoint_timing("/price/<isin>", started_at)
 
 
 @stock_bp.route("/company/<isin>", methods=["GET"])
 def get_company(isin: str):
+    started_at = time.perf_counter()
     try:
         name = service.get_company(isin)
         return jsonify({"company_name": name})
     except Exception as exc:
         return _handle_service_error(exc, isin, "/company")
+    finally:
+        _log_endpoint_timing("/company/<isin>", started_at)

@@ -1,4 +1,5 @@
 import logging
+import time
 from tkinter import ttk
 from typing import Any
 
@@ -315,6 +316,10 @@ def _render_financial_block(parent, title: str, payload: dict):
 
 
 def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
+    create_started = time.perf_counter()
+    if settings.performance_logging:
+        logger.info("DepoAnalyse.create_screen started (depot_index=%s)", depot_index)
+
     ui = create_page(
         app,
         "Depot-Analyse",
@@ -694,6 +699,7 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
             _render_tab("returns")
 
     def on_stock_selected(ev):
+        selection_started = time.perf_counter()
         sel_isin = ev.get("isin")
         logger.debug("DepoAnalyse: Instrument ausgewählt ISIN=%s", sel_isin)
         if not sel_isin:
@@ -712,5 +718,9 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
         current["tab"] = "overview"
         _ensure_workspace(workspace_registry, sel_isin)
         _render_tab("overview")
+        if settings.performance_logging:
+            logger.info("DepoAnalyse initial workspace render for %s took %.2fs", sel_isin, time.perf_counter() - selection_started)
 
     create_depot_pie(panel_container, navigator, state, depot_index=depot_index, pick_callback=on_stock_selected, clear_before_render=False)
+    if settings.performance_logging:
+        logger.info("DepoAnalyse.create_screen finished in %.2fs", time.perf_counter() - create_started)
