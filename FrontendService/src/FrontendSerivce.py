@@ -20,7 +20,7 @@ def create_app() -> customtkinter.CTk:
 
 
 def run() -> None:
-    configure_logging(logging.DEBUG)
+    configure_logging()
     logger.info("App-Start: Initialisierung beginnt")
 
     app = create_app()

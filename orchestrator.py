@@ -3,25 +3,17 @@ import subprocess
 import sys
 from pathlib import Path
 
-from finanzuebersicht_shared import ENV_FILE, docker_compose_command, ensure_local_env_file
+from finanzuebersicht_shared import (
+    ENV_FILE,
+    configure_application_logging,
+    docker_compose_command,
+    ensure_local_env_file,
+    get_settings,
+)
 
 LOG_DIR = Path(__file__).resolve().parent / "logs"
 ORCHESTRATOR_LOG = LOG_DIR / "orchestrator.log"
 PROJECT_ROOT = Path(__file__).resolve().parent
-
-
-def configure_logging(level: int = logging.INFO) -> None:
-    LOG_DIR.mkdir(parents=True, exist_ok=True)
-    logging.basicConfig(
-        level=level,
-        format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
-        handlers=[
-            logging.StreamHandler(),
-            logging.FileHandler(ORCHESTRATOR_LOG, encoding="utf-8"),
-        ],
-        force=True,
-    )
-
 
 def _uv_executable() -> str:
     import shutil
@@ -65,7 +57,12 @@ def _ensure_mongodb_started() -> bool:
 
 
 def main() -> int:
-    configure_logging(logging.DEBUG)
+    settings = get_settings()
+    configure_application_logging(
+        log_file=ORCHESTRATOR_LOG,
+        service_name="orchestrator",
+        verbosity=settings.log_verbosity,
+    )
     logger = logging.getLogger(__name__)
     logger.info("Orchestrator-Start: starte FrontendService + markedataservice")
 

@@ -1,35 +1,28 @@
 import logging
-import sys
 from pathlib import Path
+
+from finanzuebersicht_shared import configure_application_logging, get_settings
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 LOG_DIR = PROJECT_ROOT / "logs"
 MARKETDATASERVICE_LOG = LOG_DIR / "markedataservice.log"
+_LOGGING_CONFIGURED = False
 
 
-def setup_logger(name: str | None = None, level: int = logging.DEBUG) -> logging.Logger:
+def setup_logger(name: str | None = None) -> logging.Logger:
     """
     Konfiguriert und liefert einen Logger mit Konsolen- und Datei-Handler.
     """
-    LOG_DIR.mkdir(parents=True, exist_ok=True)
-
-    logger = logging.getLogger(name)
-    logger.setLevel(level)
-    logger.propagate = False
-
-    formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
-
-    logger.handlers.clear()
-
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setFormatter(formatter)
-    logger.addHandler(console_handler)
-
-    file_handler = logging.FileHandler(MARKETDATASERVICE_LOG, encoding="utf-8")
-    file_handler.setFormatter(formatter)
-    logger.addHandler(file_handler)
-
-    return logger
+    global _LOGGING_CONFIGURED
+    if not _LOGGING_CONFIGURED:
+        settings = get_settings()
+        configure_application_logging(
+            log_file=MARKETDATASERVICE_LOG,
+            service_name="markedataservice",
+            verbosity=settings.log_verbosity,
+        )
+        _LOGGING_CONFIGURED = True
+    return logging.getLogger(name)
 
 
 # Globaler Root-Logger
