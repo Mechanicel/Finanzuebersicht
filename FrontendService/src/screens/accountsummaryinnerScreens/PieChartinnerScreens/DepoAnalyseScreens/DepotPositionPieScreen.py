@@ -66,6 +66,7 @@ def _resolve_metadata(client: AnalysisApiClient, isin: str) -> dict:
         "sector": profile.get("sector") or UNKNOWN_GROUP_LABEL,
         "country": profile.get("country") or UNKNOWN_GROUP_LABEL,
         "currency": market.get("currency") or instrument.get("currency") or "EUR",
+        "current_price": market.get("currentPrice"),
         "provider": meta.get("provider"),
         "as_of": meta.get("as_of") or meta.get("asof"),
         "coverage": meta.get("coverage"),
@@ -110,8 +111,17 @@ def create_screen(app, navigator, state: AppState, depot_index, pick_callback: c
                 price_cache[isin] = float(resp_price.json().get("price") or 0.0)
             except Exception as exc:
                 logger.error("Preisabruf fehlgeschlagen für %s: %s", isin, exc)
-                price_cache[isin] = 0.0
-                holdings_warnings.append(f"Preis für {isin} konnte nicht geladen werden (0 angesetzt).")
+                if isin not in metadata_cache:
+                    metadata_cache[isin] = _resolve_metadata(client, isin)
+                fallback_price = (metadata_cache.get(isin) or {}).get("current_price")
+                try:
+                    price_cache[isin] = float(fallback_price)
+                    holdings_warnings.append(
+                        f"Preis für {isin} konnte nicht über /price geladen werden; fallback auf market.currentPrice."
+                    )
+                except (TypeError, ValueError):
+                    price_cache[isin] = 0.0
+                    holdings_warnings.append(f"Preis für {isin} konnte nicht geladen werden (0 angesetzt).")
 
         if isin not in company_cache:
             try:
@@ -230,11 +240,14 @@ def create_screen(app, navigator, state: AppState, depot_index, pick_callback: c
         rows_values = [(holdings_tree.set(iid, column), iid) for iid in holdings_tree.get_children("")]
 
         def _coerce(value: str):
-            cleaned = str(value).replace("EUR", "").replace("%", "").replace(" ", "").strip()
+            raw = str(value).strip()
+            cleaned = raw.replace("%", "").replace(" ", "")
+            for code in ("EUR", "USD", "CHF", "GBP", "JPY", "CAD", "AUD"):
+                cleaned = cleaned.replace(code, "")
             try:
-                return float(cleaned)
+                return (0, float(cleaned))
             except ValueError:
-                return str(value).lower()
+                return (1, raw.lower())
 
         rows_values.sort(key=lambda item: _coerce(item[0]), reverse=reverse)
         for idx, (_, iid) in enumerate(rows_values):
