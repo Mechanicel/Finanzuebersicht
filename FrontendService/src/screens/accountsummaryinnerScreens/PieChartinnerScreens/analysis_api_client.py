@@ -15,6 +15,7 @@ class AnalysisApiClient:
     def __init__(self, base_url: str):
         self.base_url = (base_url or "").rstrip("/")
         self._cache: dict[tuple[str, tuple[tuple[str, Any], ...]], tuple[dict[str, Any] | None, str | None]] = {}
+        self._session = requests.Session()
         self.request_count = 0
 
     def _cache_key(self, path: str, params: dict[str, Any] | None = None) -> tuple[str, tuple[tuple[str, Any], ...]]:
@@ -26,7 +27,7 @@ class AnalysisApiClient:
         start = time.perf_counter()
         self.request_count += 1
         try:
-            response = requests.get(url, params=params, timeout=10)
+            response = self._session.get(url, params=params, timeout=10)
             response.raise_for_status()
             payload = response.json()
             if settings.performance_logging:
@@ -146,6 +147,9 @@ class AnalysisApiClient:
                     merged[section].update(right)
 
         return merged, warnings
+
+    def load_company_name(self, isin: str):
+        return self._cached_get(f"/company/{isin}")
 
     def load_analysts(self, isin: str):
         return self._cached_get(f"/analysis/company/{isin}/analysts")
