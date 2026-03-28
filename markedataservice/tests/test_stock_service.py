@@ -37,6 +37,9 @@ class FakeProvider:
         self.fund_calls = 0
         self.analyst_calls = 0
         self.benchmark_calls = []
+        self.timeseries_calls = []
+        self.search_calls = []
+        self.provider_name = "fake"
 
     def resolve_symbol(self, isin: str) -> str:
         self.resolve_calls.append(isin)
@@ -57,6 +60,10 @@ class FakeProvider:
             {"date": "2026-03-24", "close": 51.0},
         ]
 
+    def fetch_timeseries(self, isin: str, symbol: str | None = None, start_date: str | None = None):
+        self.timeseries_calls.append((isin, symbol, start_date))
+        return {"price_history": self.fetch_price_history(isin, symbol=symbol), "metrics_history": []}
+
     def fetch_fund(self, isin: str, symbol: str | None = None):
         self.fund_calls += 1
         raise RuntimeError("No Fund data found")
@@ -65,12 +72,16 @@ class FakeProvider:
         self.analyst_calls += 1
         raise RuntimeError("404 Not Found")
 
-    def fetch_benchmark_timeseries(self, symbol: str):
-        self.benchmark_calls.append(symbol)
+    def fetch_benchmark_timeseries(self, symbol: str, start_date: str | None = None):
+        self.benchmark_calls.append((symbol, start_date))
         return [
             {"date": "2026-03-26", "close": 100.0},
             {"date": "2026-03-27", "close": 101.0},
         ]
+
+    def search_quotes(self, query: str, max_results: int = 10):
+        self.search_calls.append((query, max_results))
+        return [{"symbol": "MSFT", "name": "Microsoft Corp"}]
 
 
 def _build_service(repo: FakeMongoRepo, provider: FakeProvider) -> StockService:
@@ -79,6 +90,7 @@ def _build_service(repo: FakeMongoRepo, provider: FakeProvider) -> StockService:
     service.performance_logging = False
     service.mongo_repo = repo
     service.provider = provider
+    service.analysis = None
     return service
 
 
@@ -116,6 +128,7 @@ def test_get_price_uses_cached_history_without_refetch():
 
     assert price == 10.0
     assert provider.price_history_calls == []
+    assert provider.timeseries_calls == []
 
 
 def test_get_price_for_non_trading_day_falls_back_to_previous_price():
@@ -145,8 +158,8 @@ def test_symbol_resolution_used_instead_of_raw_isin():
 
     service.get_price("DE000BASF111", None)
 
-    assert provider.price_history_calls[0][0] == "DE000BASF111"
-    assert provider.price_history_calls[0][1] == "BAS.DE"
+    assert provider.timeseries_calls[0][0] == "DE000BASF111"
+    assert provider.timeseries_calls[0][1] == "BAS.DE"
 
 
 def test_get_price_does_not_load_optional_fund_or_analyst_blocks():
@@ -170,7 +183,7 @@ def test_benchmark_timeseries_is_cached_after_first_load():
 
     assert first["price_history"]
     assert second["price_history"] == first["price_history"]
-    assert provider.benchmark_calls == ["^GSPC"]
+    assert provider.benchmark_calls == [("^GSPC", None)]
 
 
 def test_stale_benchmark_cache_gets_refreshed():
@@ -187,8 +200,45 @@ def test_stale_benchmark_cache_gets_refreshed():
 
     payload = service._get_symbol_timeseries_cached("^GSPC")
 
-    assert provider.benchmark_calls == ["^GSPC"]
+    assert provider.benchmark_calls == [("^GSPC", (datetime.date.today() - datetime.timedelta(days=17)).isoformat())]
     assert payload["as_of"] >= stale_date
+
+
+def test_stale_company_timeseries_gets_incremental_refresh_and_persisted():
+    stale_day = datetime.date.today() - datetime.timedelta(days=12)
+    repo = FakeMongoRepo(
+        {
+            "DE000BASF111": {
+                "isin": "DE000BASF111",
+                "instrument": {"symbol": "BAS.DE", "long_name": "BASF SE", "quote_type": "EQUITY"},
+                "timeseries": {"price_history": [{"date": stale_day.isoformat(), "close": 40.0}]},
+                "price_history": [{"date": stale_day.isoformat(), "close": 40.0}],
+                "meta": {"timeseries": {"as_of": stale_day.isoformat(), "source": "fake"}},
+            }
+        }
+    )
+    provider = FakeProvider()
+    service = _build_service(repo, provider)
+
+    model = service._get_or_build_model("DE000BASF111", include_prices=True)
+
+    assert model.price_history
+    assert provider.timeseries_calls[0][2] == (stale_day - datetime.timedelta(days=7)).isoformat()
+    assert repo.writes == 1
+    assert repo.data["DE000BASF111"]["meta"]["timeseries"]["source"] == "fake"
+
+
+def test_comparison_timeseries_uses_symbol_cache_after_first_load():
+    repo = FakeMongoRepo()
+    provider = FakeProvider()
+    service = _build_service(repo, provider)
+
+    first = service.get_analysis_comparison_timeseries("DE000BASF111", "MSFT")
+    second = service.get_analysis_comparison_timeseries("DE000BASF111", "MSFT")
+
+    assert first["comparisons"][0]["series"]
+    assert second["comparisons"][0]["series"] == first["comparisons"][0]["series"]
+    assert provider.benchmark_calls == [("MSFT", None)]
 
 
 def test_optional_analyst_block_failure_is_non_fatal():
