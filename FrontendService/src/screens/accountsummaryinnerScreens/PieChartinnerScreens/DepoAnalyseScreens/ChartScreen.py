@@ -4,12 +4,17 @@ from typing import Any
 
 import customtkinter as ctk
 import matplotlib.dates as mdates
+from matplotlib.axes import Axes
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 
 from finanzuebersicht_shared import get_settings
 from src.helpers.UniversalMethoden import clear_ui
 from src.screens.accountsummaryinnerScreens.PieChartinnerScreens.analysis_api_client import AnalysisApiClient
+from src.screens.accountsummaryinnerScreens.PieChartinnerScreens.DepoAnalyseScreens.chart_interactions import (
+    enable_timeseries_hover,
+    open_chart_popout,
+)
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -66,6 +71,73 @@ def _extract_timeseries_api_series(payload: dict[str, Any]) -> dict[str, list[tu
         "drawdown": _parse_points(series.get("drawdown"), "value", "value"),
         "benchmark_relative": _parse_points(series.get("benchmark_relative"), "relative_spread", "relative_spread"),
     }
+
+
+def _build_timeseries_figure(
+    visible_series: dict[str, list[tuple[datetime, float]]],
+    visible_keys: list[str],
+    comparison_series: list[tuple[str, list[tuple[datetime, float]]]],
+    figsize: tuple[float, float],
+    linewidth: float = 1.7,
+) -> tuple[Figure, list[Axes]]:
+    lower_series = [k for k in visible_keys if k in {"returns", "drawdown", "benchmark_relative"}]
+    fig = Figure(figsize=figsize, dpi=100)
+
+    if lower_series:
+        ax_price = fig.add_subplot(211)
+        ax_metric = fig.add_subplot(212, sharex=ax_price)
+        axes: list[Axes] = [ax_price, ax_metric]
+    else:
+        ax_price = fig.add_subplot(111)
+        ax_metric = None
+        axes = [ax_price]
+
+    for key in ("price", "benchmark_price"):
+        points = visible_series.get(key) or []
+        if points:
+            ax_price.plot(
+                [p[0] for p in points],
+                [p[1] for p in points],
+                label=SERIES_LABELS.get(key, key),
+                linewidth=linewidth,
+            )
+    for label, points in comparison_series:
+        ax_price.plot(
+            [p[0] for p in points],
+            [p[1] for p in points],
+            label=label,
+            alpha=0.88,
+            linewidth=max(1.4, linewidth - 0.1),
+        )
+
+    ax_price.grid(alpha=0.3)
+    ax_price.set_ylabel("Preis")
+    ax_price.xaxis.set_major_locator(mdates.AutoDateLocator())
+    ax_price.xaxis.set_major_formatter(mdates.ConciseDateFormatter(ax_price.xaxis.get_major_locator()))
+    if any(visible_series.get(k) for k in ("price", "benchmark_price")) or comparison_series:
+        ax_price.legend(loc="best")
+
+    if ax_metric is not None:
+        for key in lower_series:
+            points = visible_series.get(key) or []
+            if points:
+                ax_metric.plot(
+                    [p[0] for p in points],
+                    [p[1] for p in points],
+                    label=SERIES_LABELS.get(key, key),
+                    linewidth=linewidth,
+                )
+        ax_metric.grid(alpha=0.3)
+        ax_metric.set_xlabel("Datum")
+        ax_metric.set_ylabel("Wert")
+        ax_metric.xaxis.set_major_locator(mdates.AutoDateLocator())
+        ax_metric.xaxis.set_major_formatter(mdates.ConciseDateFormatter(ax_metric.xaxis.get_major_locator()))
+        ax_metric.legend(loc="best")
+    else:
+        ax_price.set_xlabel("Datum")
+
+    fig.tight_layout()
+    return fig, axes
 
 
 def create_screen(
@@ -126,48 +198,41 @@ def create_screen(
             ctk.CTkLabel(frame, text="Hinweise: " + " | ".join(effective_warnings), text_color="#ffb347").pack(anchor="w")
         return
 
-    lower_series = [k for k in visible_keys if k in {"returns", "drawdown", "benchmark_relative"}]
-    fig = Figure(figsize=(7, 4.3 if lower_series else 3), dpi=100)
+    actions_frame = ctk.CTkFrame(frame, fg_color="transparent")
+    actions_frame.pack(fill="x", padx=2, pady=(0, 4))
 
-    if lower_series:
-        ax_price = fig.add_subplot(211)
-        ax_metric = fig.add_subplot(212, sharex=ax_price)
-    else:
-        ax_price = fig.add_subplot(111)
-        ax_metric = None
+    def _build_normal_figure() -> tuple[Figure, list[Axes]]:
+        lower = any(key in {"returns", "drawdown", "benchmark_relative"} for key in visible_keys)
+        return _build_timeseries_figure(
+            visible_series=visible_series,
+            visible_keys=visible_keys,
+            comparison_series=comparison_series,
+            figsize=(7, 4.3 if lower else 3),
+        )
 
-    for key in ("price", "benchmark_price"):
-        points = visible_series.get(key) or []
-        if points:
-            ax_price.plot([p[0] for p in points], [p[1] for p in points], label=SERIES_LABELS.get(key, key))
-    for label, points in comparison_series:
-        ax_price.plot([p[0] for p in points], [p[1] for p in points], label=label, alpha=0.85, linewidth=1.6)
+    def _open_popout():
+        popout, popout_canvas, popout_axes = open_chart_popout(
+            parent=frame,
+            title=f"Chart-Detailansicht: {isin}",
+            build_figure=lambda: _build_timeseries_figure(
+                visible_series=visible_series,
+                visible_keys=visible_keys,
+                comparison_series=comparison_series,
+                figsize=(13.5, 8.2),
+                linewidth=2.05,
+            ),
+            size="1500x920",
+        )
+        enable_timeseries_hover(popout_canvas, popout_axes)
+        popout.focus_force()
 
-    ax_price.grid(alpha=0.3)
-    ax_price.set_ylabel("Preis")
-    ax_price.xaxis.set_major_locator(mdates.AutoDateLocator())
-    ax_price.xaxis.set_major_formatter(mdates.ConciseDateFormatter(ax_price.xaxis.get_major_locator()))
-    if any(visible_series.get(k) for k in ("price", "benchmark_price")) or comparison_series:
-        ax_price.legend(loc="best")
+    ctk.CTkButton(actions_frame, text="🔍 Vollbild öffnen", width=170, command=_open_popout).pack(side="right", padx=(4, 0))
 
-    if ax_metric is not None:
-        for key in lower_series:
-            points = visible_series.get(key) or []
-            if points:
-                ax_metric.plot([p[0] for p in points], [p[1] for p in points], label=SERIES_LABELS.get(key, key))
-        ax_metric.grid(alpha=0.3)
-        ax_metric.set_xlabel("Datum")
-        ax_metric.set_ylabel("Wert")
-        ax_metric.xaxis.set_major_locator(mdates.AutoDateLocator())
-        ax_metric.xaxis.set_major_formatter(mdates.ConciseDateFormatter(ax_metric.xaxis.get_major_locator()))
-        ax_metric.legend(loc="best")
-    else:
-        ax_price.set_xlabel("Datum")
-
-    fig.tight_layout()
+    fig, axes = _build_normal_figure()
     canvas = FigureCanvasTkAgg(fig, master=frame)
     canvas.draw()
     canvas.get_tk_widget().pack(fill="both", expand=True)
+    enable_timeseries_hover(canvas, axes)
 
     if effective_warnings:
         ctk.CTkLabel(frame, text="Hinweise: " + " | ".join(effective_warnings), text_color="#ffb347").pack(anchor="w", pady=(8, 0))

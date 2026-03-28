@@ -3,6 +3,7 @@ import time
 from tkinter import ttk
 
 import customtkinter as ctk
+from matplotlib.axes import Axes
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 
@@ -18,6 +19,10 @@ from src.screens.accountsummaryinnerScreens.PieChartinnerScreens.depot_holdings_
     summarize_groups,
     to_float,
     with_weight_percent,
+)
+from src.screens.accountsummaryinnerScreens.PieChartinnerScreens.DepoAnalyseScreens.chart_interactions import (
+    enable_pie_hover,
+    open_chart_popout,
 )
 from src.ui.background_loader import run_in_background
 
@@ -238,6 +243,8 @@ def create_screen(
     chart_figure = Figure(figsize=(5, 4.2), dpi=100)
     chart_ax = chart_figure.add_subplot(111)
     chart_canvas = FigureCanvasTkAgg(chart_figure, master=chart_frame)
+    chart_actions = ctk.CTkFrame(chart_frame, fg_color="transparent")
+    chart_actions.pack(fill="x", padx=4, pady=(4, 0))
     chart_canvas.get_tk_widget().pack(fill="both", expand=True, padx=4, pady=4)
 
     tree_style = ttk.Style()
@@ -329,6 +336,25 @@ def create_screen(
 
     holdings_iid_to_isin: dict[str, str] = {}
 
+    def _build_pie_figure(
+        summary_rows: list[dict],
+        group_by: str,
+        figsize: tuple[float, float] = (5, 4.2),
+    ) -> tuple[Figure, Axes, list, list[str], list[float]]:
+        figure = Figure(figsize=figsize, dpi=100)
+        axis = figure.add_subplot(111)
+        axis.set_title(f"Depot-Aufteilung nach {group_by.title()}")
+        if not summary_rows or not any(r.get("value", 0.0) for r in summary_rows):
+            axis.text(0.5, 0.5, "Keine Positionen", ha="center", va="center")
+            axis.axis("equal")
+            return figure, axis, [], [], []
+
+        labels_local = [str(item.get("group")) for item in summary_rows]
+        values_local = [float(item.get("value") or 0.0) for item in summary_rows]
+        wedges, *_ = axis.pie(values_local, labels=labels_local, autopct="%1.1f%%", startangle=90)
+        axis.axis("equal")
+        return figure, axis, wedges, labels_local, values_local
+
     def _render_grouped_view():
         group_by = stateful["group_by"]
         summary_rows = summarize_groups(rows_state["rows"], group_by)
@@ -375,7 +401,40 @@ def create_screen(
         chart_canvas._dep_pick_id = chart_canvas.mpl_connect("pick_event", _on_pick)
         for wedge in wedges:
             wedge.set_picker(True)
+        for hover_id in getattr(chart_canvas, "_dep_hover_ids", []):
+            chart_canvas.mpl_disconnect(hover_id)
+        chart_canvas._dep_hover_ids = enable_pie_hover(chart_canvas, chart_ax, wedges, labels_local, values_local)
         chart_canvas.draw()
+
+    def _open_pie_popout():
+        summary_rows = stateful.get("summary_rows") or []
+        group_by = stateful["group_by"]
+
+        def _build_popout_figure():
+            fig, ax, _wedges, _labels, _values = _build_pie_figure(summary_rows, group_by, figsize=(10.5, 8.2))
+            return fig, [ax]
+
+        popout, popout_canvas, _ = open_chart_popout(
+            parent=root,
+            title=f"Depot-Aufteilung ({group_by.title()})",
+            build_figure=_build_popout_figure,
+            size="1400x900",
+        )
+        popout.focus_force()
+
+        fig = popout_canvas.figure
+        if not fig.axes:
+            return
+        ax = fig.axes[0]
+        wedges = [patch for patch in ax.patches if hasattr(patch, "theta1") and hasattr(patch, "theta2")]
+        labels_local = [str(item.get("group")) for item in summary_rows]
+        values_local = [float(item.get("value") or 0.0) for item in summary_rows]
+        if wedges and labels_local and values_local:
+            for wedge in wedges:
+                wedge.set_picker(True)
+            enable_pie_hover(popout_canvas, ax, wedges, labels_local, values_local)
+
+    ctk.CTkButton(chart_actions, text="🔍 Vollbild öffnen", width=160, command=_open_pie_popout).pack(side="right", padx=(0, 2))
 
     def _on_group_change(label: str):
         stateful["group_by"] = GROUP_LABEL_TO_KEY.get(label, "position")
