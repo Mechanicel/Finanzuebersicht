@@ -458,7 +458,8 @@ class StockService(BaseService):
             model.meta["last_timeseries_refresh"] = ts_meta.get("last_refresh_at") or model.meta.get("last_timeseries_refresh")
             return
 
-        fetched = self._provider_call("fetch_timeseries", isin, symbol, cache=provider_cache) or {}
+        fetch_start_date = self._timeseries_refresh_start_date(existing_price_history, ts_meta)
+        fetched = self._provider_call("fetch_timeseries", isin, symbol, cache=provider_cache, start_date=fetch_start_date) or {}
         fetched_price_history = list((fetched or {}).get("price_history") or [])
         fetched_metrics_history = list((fetched or {}).get("metrics_history") or [])
 
@@ -496,7 +497,8 @@ class StockService(BaseService):
         if self._is_timeseries_fresh(cached_history, cached):
             return cached
 
-        fresh_history = self.provider.fetch_benchmark_timeseries(normalized_symbol)
+        refresh_start = self._timeseries_refresh_start_date(cached_history, cached)
+        fresh_history = self.provider.fetch_benchmark_timeseries(normalized_symbol, start_date=refresh_start)
         merged_history = self._merge_series_by_date(cached_history, list(fresh_history or []))
         now_iso = datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat()
         payload = {
@@ -578,9 +580,19 @@ class StockService(BaseService):
                 logger.info("Provider call %s for %s took %.0fms", method, isin, duration_ms)
             return result
         if method == "fetch_timeseries":
+            price_history_fn = getattr(self.provider, "fetch_price_history")
+            metrics_history_fn = getattr(self.provider, "fetch_metrics_history", None)
+            try:
+                price_history = price_history_fn(isin, symbol=symbol, **kwargs)
+            except TypeError:
+                price_history = price_history_fn(isin, symbol=symbol)
+            try:
+                metrics_history = metrics_history_fn(isin, symbol=symbol, **kwargs) if callable(metrics_history_fn) else []
+            except TypeError:
+                metrics_history = metrics_history_fn(isin, symbol=symbol) if callable(metrics_history_fn) else []
             result = {
-                "price_history": self.provider.fetch_price_history(isin, symbol=symbol),
-                "metrics_history": self.provider.fetch_metrics_history(isin, symbol=symbol) if hasattr(self.provider, "fetch_metrics_history") else [],
+                "price_history": price_history,
+                "metrics_history": metrics_history,
             }
             if cache is not None:
                 cache[key] = result
@@ -704,10 +716,35 @@ class StockService(BaseService):
         return latest.isoformat() if latest else None
 
     @staticmethod
+    def _timeseries_refresh_start_date(history: list[dict[str, Any]], metadata: dict[str, Any] | None = None) -> str | None:
+        latest_raw = (metadata or {}).get("as_of")
+        latest_date: datetime.date | None = None
+        if isinstance(latest_raw, str):
+            try:
+                latest_date = datetime.date.fromisoformat(latest_raw)
+            except ValueError:
+                latest_date = None
+        if latest_date is None:
+            latest_str = StockService._latest_history_date(history)
+            if latest_str:
+                latest_date = datetime.date.fromisoformat(latest_str)
+        if latest_date is None:
+            return None
+        # Überlappung von 7 Tagen, um Handelskalender-/Korrektur-Effekte robust zu mergen.
+        return (latest_date - datetime.timedelta(days=7)).isoformat()
+
+    @staticmethod
     def _current_reference_date(today: datetime.date | None = None) -> datetime.date:
         ref = today or datetime.datetime.now(datetime.timezone.utc).date()
-        while ref.weekday() >= 5:
+        if ref.weekday() == 6:  # Sonntag
+            ref = ref - datetime.timedelta(days=2)
+        elif ref.weekday() == 5:  # Samstag
             ref = ref - datetime.timedelta(days=1)
+        elif datetime.datetime.now(datetime.timezone.utc).hour < 20:
+            # Vor US-Handelsschluss reicht in der Regel der letzte Handelstag.
+            ref = ref - datetime.timedelta(days=1)
+            while ref.weekday() >= 5:
+                ref = ref - datetime.timedelta(days=1)
         return ref
 
     def _is_timeseries_fresh(self, history: list[dict[str, Any]], metadata: dict[str, Any] | None = None) -> bool:

@@ -92,9 +92,12 @@ class YahooMarketClient:
             "currency": info.get("currency"),
         }
 
-    def fetch_timeseries(self, ticker: Any) -> Dict[str, Any]:
+    def fetch_timeseries(self, ticker: Any, start_date: str | None = None) -> Dict[str, Any]:
         monthly = ticker.history(period="24mo", interval="1mo", actions=True)
-        daily = ticker.history(period="10y", interval="1d", auto_adjust=False, actions=False)
+        if start_date:
+            daily = ticker.history(start=start_date, interval="1d", auto_adjust=False, actions=False)
+        else:
+            daily = ticker.history(period="10y", interval="1d", auto_adjust=False, actions=False)
 
         metrics_history: List[Dict[str, Any]] = []
         for dt, row in monthly.iterrows():
@@ -120,9 +123,12 @@ class YahooMarketClient:
 
         return {"metrics_history": metrics_history, "price_history": price_history}
 
-    def fetch_benchmark_price_history(self, symbol: str) -> List[Dict[str, Any]]:
+    def fetch_benchmark_price_history(self, symbol: str, start_date: str | None = None) -> List[Dict[str, Any]]:
         ticker = yf.Ticker(symbol)
-        daily = ticker.history(period="10y", interval="1d", auto_adjust=False, actions=False)
+        if start_date:
+            daily = ticker.history(start=start_date, interval="1d", auto_adjust=False, actions=False)
+        else:
+            daily = ticker.history(period="10y", interval="1d", auto_adjust=False, actions=False)
         price_history: List[Dict[str, Any]] = []
         for dt, row in daily.iterrows():
             close = row.get("Close")
@@ -454,12 +460,12 @@ class YFinanceProvider(BaseProvider):
             logger.info("[YFinance] optionale Funddaten für %s (%s) nicht verfügbar", isin, symbol, exc_info=True)
             return {}
 
-    def fetch_timeseries(self, isin: str, symbol: str | None = None) -> Dict[str, Any]:
+    def fetch_timeseries(self, isin: str, symbol: str | None = None, start_date: str | None = None) -> Dict[str, Any]:
         ticker, _, _ = self._ticker_for_isin(isin, symbol)
-        return self.market_client.fetch_timeseries(ticker)
+        return self.market_client.fetch_timeseries(ticker, start_date=start_date)
 
-    def fetch_benchmark_timeseries(self, symbol: str) -> List[Dict[str, Any]]:
-        return self.market_client.fetch_benchmark_price_history(symbol)
+    def fetch_benchmark_timeseries(self, symbol: str, start_date: str | None = None) -> List[Dict[str, Any]]:
+        return self.market_client.fetch_benchmark_price_history(symbol, start_date=start_date)
 
     def fetch_etf_data(self, isin: str, etf_key: str) -> List[Dict[str, Any]]:
         market = self.fetch_market(isin)
