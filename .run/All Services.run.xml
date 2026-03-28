@@ -1,0 +1,7 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="All Services" type="CompoundRunConfigurationType" factoryName="Compound">
+    <toRun type="ShConfigurationType" name="FrontendService" />
+    <toRun type="ShConfigurationType" name="markedataservice" />
+    <method v="2" />
+  </configuration>
+</component>

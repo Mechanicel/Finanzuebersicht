@@ -84,3 +84,12 @@ Minimaler Persistenztest für Markt-Cache-Collection:
 ```bash
 uv run --project markedataservice python tests/smoke_marketdata_mongo.py
 ```
+
+## PyCharm Run-Konfigurationen (versioniert)
+Im Repo sind projektweite Run-Konfigurationen unter `.run/` abgelegt.
+Sie erscheinen in PyCharm als teilbare Konfigurationen und können im **Services**-Tab ausgeführt werden.
+
+- `FrontendService`: `uv run --project FrontendService frontendservice`
+- `markedataservice`: `uv run --project markedataservice markedataservice`
+- `Orchestrator`: `uv run python orchestrator.py`
+- `All Services`: Compound-Start von `FrontendService` + `markedataservice` (ohne `Orchestrator`, damit keine Doppelstarts entstehen)
