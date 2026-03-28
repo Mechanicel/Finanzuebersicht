@@ -76,7 +76,17 @@ class AnalysisApiClient:
         return self._cached_get(f"/analysis/company/{isin}/financials", params={"period": period})
 
     def load_benchmark_catalog(self):
-        return self._cached_get("/analysis/benchmarks")
+        candidates = ["/analysis/benchmark-catalog", "/analysis/benchmarks"]
+        errors: list[str] = []
+        for path in candidates:
+            payload, warning = self._cached_get(path)
+            if payload and not warning:
+                return payload, None
+            if warning:
+                errors.append(warning)
+        if errors:
+            return None, " | ".join(errors)
+        return None, "Benchmark-Katalog derzeit nicht verfügbar"
 
     def load_company_analysis(self, isin: str) -> tuple[dict[str, Any], list[str]]:
         """Lädt Snapshot + Full und merged die wichtigsten Blöcke robust zusammen."""
