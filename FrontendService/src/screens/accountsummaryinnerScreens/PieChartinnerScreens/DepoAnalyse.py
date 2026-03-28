@@ -19,6 +19,7 @@ from src.screens.accountsummaryinnerScreens.PieChartinnerScreens.DepoAnalyseScre
     create_screen as create_table_screen,
 )
 from src.screens.accountsummaryinnerScreens.PieChartinnerScreens.analysis_api_client import AnalysisApiClient
+from src.screens.accountsummaryinnerScreens.PieChartinnerScreens.ui_helpers import attach_tooltip, info_label
 from src.ui.components import create_page, empty_state, section_card
 from src.ui.background_loader import run_in_background
 
@@ -36,6 +37,17 @@ TAB_LABELS = {
 }
 
 SERIES_OPTIONS = ["price", "returns", "drawdown", "benchmark_relative", "benchmark_price"]
+
+TOOLTIP_TEXTS = {
+    "benchmark": "Vergleichsindex oder ETF-Proxy als Referenzmaßstab.",
+    "benchmark_relative": "Relative Entwicklung der Aktie gegenüber dem gewählten Benchmark.",
+    "benchmark_price": "Kursverlauf des Benchmark-Instruments.",
+    "drawdown": "Prozentualer Rückgang vom jeweils vorherigen Hochpunkt.",
+    "returns": "Kumulierte Rendite aus der Kursentwicklung über den Zeitraum.",
+    "beta": "Sensitivität zum Benchmark (1.0 = bewegt sich ähnlich).",
+    "sharpe": "Rendite im Verhältnis zum eingegangenen Risiko (höher ist besser).",
+    "volatility": "Schwankungsbreite der Renditen auf Jahresbasis.",
+}
 
 
 def _to_float(value):
@@ -204,6 +216,7 @@ def _ensure_workspace(registry: dict, isin: str):
             "warnings": {},
             "benchmark": None,
             "benchmark_options": None,
+            "benchmark_groups": None,
             "selected_series": list(SERIES_OPTIONS),
             "comparison_symbols": [],
             "comparison_search_results": [],
@@ -230,27 +243,33 @@ def _load_benchmark_catalog(client: AnalysisApiClient, workspace: dict):
     if workspace.get("benchmark_options") is not None:
         return
     payload, warning = client.load_benchmark_catalog()
-    items = payload.get("benchmarks") if isinstance(payload, dict) else None
+    catalog = payload.get("benchmarks") if isinstance(payload, dict) else None
+    items = catalog.get("items") if isinstance(catalog, dict) and isinstance(catalog.get("items"), dict) else {}
+    groups_payload = catalog.get("groups") if isinstance(catalog, dict) and isinstance(catalog.get("groups"), dict) else {}
+
     options: list[tuple[str, str | None]] = [("Kein Benchmark", None)]
-    if isinstance(items, dict):
-        for key, item in items.items():
+    for key, item in items.items():
+        label = item.get("name") if isinstance(item, dict) else key
+        options.append((str(label or key), str(key)))
+
+    grouped_options: dict[str, list[tuple[str, str | None]]] = {"Alle": options[1:]}
+    for segment, entries in groups_payload.items():
+        if not isinstance(entries, list):
+            continue
+        segment_options = []
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            key = entry.get("key")
             if not key:
                 continue
-            if isinstance(item, dict):
-                label = item.get("name") or key
-            else:
-                label = key
-            options.append((str(label), str(key)))
-    elif isinstance(items, list):
-        for item in items:
-            if isinstance(item, dict):
-                value = item.get("id") or item.get("symbol") or item.get("code")
-                label = item.get("name") or value
-                if value:
-                    options.append((str(label), str(value)))
-            elif item:
-                options.append((str(item), str(item)))
+            segment_options.append((str(entry.get("name") or key), str(key)))
+        if segment_options:
+            grouped_options[str(segment)] = segment_options
+
     workspace["benchmark_options"] = options
+    workspace["benchmark_groups"] = grouped_options
+    workspace.setdefault("benchmark_active_group", "Alle")
     default_key = payload.get("default") if isinstance(payload, dict) else None
     if workspace.get("benchmark") is None and default_key:
         workspace["benchmark"] = str(default_key)
@@ -460,24 +479,38 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
                 return
             ws["benchmark_catalog_loading"] = False
             payload, warning = result
-            items = payload.get("benchmarks") if isinstance(payload, dict) else None
+            catalog = payload.get("benchmarks") if isinstance(payload, dict) else None
+            items = {}
+            groups_payload = {}
+            if isinstance(catalog, dict):
+                items = catalog.get("items") if isinstance(catalog.get("items"), dict) else {}
+                groups_payload = catalog.get("groups") if isinstance(catalog.get("groups"), dict) else {}
             options: list[tuple[str, str | None]] = [("Kein Benchmark", None)]
-            if isinstance(items, dict):
-                for key, item in items.items():
+            for key, item in items.items():
+                if not key:
+                    continue
+                label = item.get("name") if isinstance(item, dict) else key
+                options.append((str(label or key), str(key)))
+
+            grouped_options: dict[str, list[tuple[str, str | None]]] = {"Alle": options[1:]}
+            for segment, entries in groups_payload.items():
+                segment_options: list[tuple[str, str | None]] = []
+                if not isinstance(entries, list):
+                    continue
+                for entry in entries:
+                    if not isinstance(entry, dict):
+                        continue
+                    key = entry.get("key")
                     if not key:
                         continue
-                    label = item.get("name") if isinstance(item, dict) else key
-                    options.append((str(label or key), str(key)))
-            elif isinstance(items, list):
-                for item in items:
-                    if isinstance(item, dict):
-                        value = item.get("id") or item.get("symbol") or item.get("code")
-                        label = item.get("name") or value
-                        if value:
-                            options.append((str(label), str(value)))
-                    elif item:
-                        options.append((str(item), str(item)))
+                    label = entry.get("name") or key
+                    segment_options.append((str(label), str(key)))
+                if segment_options:
+                    grouped_options[str(segment)] = segment_options
+
             ws["benchmark_options"] = options
+            ws["benchmark_groups"] = grouped_options
+            ws.setdefault("benchmark_active_group", "Alle")
             default_key = payload.get("default") if isinstance(payload, dict) else None
             if ws.get("benchmark") is None and default_key:
                 ws["benchmark"] = str(default_key)
@@ -543,30 +576,44 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
 
         controls, controls_body = section_card(frame, "Steuerung", "Serienauswahl und Benchmark")
         controls.pack(fill="x", pady=(0, 8))
-        ctk.CTkLabel(controls_body, text="Benchmark:").pack(side="left", padx=(0, 8))
-        benchmark_menu = ctk.CTkOptionMenu(controls_body, values=["Kein Benchmark"], command=lambda _: None)
+
+        benchmark_row = ctk.CTkFrame(controls_body, fg_color="transparent")
+        benchmark_row.pack(fill="x", pady=(0, 6))
+        info_label(benchmark_row, "Benchmark", TOOLTIP_TEXTS["benchmark"]).pack(side="left", padx=(0, 8))
+        ctk.CTkLabel(benchmark_row, text="Segment:").pack(side="left", padx=(0, 6))
+        benchmark_group_menu = ctk.CTkOptionMenu(benchmark_row, values=["Alle"], width=170, command=lambda _: _on_benchmark_group_change())
+        benchmark_group_menu.pack(side="left", padx=(0, 8))
+        benchmark_menu = ctk.CTkOptionMenu(benchmark_row, values=["Kein Benchmark"], width=340, command=lambda _: None)
         benchmark_menu.pack(side="left", padx=(0, 14))
-        ctk.CTkLabel(controls_body, text="Serien:").pack(side="left", padx=(0, 6))
-        selector = create_column_selector_screen(controls_body, SERIES_OPTIONS, callback=lambda cols: _set_series(cols))
 
-        search_card = ctk.CTkFrame(frame)
-        search_card.pack(fill="x", pady=(0, 8))
-        ctk.CTkLabel(search_card, text="Freie Vergleiche (Kurschart):").pack(anchor="w", padx=10, pady=(8, 4))
-        search_row = ctk.CTkFrame(search_card, fg_color="transparent")
-        search_row.pack(fill="x", padx=10, pady=(0, 6))
-        query_var = ctk.StringVar(value="")
-        search_entry = ctk.CTkEntry(search_row, textvariable=query_var, placeholder_text="z. B. Apple, MSFT, SPY")
-        search_entry.pack(side="left", fill="x", expand=True, padx=(0, 8))
-        ctk.CTkButton(search_row, text="Suchen", width=90, command=lambda: _run_returns_search()).pack(side="left")
-        search_entry.bind("<Return>", lambda *_: _run_returns_search())
-
-        results_frame = ctk.CTkFrame(search_card, fg_color="transparent")
-        results_frame.pack(fill="x", padx=10, pady=(0, 4))
-        selected_frame = ctk.CTkFrame(search_card, fg_color="transparent")
-        selected_frame.pack(fill="x", padx=10, pady=(4, 8))
+        series_row = ctk.CTkFrame(controls_body, fg_color="transparent")
+        series_row.pack(fill="x")
+        ctk.CTkLabel(series_row, text="Serien:").pack(side="left", padx=(0, 6))
+        selector = create_column_selector_screen(series_row, SERIES_OPTIONS, callback=lambda cols: _set_series(cols))
+        for series_key, checkbox in selector.checkboxes().items():
+            tooltip = TOOLTIP_TEXTS.get(series_key)
+            if tooltip:
+                attach_tooltip(checkbox, tooltip)
 
         chart_box, chart_body = section_card(frame, "Zeitreihen")
         chart_box.pack(fill="both", expand=True)
+
+        search_card = ctk.CTkFrame(frame)
+        search_card.pack(fill="x", pady=(8, 0))
+        ctk.CTkLabel(search_card, text="Freie Vergleiche (unter dem Chart)", font=("Arial", 13, "bold")).pack(anchor="w", padx=10, pady=(8, 2))
+        ctk.CTkLabel(search_card, text="Mehrfachauswahl via Checkbox. Bereits gewählte Symbole sind gesperrt.", text_color="gray70").pack(anchor="w", padx=10, pady=(0, 6))
+        search_row = ctk.CTkFrame(search_card, fg_color="transparent")
+        search_row.pack(fill="x", padx=10, pady=(0, 4))
+        query_var = ctk.StringVar(value="")
+        search_entry = ctk.CTkEntry(search_row, textvariable=query_var, placeholder_text="z. B. Apple, MSFT, S&P, World ETF", height=30)
+        search_entry.pack(side="left", fill="x", expand=True, padx=(0, 6))
+        ctk.CTkButton(search_row, text="Suchen", width=80, height=30, command=lambda: _run_returns_search()).pack(side="left")
+        search_entry.bind("<Return>", lambda *_: _run_returns_search())
+
+        results_frame = ctk.CTkFrame(search_card, fg_color="transparent")
+        results_frame.pack(fill="x", padx=10, pady=(2, 4))
+        selected_frame = ctk.CTkFrame(search_card, fg_color="transparent")
+        selected_frame.pack(fill="x", padx=10, pady=(2, 8))
 
         warning_var = ctk.StringVar(value="")
         warning_label = ctk.CTkLabel(frame, textvariable=warning_var, text_color="#ffb347")
@@ -581,6 +628,7 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
             {
                 "initialized": True,
                 "benchmark_menu": benchmark_menu,
+                "benchmark_group_menu": benchmark_group_menu,
                 "selector": selector,
                 "query_var": query_var,
                 "results_frame": results_frame,
@@ -596,12 +644,25 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
     def _update_returns_controls(ws: dict):
         rs = _returns_state()
         options = ws.get("benchmark_options") or [("Kein Benchmark", None)]
-        labels = [label for label, _ in options]
-        reverse = {label: value for label, value in options}
-        selected_label = next((label for label, value in options if value == ws.get("benchmark")), "Kein Benchmark")
+        groups = ws.get("benchmark_groups") or {"Alle": options[1:]}
 
+        group_menu = rs.get("benchmark_group_menu")
         menu = rs.get("benchmark_menu")
+        active_group = ws.get("benchmark_active_group") or "Alle"
+        available_group_names = ["Alle", *[name for name in groups.keys() if name != "Alle"]]
+        if active_group not in available_group_names:
+            active_group = "Alle"
+            ws["benchmark_active_group"] = active_group
+
+        if group_menu is not None:
+            group_menu.configure(values=available_group_names, command=lambda value: _on_benchmark_group_change(value))
+            group_menu.set(active_group)
+
+        grouped_options = [("Kein Benchmark", None)] + list(groups.get(active_group) or [])
         if menu is not None:
+            labels = [label for label, _ in grouped_options]
+            reverse = {label: value for label, value in grouped_options}
+            selected_label = next((label for label, value in grouped_options if value == ws.get("benchmark")), "Kein Benchmark")
             menu.configure(values=labels, command=lambda label: _set_benchmark(reverse.get(label)))
             menu.set(selected_label)
 
@@ -622,29 +683,57 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
         _clear_children(selected_frame)
 
         results = ws.get("comparison_search_results") or []
+        selected_symbols = {str(entry).upper() for entry in (ws.get("comparison_symbols") or [])}
+
         if results:
-            ctk.CTkLabel(results_frame, text="Suchergebnisse:").pack(anchor="w")
-            for item in results[:8]:
+            ctk.CTkLabel(results_frame, text="Suchergebnisse", font=("Arial", 12, "bold")).pack(anchor="w", pady=(0, 2))
+            for item in results[:12]:
                 symbol = str(item.get("symbol") or "").upper()
                 if not symbol:
                     continue
                 name = item.get("name") or symbol
                 exchange = item.get("exchange") or "—"
                 quote_type = item.get("quote_type") or "—"
+                isin = item.get("isin") or "—"
+                currency = item.get("currency") or "—"
+
                 row = ctk.CTkFrame(results_frame, fg_color="transparent")
                 row.pack(fill="x", pady=1)
-                ctk.CTkLabel(row, text=f"{symbol} — {name} ({exchange}, {quote_type})").pack(side="left", anchor="w")
-                ctk.CTkButton(row, text="Hinzufügen", width=90, command=lambda s=symbol: _add_comparison_symbol(s)).pack(side="right")
 
-        ctk.CTkLabel(selected_frame, text="Ausgewählte Vergleiche:").pack(anchor="w")
-        selected_symbols = ws.get("comparison_symbols") or []
+                already_selected = symbol in selected_symbols
+                check = ctk.CTkCheckBox(
+                    row,
+                    text="",
+                    width=20,
+                    command=lambda s=symbol: _toggle_comparison_symbol(s, True),
+                )
+                check.pack(side="left", padx=(0, 4))
+                if already_selected:
+                    check.select()
+                    check.configure(state="disabled")
+
+                info = ctk.CTkFrame(row, fg_color="transparent")
+                info.pack(side="left", fill="x", expand=True)
+                ctk.CTkLabel(info, text=f"{symbol} · {name}", anchor="w", font=("Arial", 12)).pack(anchor="w")
+                ctk.CTkLabel(
+                    info,
+                    text=f"ISIN: {isin} | Börse: {exchange} | Typ: {quote_type} | Währung: {currency}",
+                    text_color="gray70",
+                    anchor="w",
+                    font=("Arial", 10),
+                ).pack(anchor="w")
+                if already_selected:
+                    ctk.CTkLabel(row, text="bereits hinzugefügt", text_color="gray60", font=("Arial", 10)).pack(side="right")
+
+        ctk.CTkLabel(selected_frame, text="Ausgewählte freie Vergleiche", font=("Arial", 12, "bold")).pack(anchor="w")
         if not selected_symbols:
             ctk.CTkLabel(selected_frame, text="Keine freien Vergleichswerte ausgewählt.", text_color="gray70").pack(anchor="w")
-        for symbol in selected_symbols:
+
+        for symbol in sorted(selected_symbols):
             row = ctk.CTkFrame(selected_frame, fg_color="transparent")
             row.pack(fill="x", pady=1)
-            ctk.CTkLabel(row, text=symbol).pack(side="left")
-            ctk.CTkButton(row, text="Entfernen", width=90, command=lambda s=symbol: _remove_comparison_symbol(s)).pack(side="right")
+            ctk.CTkLabel(row, text=symbol, anchor="w").pack(side="left")
+            ctk.CTkButton(row, text="Entfernen", width=90, height=26, command=lambda s=symbol: _toggle_comparison_symbol(s, False)).pack(side="right")
 
     def _render_returns_chart(ws: dict, isin: str):
         rs = _returns_state()
@@ -817,6 +906,7 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
                 controls_body.winfo_children()[-1].set(selected_label)
 
                 _, kpi_body = section_card(content, "Risikokennzahlen")
+                info_label(kpi_body, "Volatilität / Sharpe / Beta", f"{TOOLTIP_TEXTS['volatility']} | {TOOLTIP_TEXTS['sharpe']} | {TOOLTIP_TEXTS['beta']}").pack(anchor="w", pady=(0, 4))
                 _metric_card_grid(
                     kpi_body,
                     [
@@ -1027,27 +1117,28 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
             _update_returns_controls(ws)
             _update_returns_chart_and_warnings(ws, current["isin"])
 
-    def _add_comparison_symbol(symbol: str):
+    def _on_benchmark_group_change(group: str | None = None):
+        ws = _active_workspace()
+        if ws is None:
+            return
+        ws["benchmark_active_group"] = (group or "Alle")
+        if current["tab"] == "returns":
+            _update_returns_controls(ws)
+
+    def _toggle_comparison_symbol(symbol: str, selected: bool):
         ws = _active_workspace()
         if ws is None:
             return
         normalized = (symbol or "").strip().upper()
         if not normalized:
             return
-        selected = list(ws.get("comparison_symbols") or [])
-        if normalized not in selected:
-            selected.append(normalized)
-            ws["comparison_symbols"] = selected
-        if current["tab"] == "returns" and current["isin"]:
-            _update_returns_search_selection(ws)
-            _update_returns_chart_and_warnings(ws, current["isin"])
-
-    def _remove_comparison_symbol(symbol: str):
-        ws = _active_workspace()
-        if ws is None:
-            return
-        normalized = (symbol or "").strip().upper()
-        ws["comparison_symbols"] = [entry for entry in (ws.get("comparison_symbols") or []) if entry != normalized]
+        current_symbols = list(ws.get("comparison_symbols") or [])
+        symbol_set = {entry.upper() for entry in current_symbols}
+        if selected and normalized not in symbol_set:
+            current_symbols.append(normalized)
+        if not selected:
+            current_symbols = [entry for entry in current_symbols if entry.upper() != normalized]
+        ws["comparison_symbols"] = list(dict.fromkeys(current_symbols))
         if current["tab"] == "returns" and current["isin"]:
             _update_returns_search_selection(ws)
             _update_returns_chart_and_warnings(ws, current["isin"])

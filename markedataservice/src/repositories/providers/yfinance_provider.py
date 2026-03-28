@@ -329,21 +329,41 @@ class YFinanceProvider(BaseProvider):
         except Exception:
             return []
         out: List[Dict[str, Any]] = []
+        seen: set[str] = set()
         for quote in getattr(search, "quotes", []) or []:
             if not isinstance(quote, dict):
                 continue
-            symbol = quote.get("symbol")
+            symbol = str(quote.get("symbol") or "").strip()
             if not symbol:
                 continue
-            out.append(
-                {
-                    "symbol": str(symbol),
-                    "name": quote.get("shortname") or quote.get("longname") or quote.get("name"),
-                    "exchange": quote.get("exchange") or quote.get("exchDisp"),
-                    "quote_type": quote.get("quoteType"),
-                    "isin": quote.get("isin"),
-                }
-            )
+            upper_symbol = symbol.upper()
+            if upper_symbol in seen:
+                continue
+            seen.add(upper_symbol)
+
+            entry: Dict[str, Any] = {
+                "symbol": symbol,
+                "name": quote.get("shortname") or quote.get("longname") or quote.get("name"),
+                "isin": quote.get("isin"),
+                "exchange": quote.get("exchange") or quote.get("exchDisp"),
+                "quote_type": quote.get("quoteType"),
+                "currency": quote.get("currency"),
+                "region": quote.get("region") or quote.get("market"),
+            }
+
+            if not entry.get("isin"):
+                try:
+                    info = yf.Ticker(symbol).info or {}
+                except Exception:
+                    info = {}
+                entry["isin"] = info.get("isin") or entry.get("isin")
+                entry["exchange"] = entry.get("exchange") or info.get("exchange")
+                entry["quote_type"] = entry.get("quote_type") or info.get("quoteType")
+                entry["currency"] = entry.get("currency") or info.get("currency")
+                entry["region"] = entry.get("region") or info.get("region") or info.get("country")
+                entry["name"] = entry.get("name") or info.get("shortName") or info.get("longName")
+
+            out.append(entry)
             if len(out) >= max_results:
                 break
         return out

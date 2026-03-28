@@ -13,16 +13,69 @@ class AnalysisMetricsService:
     DEFAULT_BENCHMARK_KEY = "msci_world"
 
     BENCHMARKS: dict[str, dict[str, str]] = {
-        "msci_world": {"symbol": "URTH", "name": "MSCI World (ETF Proxy URTH)"},
-        "sp500": {"symbol": "^GSPC", "name": "S&P 500"},
-        "ftse_all_world": {"symbol": "VT", "name": "FTSE All-World (ETF Proxy VT)"},
+        # Global
+        "msci_world": {"symbol": "URTH", "name": "MSCI World (ETF Proxy URTH)", "segment": "Global", "instrument_type": "ETF Proxy"},
+        "ftse_all_world": {"symbol": "VT", "name": "FTSE All-World (ETF Proxy VT)", "segment": "Global", "instrument_type": "ETF Proxy"},
+        "msci_acwi": {"symbol": "ACWI", "name": "MSCI ACWI (ETF Proxy ACWI)", "segment": "Global", "instrument_type": "ETF Proxy"},
+        "global_dividend": {"symbol": "VIGI", "name": "Global Dividend Growth (ETF Proxy VIGI)", "segment": "Global", "instrument_type": "ETF Proxy"},
+
+        # USA
+        "sp500": {"symbol": "^GSPC", "name": "S&P 500", "segment": "USA", "instrument_type": "Index"},
+        "nasdaq100": {"symbol": "^NDX", "name": "Nasdaq 100", "segment": "USA", "instrument_type": "Index"},
+        "dow_jones": {"symbol": "^DJI", "name": "Dow Jones Industrial Average", "segment": "USA", "instrument_type": "Index"},
+        "russell2000": {"symbol": "^RUT", "name": "Russell 2000", "segment": "USA", "instrument_type": "Index"},
+        "us_total_market": {"symbol": "VTI", "name": "US Total Market (ETF Proxy VTI)", "segment": "USA", "instrument_type": "ETF Proxy"},
+
+        # Europe
+        "stoxx_europe_600": {"symbol": "VGK", "name": "STOXX Europe 600 (ETF Proxy VGK)", "segment": "Europa", "instrument_type": "ETF Proxy"},
+        "euro_stoxx_50": {"symbol": "^STOXX50E", "name": "EURO STOXX 50", "segment": "Europa", "instrument_type": "Index"},
+        "cac40": {"symbol": "^FCHI", "name": "CAC 40", "segment": "Europa", "instrument_type": "Index"},
+        "ftse100": {"symbol": "^FTSE", "name": "FTSE 100", "segment": "Europa", "instrument_type": "Index"},
+        "smi": {"symbol": "^SSMI", "name": "SMI", "segment": "Europa", "instrument_type": "Index"},
+        "ibex35": {"symbol": "^IBEX", "name": "IBEX 35", "segment": "Europa", "instrument_type": "Index"},
+        "aex": {"symbol": "^AEX", "name": "AEX", "segment": "Europa", "instrument_type": "Index"},
+
+        # Deutschland
+        "dax": {"symbol": "^GDAXI", "name": "DAX", "segment": "Deutschland", "instrument_type": "Index"},
+        "mdax": {"symbol": "^MDAXI", "name": "MDAX", "segment": "Deutschland", "instrument_type": "Index"},
+        "sdax": {"symbol": "^SDAXI", "name": "SDAX", "segment": "Deutschland", "instrument_type": "Index"},
+
+        # Asien/Pazifik
+        "nikkei225": {"symbol": "^N225", "name": "Nikkei 225", "segment": "Asien/Pazifik", "instrument_type": "Index"},
+        "hang_seng": {"symbol": "^HSI", "name": "Hang Seng", "segment": "Asien/Pazifik", "instrument_type": "Index"},
+        "asx200": {"symbol": "^AXJO", "name": "S&P/ASX 200", "segment": "Asien/Pazifik", "instrument_type": "Index"},
+        "msci_pacific": {"symbol": "EPP", "name": "MSCI Pacific (ETF Proxy EPP)", "segment": "Asien/Pazifik", "instrument_type": "ETF Proxy"},
+
+        # Emerging Markets
+        "msci_emerging_markets": {"symbol": "EEM", "name": "MSCI Emerging Markets (ETF Proxy EEM)", "segment": "Emerging Markets", "instrument_type": "ETF Proxy"},
+        "ftse_emerging": {"symbol": "VWO", "name": "FTSE Emerging Markets (ETF Proxy VWO)", "segment": "Emerging Markets", "instrument_type": "ETF Proxy"},
+        "india_large_cap": {"symbol": "INDA", "name": "India Large Cap (ETF Proxy INDA)", "segment": "Emerging Markets", "instrument_type": "ETF Proxy"},
+    }
+
+    BENCHMARK_SEGMENTS: dict[str, list[str]] = {
+        "Global": ["msci_world", "ftse_all_world", "msci_acwi", "global_dividend"],
+        "USA": ["sp500", "nasdaq100", "dow_jones", "russell2000", "us_total_market"],
+        "Europa": ["stoxx_europe_600", "euro_stoxx_50", "cac40", "ftse100", "smi", "ibex35", "aex"],
+        "Deutschland": ["dax", "mdax", "sdax"],
+        "Asien/Pazifik": ["nikkei225", "hang_seng", "asx200", "msci_pacific"],
+        "Emerging Markets": ["msci_emerging_markets", "ftse_emerging", "india_large_cap"],
     }
 
     def __init__(self, provider: Any):
         self.provider = provider
 
-    def benchmark_catalog(self) -> dict[str, dict[str, str]]:
-        return self.BENCHMARKS
+    def benchmark_catalog(self) -> dict[str, Any]:
+        grouped: dict[str, list[dict[str, str]]] = {}
+        for segment, keys in self.BENCHMARK_SEGMENTS.items():
+            grouped[segment] = [
+                {"key": key, **self.BENCHMARKS[key]}
+                for key in keys
+                if key in self.BENCHMARKS
+            ]
+        return {
+            "items": self.BENCHMARKS,
+            "groups": grouped,
+        }
 
     def default_benchmark_key(self) -> str:
         return self.DEFAULT_BENCHMARK_KEY

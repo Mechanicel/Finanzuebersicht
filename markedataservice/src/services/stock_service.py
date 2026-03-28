@@ -224,8 +224,11 @@ class StockService(BaseService):
     @handle_errors
     def get_analysis_benchmark_catalog(self) -> dict[str, Any]:
         analysis = self._analysis_service()
+        catalog = analysis.benchmark_catalog()
         return {
-            "benchmarks": analysis.benchmark_catalog(),
+            "benchmarks": catalog,
+            "benchmark_items": catalog.get("items", {}) if isinstance(catalog, dict) else {},
+            "benchmark_groups": catalog.get("groups", {}) if isinstance(catalog, dict) else {},
             "default": analysis.default_benchmark_key(),
             "meta": asdict(self._meta("benchmarks")),
         }
@@ -236,7 +239,7 @@ class StockService(BaseService):
         if len(normalized_query) < 2:
             raise InvalidRequestError("Query muss mindestens 2 Zeichen enthalten")
         return {
-            "results": self.provider.search_quotes(normalized_query, max_results=10),
+            "results": self.provider.search_quotes(normalized_query, max_results=20),
             "meta": asdict(self._meta("benchmark_search")),
         }
 
