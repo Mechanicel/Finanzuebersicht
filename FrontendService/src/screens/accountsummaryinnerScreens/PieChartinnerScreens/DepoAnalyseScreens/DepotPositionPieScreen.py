@@ -38,6 +38,12 @@ GROUP_LABEL_TO_KEY = {
     "Währung": "currency",
 }
 
+TABLE_MAX_VISIBLE_ROWS = 10
+TABLE_MIN_VISIBLE_ROWS = 3
+TREE_FONT = ("Arial", 14)
+TREE_HEADER_FONT = ("Arial", 14, "bold")
+TREE_ROW_HEIGHT = 30
+
 
 def _format_number(value: float, digits: int = 2) -> str:
     return f"{float(value):,.{digits}f}".replace(",", " ")
@@ -208,7 +214,8 @@ def create_screen(
     root.grid(row=0, column=0, sticky="nsew")
     root.grid_columnconfigure(0, weight=3)
     root.grid_columnconfigure(1, weight=2)
-    root.grid_rowconfigure(2, weight=1)
+    root.grid_rowconfigure(1, weight=1)
+    root.grid_rowconfigure(2, weight=0)
 
     control_frame = ctk.CTkFrame(root)
     control_frame.grid(row=0, column=0, columnspan=2, sticky="ew", padx=8, pady=(6, 8))
@@ -258,12 +265,15 @@ def create_screen(
         fieldbackground="#1f1f1f",
         foreground="#f0f0f0",
         bordercolor="#2a2a2a",
+        font=TREE_FONT,
+        rowheight=TREE_ROW_HEIGHT,
     )
     tree_style.configure(
         "Depot.Treeview.Heading",
         background="#2a2a2a",
         foreground="#f0f0f0",
         bordercolor="#2a2a2a",
+        font=TREE_HEADER_FONT,
     )
     tree_style.map(
         "Depot.Treeview",
@@ -275,21 +285,29 @@ def create_screen(
         background=[("active", "#343434")],
     )
 
+    summary_container = ctk.CTkFrame(summary_frame, fg_color="transparent")
+    summary_container.pack(fill="both", expand=True, padx=4, pady=4)
+    summary_container.grid_rowconfigure(0, weight=1)
+    summary_container.grid_columnconfigure(0, weight=1)
+
     summary_tree = ttk.Treeview(
-        summary_frame, columns=("group", "value", "weight", "count"), show="headings", height=10, style="Depot.Treeview"
+        summary_container, columns=("group", "value", "weight", "count"), show="headings", height=TABLE_MAX_VISIBLE_ROWS, style="Depot.Treeview"
     )
     summary_tree.heading("group", text="Gruppe")
     summary_tree.heading("value", text="Wert")
     summary_tree.heading("weight", text="Anteil %")
     summary_tree.heading("count", text="#Pos")
-    summary_tree.column("group", anchor="w", width=140)
-    summary_tree.column("value", anchor="e", width=120)
-    summary_tree.column("weight", anchor="e", width=100)
-    summary_tree.column("count", anchor="e", width=70)
-    summary_tree.pack(fill="both", expand=True, padx=4, pady=4)
+    summary_tree.column("group", anchor="w", width=180)
+    summary_tree.column("value", anchor="e", width=150)
+    summary_tree.column("weight", anchor="e", width=110)
+    summary_tree.column("count", anchor="e", width=80)
+
+    summary_scroll_y = ttk.Scrollbar(summary_container, orient="vertical", command=summary_tree.yview)
+    summary_tree.configure(yscrollcommand=summary_scroll_y.set)
+    summary_tree.grid(row=0, column=0, sticky="nsew")
 
     holdings_columns = ("name", "isin", "quantity", "price", "value", "weight", "sector", "country", "currency")
-    holdings_tree = ttk.Treeview(holdings_frame, columns=holdings_columns, show="headings", height=12, style="Depot.Treeview")
+    holdings_tree = ttk.Treeview(holdings_frame, columns=holdings_columns, show="headings", height=TABLE_MAX_VISIBLE_ROWS, style="Depot.Treeview")
     labels = {
         "name": "Name",
         "isin": "ISIN",
@@ -329,10 +347,59 @@ def create_screen(
     tree_scroll_x = ttk.Scrollbar(holdings_frame, orient="horizontal", command=holdings_tree.xview)
     holdings_tree.configure(yscrollcommand=tree_scroll_y.set, xscrollcommand=tree_scroll_x.set)
     holdings_tree.grid(row=0, column=0, sticky="nsew")
-    tree_scroll_y.grid(row=0, column=1, sticky="ns")
+    tree_scroll_y.grid_remove()
     tree_scroll_x.grid(row=1, column=0, sticky="ew")
     holdings_frame.grid_rowconfigure(0, weight=1)
     holdings_frame.grid_columnconfigure(0, weight=1)
+
+    def _visible_rows_for(total_rows: int) -> int:
+        if total_rows <= 0:
+            return TABLE_MIN_VISIBLE_ROWS
+        if total_rows < TABLE_MAX_VISIBLE_ROWS:
+            return max(TABLE_MIN_VISIBLE_ROWS, total_rows)
+        return TABLE_MAX_VISIBLE_ROWS
+
+    def _sync_table_height(tree: ttk.Treeview, vertical_scrollbar: ttk.Scrollbar, total_rows: int):
+        tree.configure(height=_visible_rows_for(total_rows))
+        if total_rows >= TABLE_MAX_VISIBLE_ROWS:
+            vertical_scrollbar.grid(row=0, column=1, sticky="ns")
+        else:
+            vertical_scrollbar.grid_remove()
+
+    def _bind_fast_wheel_scroll(widget, tree: ttk.Treeview):
+        pending = {"job": None}
+
+        def _flush_scroll(step: int):
+            pending["job"] = None
+            tree.yview_scroll(step, "units")
+
+        def _queue_scroll(step: int):
+            if pending["job"] is not None:
+                widget.after_cancel(pending["job"])
+            pending["job"] = widget.after(8, lambda: _flush_scroll(step))
+
+        def _on_mousewheel(event):
+            delta = getattr(event, "delta", 0)
+            if delta == 0:
+                return "break"
+            step = -1 if delta > 0 else 1
+            _queue_scroll(step)
+            return "break"
+
+        def _on_linux_wheel(event):
+            num = getattr(event, "num", 0)
+            if num == 4:
+                _queue_scroll(-1)
+            elif num == 5:
+                _queue_scroll(1)
+            return "break"
+
+        tree.bind("<MouseWheel>", _on_mousewheel, add="+")
+        tree.bind("<Button-4>", _on_linux_wheel, add="+")
+        tree.bind("<Button-5>", _on_linux_wheel, add="+")
+
+    _bind_fast_wheel_scroll(root, holdings_tree)
+    _bind_fast_wheel_scroll(root, summary_tree)
 
     holdings_iid_to_isin: dict[str, str] = {}
 
@@ -366,9 +433,11 @@ def create_screen(
         chart_ax.clear()
         chart_ax.set_title(f"Depot-Aufteilung nach {group_by.title()}")
 
+        _sync_table_height(summary_tree, summary_scroll_y, len(summary_rows))
+
         if not summary_rows or not any(r.get("value", 0.0) for r in summary_rows):
             chart_ax.text(0.5, 0.5, "Keine Positionen", ha="center", va="center")
-            chart_canvas.draw()
+            chart_canvas.draw_idle()
             return
 
         labels_local = [str(item.get("group")) for item in summary_rows]
@@ -404,7 +473,7 @@ def create_screen(
         for hover_id in getattr(chart_canvas, "_dep_hover_ids", []):
             chart_canvas.mpl_disconnect(hover_id)
         chart_canvas._dep_hover_ids = enable_pie_hover(chart_canvas, chart_ax, wedges, labels_local, values_local)
-        chart_canvas.draw()
+        chart_canvas.draw_idle()
 
     def _open_pie_popout():
         summary_rows = stateful.get("summary_rows") or []
@@ -492,6 +561,7 @@ def create_screen(
                 ),
             )
             holdings_iid_to_isin[iid] = row.get("isin", "")
+        _sync_table_height(holdings_tree, tree_scroll_y, len(rows))
         _sort_table("value", True)
         _render_grouped_view()
         if rows:
