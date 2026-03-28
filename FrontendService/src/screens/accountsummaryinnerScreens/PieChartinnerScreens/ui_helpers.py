@@ -45,3 +45,38 @@ def info_label(parent, text: str, tooltip: str):
     label = ctk.CTkLabel(parent, text=f"{text}  ⓘ", text_color="gray75")
     attach_tooltip(label, tooltip)
     return label
+
+
+def create_hover_icon_button(
+    parent,
+    text: str,
+    command,
+    *,
+    width: int = 26,
+    height: int = 24,
+    corner_radius: int = 6,
+    text_color: str = "gray80",
+    hover_text_color: str = "#ff4d4f",
+):
+    button = ctk.CTkButton(
+        parent,
+        text=text,
+        width=width,
+        height=height,
+        corner_radius=corner_radius,
+        command=command,
+        fg_color="transparent",
+        hover_color="#2b2b2b",
+        text_color=text_color,
+        border_width=0,
+    )
+
+    def _on_enter(_event=None):
+        button.configure(text_color=hover_text_color)
+
+    def _on_leave(_event=None):
+        button.configure(text_color=text_color)
+
+    button.bind("<Enter>", _on_enter, add="+")
+    button.bind("<Leave>", _on_leave, add="+")
+    return button

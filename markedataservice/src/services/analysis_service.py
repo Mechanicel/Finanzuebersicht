@@ -18,6 +18,7 @@ class AnalysisMetricsService:
         "ftse_all_world": {"symbol": "VT", "name": "FTSE All-World (ETF Proxy VT)", "segment": "Global", "instrument_type": "ETF Proxy"},
         "msci_acwi": {"symbol": "ACWI", "name": "MSCI ACWI (ETF Proxy ACWI)", "segment": "Global", "instrument_type": "ETF Proxy"},
         "global_dividend": {"symbol": "VIGI", "name": "Global Dividend Growth (ETF Proxy VIGI)", "segment": "Global", "instrument_type": "ETF Proxy"},
+        "global_min_vol": {"symbol": "ACWV", "name": "MSCI ACWI Min Volatility (ETF Proxy ACWV)", "segment": "Global", "instrument_type": "ETF Proxy"},
 
         # USA
         "sp500": {"symbol": "^GSPC", "name": "S&P 500", "segment": "USA", "instrument_type": "Index"},
@@ -25,40 +26,64 @@ class AnalysisMetricsService:
         "dow_jones": {"symbol": "^DJI", "name": "Dow Jones Industrial Average", "segment": "USA", "instrument_type": "Index"},
         "russell2000": {"symbol": "^RUT", "name": "Russell 2000", "segment": "USA", "instrument_type": "Index"},
         "us_total_market": {"symbol": "VTI", "name": "US Total Market (ETF Proxy VTI)", "segment": "USA", "instrument_type": "ETF Proxy"},
+        "sp400_midcap": {"symbol": "MDY", "name": "S&P MidCap 400 (ETF Proxy MDY)", "segment": "USA", "instrument_type": "ETF Proxy"},
+        "sp600_smallcap": {"symbol": "IJR", "name": "S&P SmallCap 600 (ETF Proxy IJR)", "segment": "USA", "instrument_type": "ETF Proxy"},
 
-        # Europe
+        # Europa
         "stoxx_europe_600": {"symbol": "VGK", "name": "STOXX Europe 600 (ETF Proxy VGK)", "segment": "Europa", "instrument_type": "ETF Proxy"},
         "euro_stoxx_50": {"symbol": "^STOXX50E", "name": "EURO STOXX 50", "segment": "Europa", "instrument_type": "Index"},
-        "cac40": {"symbol": "^FCHI", "name": "CAC 40", "segment": "Europa", "instrument_type": "Index"},
-        "ftse100": {"symbol": "^FTSE", "name": "FTSE 100", "segment": "Europa", "instrument_type": "Index"},
-        "smi": {"symbol": "^SSMI", "name": "SMI", "segment": "Europa", "instrument_type": "Index"},
-        "ibex35": {"symbol": "^IBEX", "name": "IBEX 35", "segment": "Europa", "instrument_type": "Index"},
-        "aex": {"symbol": "^AEX", "name": "AEX", "segment": "Europa", "instrument_type": "Index"},
+        "europe_broad": {"symbol": "IEUR", "name": "MSCI Europe (ETF Proxy IEUR)", "segment": "Europa", "instrument_type": "ETF Proxy"},
 
         # Deutschland
         "dax": {"symbol": "^GDAXI", "name": "DAX", "segment": "Deutschland", "instrument_type": "Index"},
         "mdax": {"symbol": "^MDAXI", "name": "MDAX", "segment": "Deutschland", "instrument_type": "Index"},
         "sdax": {"symbol": "^SDAXI", "name": "SDAX", "segment": "Deutschland", "instrument_type": "Index"},
+        "tecdax": {"symbol": "^TECDAX", "name": "TecDAX", "segment": "Deutschland", "instrument_type": "Index"},
+
+        # UK
+        "ftse100": {"symbol": "^FTSE", "name": "FTSE 100", "segment": "UK", "instrument_type": "Index"},
+        "ftse250": {"symbol": "^FTMC", "name": "FTSE 250", "segment": "UK", "instrument_type": "Index"},
+
+        # Schweiz
+        "smi": {"symbol": "^SSMI", "name": "SMI", "segment": "Schweiz", "instrument_type": "Index"},
+        "swiss_broad": {"symbol": "EWL", "name": "MSCI Switzerland (ETF Proxy EWL)", "segment": "Schweiz", "instrument_type": "ETF Proxy"},
+
+        # Frankreich
+        "cac40": {"symbol": "^FCHI", "name": "CAC 40", "segment": "Frankreich", "instrument_type": "Index"},
+        "france_broad": {"symbol": "EWQ", "name": "MSCI France (ETF Proxy EWQ)", "segment": "Frankreich", "instrument_type": "ETF Proxy"},
+
+        # Südeuropa / Niederlande
+        "ibex35": {"symbol": "^IBEX", "name": "IBEX 35", "segment": "Südeuropa/Niederlande", "instrument_type": "Index"},
+        "ftse_mib": {"symbol": "FTSEMIB.MI", "name": "FTSE MIB", "segment": "Südeuropa/Niederlande", "instrument_type": "Index"},
+        "aex": {"symbol": "^AEX", "name": "AEX", "segment": "Südeuropa/Niederlande", "instrument_type": "Index"},
 
         # Asien/Pazifik
         "nikkei225": {"symbol": "^N225", "name": "Nikkei 225", "segment": "Asien/Pazifik", "instrument_type": "Index"},
+        "topix": {"symbol": "^TOPX", "name": "TOPIX", "segment": "Asien/Pazifik", "instrument_type": "Index"},
         "hang_seng": {"symbol": "^HSI", "name": "Hang Seng", "segment": "Asien/Pazifik", "instrument_type": "Index"},
         "asx200": {"symbol": "^AXJO", "name": "S&P/ASX 200", "segment": "Asien/Pazifik", "instrument_type": "Index"},
-        "msci_pacific": {"symbol": "EPP", "name": "MSCI Pacific (ETF Proxy EPP)", "segment": "Asien/Pazifik", "instrument_type": "ETF Proxy"},
+        "kospi": {"symbol": "^KS11", "name": "KOSPI Composite", "segment": "Asien/Pazifik", "instrument_type": "Index"},
+        "msci_pacific": {"symbol": "EPP", "name": "MSCI Pacific ex Japan (ETF Proxy EPP)", "segment": "Asien/Pazifik", "instrument_type": "ETF Proxy"},
 
         # Emerging Markets
         "msci_emerging_markets": {"symbol": "EEM", "name": "MSCI Emerging Markets (ETF Proxy EEM)", "segment": "Emerging Markets", "instrument_type": "ETF Proxy"},
         "ftse_emerging": {"symbol": "VWO", "name": "FTSE Emerging Markets (ETF Proxy VWO)", "segment": "Emerging Markets", "instrument_type": "ETF Proxy"},
+        "em_imex_china": {"symbol": "IEMG", "name": "MSCI Emerging Markets IMI (ETF Proxy IEMG)", "segment": "Emerging Markets", "instrument_type": "ETF Proxy"},
         "india_large_cap": {"symbol": "INDA", "name": "India Large Cap (ETF Proxy INDA)", "segment": "Emerging Markets", "instrument_type": "ETF Proxy"},
+        "latin_america": {"symbol": "ILF", "name": "S&P Latin America 40 (ETF Proxy ILF)", "segment": "Emerging Markets", "instrument_type": "ETF Proxy"},
     }
 
     BENCHMARK_SEGMENTS: dict[str, list[str]] = {
-        "Global": ["msci_world", "ftse_all_world", "msci_acwi", "global_dividend"],
-        "USA": ["sp500", "nasdaq100", "dow_jones", "russell2000", "us_total_market"],
-        "Europa": ["stoxx_europe_600", "euro_stoxx_50", "cac40", "ftse100", "smi", "ibex35", "aex"],
-        "Deutschland": ["dax", "mdax", "sdax"],
-        "Asien/Pazifik": ["nikkei225", "hang_seng", "asx200", "msci_pacific"],
-        "Emerging Markets": ["msci_emerging_markets", "ftse_emerging", "india_large_cap"],
+        "Global": ["msci_world", "ftse_all_world", "msci_acwi", "global_dividend", "global_min_vol"],
+        "USA": ["sp500", "nasdaq100", "dow_jones", "russell2000", "us_total_market", "sp400_midcap", "sp600_smallcap"],
+        "Europa": ["stoxx_europe_600", "euro_stoxx_50", "europe_broad"],
+        "Deutschland": ["dax", "mdax", "sdax", "tecdax"],
+        "UK": ["ftse100", "ftse250"],
+        "Schweiz": ["smi", "swiss_broad"],
+        "Frankreich": ["cac40", "france_broad"],
+        "Südeuropa/Niederlande": ["ibex35", "ftse_mib", "aex"],
+        "Asien/Pazifik": ["nikkei225", "topix", "hang_seng", "asx200", "kospi", "msci_pacific"],
+        "Emerging Markets": ["msci_emerging_markets", "ftse_emerging", "em_imex_china", "india_large_cap", "latin_america"],
     }
 
     def __init__(self, provider: Any):
