@@ -42,6 +42,12 @@ def _log_endpoint_timing(endpoint_name: str, started_at: float):
     logger.info("GET %s took %.0fms", endpoint_name, duration_ms)
 
 
+def _parse_isins_query_param(raw_isins: str | None) -> list[str]:
+    if raw_isins is None:
+        raise InvalidRequestError("Missing required query parameter: isins")
+    return [token.strip() for token in raw_isins.split(",")]
+
+
 @stock_bp.route("/stock/<isin>", methods=["GET"])
 def get_stock(isin: str):
     etf = request.args.get("etf")
@@ -177,6 +183,18 @@ def get_benchmark_catalog():
         return jsonify(service.get_analysis_benchmark_catalog())
     except Exception as exc:
         return _handle_service_error(exc, "", "/analysis/benchmarks")
+
+
+@stock_bp.route("/analysis/depot/holdings-summary", methods=["GET"])
+def get_depot_holdings_summary():
+    started_at = time.perf_counter()
+    try:
+        isins = _parse_isins_query_param(request.args.get("isins"))
+        return jsonify(service.get_depot_holdings_summary(isins))
+    except Exception as exc:
+        return _handle_service_error(exc, "", "/analysis/depot/holdings-summary")
+    finally:
+        _log_endpoint_timing("/analysis/depot/holdings-summary", started_at)
 
 
 @stock_bp.route("/analysis/benchmark-search", methods=["GET"])
