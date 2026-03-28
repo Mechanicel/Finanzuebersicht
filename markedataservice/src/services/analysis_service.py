@@ -86,8 +86,9 @@ class AnalysisMetricsService:
         "Emerging Markets": ["msci_emerging_markets", "ftse_emerging", "em_imex_china", "india_large_cap", "latin_america"],
     }
 
-    def __init__(self, provider: Any):
+    def __init__(self, provider: Any, benchmark_loader: Any | None = None):
         self.provider = provider
+        self.benchmark_loader = benchmark_loader
 
     def benchmark_catalog(self) -> dict[str, Any]:
         grouped: dict[str, list[dict[str, str]]] = {}
@@ -221,13 +222,15 @@ class AnalysisMetricsService:
 
     def _benchmark_series(self, benchmark_key: str | None) -> dict[str, Any]:
         key, benchmark = self.benchmark_for_key(benchmark_key)
-        series = self.provider.fetch_benchmark_timeseries(benchmark["symbol"])
-        normalized = self._normalize_price_history(series)
+        loaded = self.benchmark_loader(benchmark["symbol"]) if callable(self.benchmark_loader) else self.provider.fetch_benchmark_timeseries(benchmark["symbol"])
+        payload = loaded if isinstance(loaded, dict) else {"price_history": loaded}
+        normalized = self._normalize_price_history(payload.get("price_history") or [])
         return {
             "key": key,
             "symbol": benchmark["symbol"],
             "name": benchmark["name"],
-            "source": getattr(self.provider, "provider_name", "unknown"),
+            "source": payload.get("source") or getattr(self.provider, "provider_name", "unknown"),
+            "as_of": payload.get("as_of") or (normalized[-1]["date"] if normalized else None),
             "series": normalized,
         }
 

@@ -41,3 +41,30 @@ class MongoMarketDataRepository:
 
     def ping(self) -> None:
         self.client.admin.command("ping")
+
+    @staticmethod
+    def _symbol_cache_key(symbol: str) -> str:
+        return f"__SYMBOL_TIMESERIES__{(symbol or '').strip().upper()}"
+
+    def read_symbol_timeseries(self, symbol: str) -> dict[str, Any] | None:
+        cache_key = self._symbol_cache_key(symbol)
+        doc = self.collection.find_one({"isin": cache_key})
+        cleaned = self._clean(doc)
+        if not cleaned:
+            return None
+        payload = cleaned.get("timeseries_cache")
+        return payload if isinstance(payload, dict) else None
+
+    def write_symbol_timeseries(self, symbol: str, payload: dict[str, Any]) -> None:
+        cache_key = self._symbol_cache_key(symbol)
+        now = datetime.now(timezone.utc)
+        document = {
+            "isin": cache_key,
+            "timeseries_cache": {
+                **payload,
+                "symbol": (symbol or "").strip().upper(),
+                "updated_at": now.replace(microsecond=0).isoformat(),
+            },
+            "updated_at": now,
+        }
+        self.collection.replace_one({"isin": cache_key}, document, upsert=True)
