@@ -140,6 +140,8 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
         "empty_box": None,
         "tab_frames": {},
         "controllers": {},
+        "controllers_ready": False,
+        "controller_init_failed": False,
     }
 
     def _active_workspace():
@@ -191,40 +193,64 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
         return frame
 
     def _ensure_controllers():
-        controllers = ui_state["controllers"]
-        if controllers:
+        if ui_state["controllers_ready"]:
             return
+        if ui_state["controller_init_failed"]:
+            return
+        controllers = ui_state["controllers"]
+        ui_state["controller_init_failed"] = True
 
-        controllers["overview"] = OverviewTabController(_get_tab_frame("overview"))
-        controllers["overview"].frame.pack(fill="both", expand=True)
+        try:
+            controllers["overview"] = OverviewTabController(_get_tab_frame("overview"))
+            controllers["overview"].frame.pack(fill="both", expand=True)
 
-        controllers["returns"] = ReturnsTabController(
-            _get_tab_frame("returns"),
-            series_options=SERIES_OPTIONS,
-            tooltip_texts=TOOLTIP_TEXTS,
-            on_series_change=_set_series,
-            on_benchmark_change=_set_benchmark,
-            on_group_change=lambda g: _on_benchmark_group_change(g),
-            on_search=_run_returns_search,
-            on_toggle_symbol=_toggle_comparison_symbol,
-        )
-        controllers["returns"].frame.pack(fill="both", expand=True)
+            controllers["returns"] = ReturnsTabController(
+                _get_tab_frame("returns"),
+                series_options=SERIES_OPTIONS,
+                tooltip_texts=TOOLTIP_TEXTS,
+                on_series_change=_set_series,
+                on_benchmark_change=_set_benchmark,
+                on_group_change=lambda g: _on_benchmark_group_change(g),
+                on_search=_run_returns_search,
+                on_toggle_symbol=_toggle_comparison_symbol,
+            )
+            controllers["returns"].frame.pack(fill="both", expand=True)
 
-        controllers["risk"] = RiskTabController(_get_tab_frame("risk"), on_benchmark_change=_set_benchmark, tooltip_texts=TOOLTIP_TEXTS)
-        controllers["risk"].frame.pack(fill="both", expand=True)
+            controllers["risk"] = RiskTabController(
+                _get_tab_frame("risk"),
+                on_benchmark_change=_set_benchmark,
+                tooltip_texts=TOOLTIP_TEXTS,
+            )
+            controllers["risk"].frame.pack(fill="both", expand=True)
 
-        controllers["fundamentals"] = FundamentalsTabController(_get_tab_frame("fundamentals"))
-        controllers["fundamentals"].frame.pack(fill="both", expand=True)
+            controllers["fundamentals"] = FundamentalsTabController(_get_tab_frame("fundamentals"))
+            controllers["fundamentals"].frame.pack(fill="both", expand=True)
 
-        controllers["financials"] = FinancialsTabController(_get_tab_frame("financials"), on_period_change=_reload_financials)
-        controllers["financials"].frame.pack(fill="both", expand=True)
+            controllers["financials"] = FinancialsTabController(_get_tab_frame("financials"), on_period_change=_reload_financials)
+            controllers["financials"].frame.pack(fill="both", expand=True)
 
-        controllers["raw"] = RawTabController(_get_tab_frame("raw"))
-        controllers["raw"].frame.pack(fill="both", expand=True)
+            controllers["raw"] = RawTabController(_get_tab_frame("raw"))
+            controllers["raw"].frame.pack(fill="both", expand=True)
+            ui_state["controllers_ready"] = True
+            ui_state["controller_init_failed"] = False
+        except Exception:
+            logger.exception("DepoAnalyse: Tab-Controller konnten nicht initialisiert werden.")
+            for controller in controllers.values():
+                try:
+                    controller.frame.destroy()
+                except Exception:
+                    pass
+            controllers.clear()
+            ui_state["controllers_ready"] = False
 
     def _show_tab(tab: str):
+        if tab not in TAB_LABELS:
+            logger.warning("DepoAnalyse: unbekannter Tab '%s', fallback auf overview", tab)
+            tab = "overview"
         _show_shell()
         _ensure_controllers()
+        if not ui_state["controllers_ready"]:
+            return
         ui_state["tab_bar"].set(TAB_LABELS[tab])
         _get_tab_frame(tab).tkraise()
 
@@ -508,6 +534,12 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
         controller.update_data(isin, raw_payload, warnings=sum(ws["warnings"].values(), []))
 
     def _refresh_tab(tab: str):
+        if tab not in TAB_LABELS:
+            tab = "overview"
+            current["tab"] = tab
+        if not current["isin"]:
+            _show_empty()
+            return
         if tab == "overview":
             _refresh_overview()
         elif tab == "returns":
