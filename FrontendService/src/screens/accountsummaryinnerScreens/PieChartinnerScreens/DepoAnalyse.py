@@ -721,6 +721,14 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
         if settings.performance_logging:
             logger.info("DepoAnalyse initial workspace render for %s took %.2fs", sel_isin, time.perf_counter() - selection_started)
 
-    create_depot_pie(panel_container, navigator, state, depot_index=depot_index, pick_callback=on_stock_selected, clear_before_render=False)
+    create_depot_pie(
+        panel_container,
+        navigator,
+        state,
+        depot_index=depot_index,
+        pick_callback=on_stock_selected,
+        api_client=client,
+        clear_before_render=False,
+    )
     if settings.performance_logging:
         logger.info("DepoAnalyse.create_screen finished in %.2fs", time.perf_counter() - create_started)

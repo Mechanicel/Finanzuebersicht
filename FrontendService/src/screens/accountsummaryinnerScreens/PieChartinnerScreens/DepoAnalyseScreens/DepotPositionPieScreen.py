@@ -45,14 +45,14 @@ def _format_money(value: float, currency: str = "EUR") -> str:
 
 def _resolve_metadata(client: AnalysisApiClient, isin: str) -> dict:
     snapshot, _ = client.load_snapshot(isin)
-    full, _ = client.load_full(isin)
 
     instrument = {}
     profile = {}
     market = {}
     meta = {}
 
-    for payload in (snapshot or {}, full or {}):
+    snapshot_payload = snapshot or {}
+    for payload in (snapshot_payload,):
         if isinstance(payload.get("instrument"), dict):
             instrument.update(payload.get("instrument"))
         if isinstance(payload.get("profile"), dict):
@@ -61,6 +61,24 @@ def _resolve_metadata(client: AnalysisApiClient, isin: str) -> dict:
             market.update(payload.get("market"))
         if isinstance(payload.get("meta"), dict):
             meta.update(payload.get("meta"))
+
+    requires_full_load = (
+        not profile.get("sector")
+        or not profile.get("country")
+        or market.get("currentPrice") in (None, "")
+        or (market.get("currency") in (None, "") and instrument.get("currency") in (None, ""))
+    )
+    if requires_full_load:
+        full, _ = client.load_full(isin)
+        full_payload = full or {}
+        if isinstance(full_payload.get("instrument"), dict):
+            instrument.update(full_payload.get("instrument"))
+        if isinstance(full_payload.get("profile"), dict):
+            profile.update(full_payload.get("profile"))
+        if isinstance(full_payload.get("market"), dict):
+            market.update(full_payload.get("market"))
+        if isinstance(full_payload.get("meta"), dict):
+            meta.update(full_payload.get("meta"))
 
     return {
         "name": instrument.get("long_name") or instrument.get("short_name") or instrument.get("symbol"),
@@ -74,7 +92,15 @@ def _resolve_metadata(client: AnalysisApiClient, isin: str) -> dict:
     }
 
 
-def create_screen(app, navigator, state: AppState, depot_index, pick_callback: callable = None, **kwargs):
+def create_screen(
+    app,
+    navigator,
+    state: AppState,
+    depot_index,
+    pick_callback: callable = None,
+    api_client: AnalysisApiClient | None = None,
+    **kwargs,
+):
     create_started = time.perf_counter()
     if settings.performance_logging:
         logger.info("DepotPositionPieScreen.create_screen started (depot_index=%s)", depot_index)
@@ -96,7 +122,8 @@ def create_screen(app, navigator, state: AppState, depot_index, pick_callback: c
     konto = konten[depot_index]
     depot_details = konto.get("DepotDetails", [])
 
-    client = AnalysisApiClient(settings.marketdata_base_url)
+    client = api_client or AnalysisApiClient(settings.marketdata_base_url)
+    backend_session = requests.Session()
     client_calls_before = client.request_count
     now = datetime.now().strftime("%Y-%m-%d")
 
@@ -114,7 +141,7 @@ def create_screen(app, navigator, state: AppState, depot_index, pick_callback: c
         if isin not in price_cache:
             try:
                 direct_http_requests += 1
-                resp_price = requests.get(f"{BACKEND_URL}/price/{isin}", params={"date": now}, timeout=6)
+                resp_price = backend_session.get(f"{BACKEND_URL}/price/{isin}", params={"date": now}, timeout=6)
                 resp_price.raise_for_status()
                 price_cache[isin] = float(resp_price.json().get("price") or 0.0)
             except Exception as exc:
@@ -133,10 +160,10 @@ def create_screen(app, navigator, state: AppState, depot_index, pick_callback: c
 
         if isin not in company_cache:
             try:
-                direct_http_requests += 1
-                resp_company = requests.get(f"{BACKEND_URL}/company/{isin}", timeout=6)
-                resp_company.raise_for_status()
-                company_cache[isin] = resp_company.json().get("company_name") or isin
+                company_payload, company_warning = client.load_company_name(isin)
+                if company_warning:
+                    raise RuntimeError(company_warning)
+                company_cache[isin] = (company_payload or {}).get("company_name") or isin
             except Exception as exc:
                 logger.error("Company-Abruf fehlgeschlagen für %s: %s", isin, exc)
                 company_cache[isin] = isin
@@ -374,7 +401,7 @@ def create_screen(app, navigator, state: AppState, depot_index, pick_callback: c
     summary_tree.bind("<<TreeviewSelect>>", _on_summary_select)
     _render_grouped_view()
     if rows:
-        _emit_selection(rows[0].get("isin"))
+        app.after(75, lambda: _emit_selection(rows[0].get("isin")))
 
     if holdings_warnings:
         warning_text = " | ".join(dict.fromkeys(holdings_warnings))
