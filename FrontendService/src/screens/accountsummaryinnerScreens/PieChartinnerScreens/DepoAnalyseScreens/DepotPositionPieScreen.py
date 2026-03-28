@@ -170,7 +170,37 @@ def create_screen(app, navigator, state: AppState, depot_index, pick_callback: c
     chart_canvas = FigureCanvasTkAgg(chart_figure, master=chart_frame)
     chart_canvas.get_tk_widget().pack(fill="both", expand=True, padx=4, pady=4)
 
-    summary_tree = ttk.Treeview(summary_frame, columns=("group", "value", "weight", "count"), show="headings", height=10)
+    tree_style = ttk.Style()
+    try:
+        tree_style.theme_use("clam")
+    except Exception:
+        pass
+    tree_style.configure(
+        "Depot.Treeview",
+        background="#1f1f1f",
+        fieldbackground="#1f1f1f",
+        foreground="#f0f0f0",
+        bordercolor="#2a2a2a",
+    )
+    tree_style.configure(
+        "Depot.Treeview.Heading",
+        background="#2a2a2a",
+        foreground="#f0f0f0",
+        bordercolor="#2a2a2a",
+    )
+    tree_style.map(
+        "Depot.Treeview",
+        background=[("selected", "#3a506b")],
+        foreground=[("selected", "#ffffff")],
+    )
+    tree_style.map(
+        "Depot.Treeview.Heading",
+        background=[("active", "#343434")],
+    )
+
+    summary_tree = ttk.Treeview(
+        summary_frame, columns=("group", "value", "weight", "count"), show="headings", height=10, style="Depot.Treeview"
+    )
     summary_tree.heading("group", text="Gruppe")
     summary_tree.heading("value", text="Wert")
     summary_tree.heading("weight", text="Anteil %")
@@ -182,7 +212,7 @@ def create_screen(app, navigator, state: AppState, depot_index, pick_callback: c
     summary_tree.pack(fill="both", expand=True, padx=4, pady=4)
 
     holdings_columns = ("name", "isin", "quantity", "price", "value", "weight", "sector", "country", "currency")
-    holdings_tree = ttk.Treeview(holdings_frame, columns=holdings_columns, show="headings", height=12)
+    holdings_tree = ttk.Treeview(holdings_frame, columns=holdings_columns, show="headings", height=12, style="Depot.Treeview")
     labels = {
         "name": "Name",
         "isin": "ISIN",
@@ -258,7 +288,7 @@ def create_screen(app, navigator, state: AppState, depot_index, pick_callback: c
 
         if not summary_rows or not any(r.get("value", 0.0) for r in summary_rows):
             chart_ax.text(0.5, 0.5, "Keine Positionen", ha="center", va="center")
-            chart_canvas.draw_idle()
+            chart_canvas.draw()
             return
 
         labels_local = [str(item.get("group")) for item in summary_rows]
@@ -291,7 +321,7 @@ def create_screen(app, navigator, state: AppState, depot_index, pick_callback: c
         chart_canvas._dep_pick_id = chart_canvas.mpl_connect("pick_event", _on_pick)
         for wedge in wedges:
             wedge.set_picker(True)
-        chart_canvas.draw_idle()
+        chart_canvas.draw()
 
     def _on_group_change(label: str):
         stateful["group_by"] = GROUP_LABEL_TO_KEY.get(label, "position")
@@ -321,6 +351,8 @@ def create_screen(app, navigator, state: AppState, depot_index, pick_callback: c
     holdings_tree.bind("<<TreeviewSelect>>", _on_holdings_select)
     summary_tree.bind("<<TreeviewSelect>>", _on_summary_select)
     _render_grouped_view()
+    if rows:
+        _emit_selection(rows[0].get("isin"))
 
     if holdings_warnings:
         warning_text = " | ".join(dict.fromkeys(holdings_warnings))
