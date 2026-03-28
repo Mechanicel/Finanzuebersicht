@@ -20,6 +20,7 @@ from src.screens.accountsummaryinnerScreens.PieChartinnerScreens.DepoAnalyseScre
 )
 from src.screens.accountsummaryinnerScreens.PieChartinnerScreens.analysis_api_client import AnalysisApiClient
 from src.ui.components import create_page, empty_state, section_card
+from src.ui.background_loader import run_in_background
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -205,6 +206,8 @@ def _ensure_workspace(registry: dict, isin: str):
             "selected_series": list(SERIES_OPTIONS),
             "comparison_symbols": [],
             "comparison_search_results": [],
+            "request_generation": {},
+            "loading": {},
         }
     return registry[isin]
 
@@ -256,6 +259,12 @@ def _series_cache_key(series: list[str], benchmark: str | None):
 def _comparison_cache_key(symbols: list[str]):
     normalized = sorted({str(symbol).upper() for symbol in (symbols or []) if symbol})
     return f"comparison::{','.join(normalized) if normalized else '_none_'}"
+
+
+def _next_generation(ws: dict, key: str) -> int:
+    generation = int(ws["request_generation"].get(key, 0)) + 1
+    ws["request_generation"][key] = generation
+    return generation
 
 
 def _render_fundamental_section(parent, title: str, payload: dict):
@@ -369,6 +378,9 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
         isin = current["isin"]
         return _ensure_workspace(workspace_registry, isin) if isin else None
 
+    def _set_loading(ws: dict, area: str, active: bool):
+        ws["loading"][area] = active
+
     def _load_overview(ws: dict, isin: str):
         _load_into(ws, "company", lambda: client.load_company_analysis(isin))
         _load_into(ws, "metrics", lambda: client.load_metrics(isin))
@@ -419,6 +431,49 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
             if payload:
                 raw[key] = payload
         return raw
+
+    def _ensure_benchmark_catalog_async(ws: dict, callback=None):
+        if ws.get("benchmark_options") is not None:
+            if callback:
+                callback()
+            return
+
+        generation = _next_generation(ws, "benchmark_catalog")
+
+        def _worker():
+            return client.load_benchmark_catalog()
+
+        def _done(result):
+            if ws["request_generation"].get("benchmark_catalog") != generation:
+                return
+            payload, warning = result
+            items = payload.get("benchmarks") if isinstance(payload, dict) else None
+            options: list[tuple[str, str | None]] = [("Kein Benchmark", None)]
+            if isinstance(items, dict):
+                for key, item in items.items():
+                    if not key:
+                        continue
+                    label = item.get("name") if isinstance(item, dict) else key
+                    options.append((str(label or key), str(key)))
+            elif isinstance(items, list):
+                for item in items:
+                    if isinstance(item, dict):
+                        value = item.get("id") or item.get("symbol") or item.get("code")
+                        label = item.get("name") or value
+                        if value:
+                            options.append((str(label), str(value)))
+                    elif item:
+                        options.append((str(item), str(item)))
+            ws["benchmark_options"] = options
+            default_key = payload.get("default") if isinstance(payload, dict) else None
+            if ws.get("benchmark") is None and default_key:
+                ws["benchmark"] = str(default_key)
+            if warning:
+                ws["warnings"]["benchmark_catalog"] = [warning]
+            if callback:
+                callback()
+
+        run_in_background(app, _worker, _done)
 
     def _ensure_shell():
         if ui_state["tab_bar"] is not None:
@@ -501,6 +556,10 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
         warning_label = ctk.CTkLabel(frame, textvariable=warning_var, text_color="#ffb347")
         warning_label.pack(anchor="w", pady=(8, 0))
         warning_label.pack_forget()
+        loading_var = ctk.StringVar(value="")
+        loading_label = ctk.CTkLabel(frame, textvariable=loading_var, text_color="gray70")
+        loading_label.pack(anchor="w", pady=(6, 0))
+        loading_label.pack_forget()
 
         rs.update(
             {
@@ -513,6 +572,8 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
                 "chart_body": chart_body,
                 "warning_var": warning_var,
                 "warning_label": warning_label,
+                "loading_var": loading_var,
+                "loading_label": loading_label,
             }
         )
 
@@ -569,9 +630,7 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
             ctk.CTkLabel(row, text=symbol).pack(side="left")
             ctk.CTkButton(row, text="Entfernen", width=90, command=lambda s=symbol: _remove_comparison_symbol(s)).pack(side="right")
 
-    def _update_returns_chart_and_warnings(ws: dict, isin: str):
-        _load_timeseries(ws, isin)
-        _load_comparison_timeseries(ws, isin)
+    def _render_returns_chart(ws: dict, isin: str):
         rs = _returns_state()
         warnings = ws["warnings"].get("timeseries_active", []) + ws["warnings"].get("comparison_active", []) + ws["warnings"].get("comparison_search", [])
         create_chart_screen(
@@ -595,6 +654,75 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
                 if warning_label.winfo_manager():
                     warning_label.pack_forget()
 
+    def _update_returns_chart_and_warnings(ws: dict, isin: str):
+        rs = _returns_state()
+        loading_label = rs.get("loading_label")
+        loading_var = rs.get("loading_var")
+        benchmark = ws.get("benchmark")
+        selected_series = list(ws["selected_series"])
+        series_key = _series_cache_key(selected_series, benchmark)
+        symbols = ws.get("comparison_symbols") or []
+        comparison_key = _comparison_cache_key(symbols)
+
+        has_series_cache = series_key in ws["payloads"]
+        has_comparison_cache = not symbols or comparison_key in ws["payloads"]
+        if has_series_cache:
+            ws["payloads"]["timeseries_active"] = ws["payloads"].get(series_key) or {}
+            ws["warnings"]["timeseries_active"] = ws["warnings"].get(series_key, [])
+        if has_comparison_cache:
+            ws["payloads"]["comparison_active"] = ws["payloads"].get(comparison_key) or {}
+            ws["warnings"]["comparison_active"] = ws["warnings"].get(comparison_key, [])
+
+        if has_series_cache and has_comparison_cache:
+            _set_loading(ws, "returns_chart", False)
+            _render_returns_chart(ws, isin)
+            if loading_label is not None and loading_label.winfo_manager():
+                loading_label.pack_forget()
+        else:
+            _set_loading(ws, "returns_chart", True)
+            if loading_var is not None:
+                loading_var.set("Lade Zeitreihen...")
+            if loading_label is not None and not loading_label.winfo_manager():
+                loading_label.pack(anchor="w", pady=(6, 0))
+
+        generation = _next_generation(ws, "returns_chart")
+
+        def _worker():
+            result = {}
+            if not has_series_cache:
+                result["series"] = client.load_timeseries(
+                    isin,
+                    series=",".join(selected_series),
+                    benchmark=benchmark,
+                )
+            if not has_comparison_cache and symbols:
+                result["comparison"] = client.load_comparison_timeseries(isin, symbols)
+            return result
+
+        def _done(result):
+            if ws["request_generation"].get("returns_chart") != generation:
+                return
+            if "series" in result:
+                payload, warning = result["series"]
+                ws["payloads"][series_key] = payload or {}
+                ws["warnings"][series_key] = [warning] if warning else []
+            if "comparison" in result:
+                payload, warning = result["comparison"]
+                ws["payloads"][comparison_key] = payload or {}
+                ws["warnings"][comparison_key] = [warning] if warning else []
+            ws["payloads"]["timeseries_active"] = ws["payloads"].get(series_key) or {}
+            ws["warnings"]["timeseries_active"] = ws["warnings"].get(series_key, [])
+            ws["payloads"]["comparison_active"] = ws["payloads"].get(comparison_key) or {}
+            ws["warnings"]["comparison_active"] = ws["warnings"].get(comparison_key, [])
+            _set_loading(ws, "returns_chart", False)
+            _render_returns_chart(ws, isin)
+            if loading_label is not None and loading_label.winfo_manager():
+                loading_label.pack_forget()
+
+        if not has_series_cache or (symbols and not has_comparison_cache):
+            run_in_background(app, _worker, _done)
+            return
+
     def _render_tab(tab: str):
         isin = current["isin"]
         if not isin:
@@ -607,7 +735,6 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
             return
 
         _show_shell()
-        _load_benchmark_catalog(client, ws)
         ui_state["tab_bar"].set(TAB_LABELS[tab])
         content = _show_tab_frame(tab)
 
@@ -627,16 +754,32 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
         if tab == "returns":
             _ensure_returns_frame(content)
             _update_returns_controls(ws)
+            _ensure_benchmark_catalog_async(
+                ws,
+                callback=lambda: (
+                    _update_returns_controls(ws)
+                    if current["tab"] == "returns" and current["isin"] == isin
+                    else None
+                ),
+            )
             _update_returns_search_selection(ws)
             _update_returns_chart_and_warnings(ws, isin)
             return
 
         if tab == "risk":
             _clear_children(content)
-            _load_risk(ws, isin)
-            risk_payload = ws["payloads"].get(f"risk::{ws.get('benchmark') or '_none_'}", {})
-            risk_root = risk_payload.get("risk", {}) if isinstance(risk_payload, dict) else {}
-            benchmark_payload = ws["payloads"].get(f"benchmark::{ws.get('benchmark') or '_none_'}", {})
+            _ensure_benchmark_catalog_async(
+                ws,
+                callback=lambda: (
+                    _render_tab("risk")
+                    if current["tab"] == "risk" and current["isin"] == isin
+                    else None
+                ),
+            )
+            benchmark = ws.get("benchmark")
+            risk_key = f"risk::{benchmark or '_none_'}"
+            benchmark_key = f"benchmark::{benchmark or '_none_'}"
+            rel_series_key = f"timeseries::risk::{benchmark or '_none_'}"
 
             options = ws.get("benchmark_options") or [("Kein Benchmark", None)]
             reverse = {label: value for label, value in options}
@@ -655,10 +798,10 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
             _metric_card_grid(
                 kpi_body,
                 [
-                    ("Volatilität", _fmt_pct(_metric_value(risk_root.get("volatility")))),
-                    ("Sharpe Ratio", _fmt_number(_metric_value(risk_root.get("sharpe_ratio")), 3)),
-                    ("Max Drawdown", _fmt_pct(_metric_value(risk_root.get("max_drawdown")))),
-                    ("Beta", _fmt_number(_metric_value(risk_root.get("beta")), 3)),
+                    ("Volatilität", "—"),
+                    ("Sharpe Ratio", "—"),
+                    ("Max Drawdown", "—"),
+                    ("Beta", "—"),
                 ],
                 columns=4,
             )
@@ -667,9 +810,9 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
             _metric_card_grid(
                 cmp_body,
                 [
-                    ("Company Total Return", _fmt_pct(_extract_first(benchmark_payload, ["company_total_return"]))),
-                    ("Benchmark Total Return", _fmt_pct(_extract_first(benchmark_payload, ["benchmark_total_return"]))),
-                    ("Excess Return", _fmt_pct(_extract_first(benchmark_payload, ["excess_return"]))),
+                    ("Company Total Return", "—"),
+                    ("Benchmark Total Return", "—"),
+                    ("Excess Return", "—"),
                 ],
                 columns=3,
             )
@@ -678,16 +821,71 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
             create_chart_screen(
                 rel_body,
                 isin=isin,
-                payload=ws["payloads"].get(f"timeseries::risk::{ws.get('benchmark') or '_none_'}", {}),
-                warnings=ws["warnings"].get(f"timeseries::risk::{ws.get('benchmark') or '_none_'}", []),
+                payload=ws["payloads"].get(rel_series_key, {}),
+                warnings=ws["warnings"].get(rel_series_key, []),
                 selected_series=["benchmark_relative"],
                 benchmark=ws.get("benchmark"),
             )
-            _render_warning_bar(
-                content,
-                ws["warnings"].get(f"risk::{ws.get('benchmark') or '_none_'}", [])
-                + ws["warnings"].get(f"benchmark::{ws.get('benchmark') or '_none_'}", []),
-            )
+            loading_label = ctk.CTkLabel(content, text="Lade Risiko/Benchmark...", text_color="gray70")
+            loading_label.pack(anchor="w", pady=(8, 0))
+
+            has_cache = all(key in ws["payloads"] for key in (risk_key, benchmark_key, rel_series_key))
+            if has_cache:
+                loading_label.pack_forget()
+                risk_payload = ws["payloads"].get(risk_key, {})
+                risk_root = risk_payload.get("risk", {}) if isinstance(risk_payload, dict) else {}
+                benchmark_payload = ws["payloads"].get(benchmark_key, {})
+                _clear_children(kpi_body)
+                _metric_card_grid(
+                    kpi_body,
+                    [
+                        ("Volatilität", _fmt_pct(_metric_value(risk_root.get("volatility")))),
+                        ("Sharpe Ratio", _fmt_number(_metric_value(risk_root.get("sharpe_ratio")), 3)),
+                        ("Max Drawdown", _fmt_pct(_metric_value(risk_root.get("max_drawdown")))),
+                        ("Beta", _fmt_number(_metric_value(risk_root.get("beta")), 3)),
+                    ],
+                    columns=4,
+                )
+                _clear_children(cmp_body)
+                _metric_card_grid(
+                    cmp_body,
+                    [
+                        ("Company Total Return", _fmt_pct(_extract_first(benchmark_payload, ["company_total_return"]))),
+                        ("Benchmark Total Return", _fmt_pct(_extract_first(benchmark_payload, ["benchmark_total_return"]))),
+                        ("Excess Return", _fmt_pct(_extract_first(benchmark_payload, ["excess_return"]))),
+                    ],
+                    columns=3,
+                )
+                _render_warning_bar(content, ws["warnings"].get(risk_key, []) + ws["warnings"].get(benchmark_key, []))
+                return
+
+            _set_loading(ws, "risk_panel", True)
+            generation = _next_generation(ws, "risk_panel")
+
+            def _risk_worker():
+                return {
+                    "risk": client.load_risk(isin, benchmark),
+                    "benchmark": client.load_benchmark(isin, benchmark),
+                    "relative": client.load_timeseries(isin, series="benchmark_relative", benchmark=benchmark),
+                }
+
+            def _risk_done(result):
+                if ws["request_generation"].get("risk_panel") != generation:
+                    return
+                risk_payload, risk_warning = result["risk"]
+                benchmark_payload, benchmark_warning = result["benchmark"]
+                relative_payload, relative_warning = result["relative"]
+                ws["payloads"][risk_key] = risk_payload or {}
+                ws["warnings"][risk_key] = [risk_warning] if risk_warning else []
+                ws["payloads"][benchmark_key] = benchmark_payload or {}
+                ws["warnings"][benchmark_key] = [benchmark_warning] if benchmark_warning else []
+                ws["payloads"][rel_series_key] = relative_payload or {}
+                ws["warnings"][rel_series_key] = [relative_warning] if relative_warning else []
+                _set_loading(ws, "risk_panel", False)
+                if current["tab"] == "risk" and current["isin"] == isin:
+                    _render_tab("risk")
+
+            run_in_background(app, _risk_worker, _risk_done)
             return
 
         _clear_children(content)
@@ -716,13 +914,39 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
 
             def _reload_financials(*_):
                 period = period_var.get()
-                _load_financials(ws, isin, period)
-                payload = ws["payloads"].get(f"financials::{period}", {})
+                key = f"financials::{period}"
                 _clear_children(financial_area)
-                _render_financial_block(financial_area, "Income Statement", payload.get("income_statement", {}))
-                _render_financial_block(financial_area, "Balance Sheet", payload.get("balance_sheet", {}))
-                _render_financial_block(financial_area, "Cash Flow", payload.get("cash_flow", {}))
-                _render_warning_bar(financial_area, ws["warnings"].get(f"financials::{period}", []))
+                ctk.CTkLabel(financial_area, text="Lade Finanzberichte...", text_color="gray70").pack(anchor="w")
+
+                def _render_financial_payload():
+                    payload = ws["payloads"].get(key, {})
+                    _clear_children(financial_area)
+                    _render_financial_block(financial_area, "Income Statement", payload.get("income_statement", {}))
+                    _render_financial_block(financial_area, "Balance Sheet", payload.get("balance_sheet", {}))
+                    _render_financial_block(financial_area, "Cash Flow", payload.get("cash_flow", {}))
+                    _render_warning_bar(financial_area, ws["warnings"].get(key, []))
+
+                if key in ws["payloads"]:
+                    _render_financial_payload()
+                    return
+
+                _set_loading(ws, "financials", True)
+                generation = _next_generation(ws, "financials")
+
+                def _worker():
+                    return client.load_financials(isin, period=period)
+
+                def _done(result):
+                    if ws["request_generation"].get("financials") != generation:
+                        return
+                    payload, warning = result
+                    ws["payloads"][key] = payload or {}
+                    ws["warnings"][key] = [warning] if warning else []
+                    _set_loading(ws, "financials", False)
+                    if current["tab"] == "financials" and current["isin"] == isin and period_var.get() == period:
+                        _render_financial_payload()
+
+                run_in_background(app, _worker, _done)
 
             ctk.CTkSegmentedButton(
                 switch_body,

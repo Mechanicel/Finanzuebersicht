@@ -19,6 +19,7 @@ from src.screens.accountsummaryinnerScreens.PieChartinnerScreens.depot_holdings_
     to_float,
     with_weight_percent,
 )
+from src.ui.background_loader import run_in_background
 
 settings = get_settings()
 
@@ -132,76 +133,71 @@ def create_screen(
         seen_isins.add(isin)
         unique_isins.append(isin)
 
-    summary_payload, summary_warning = client.load_depot_holdings_summary(unique_isins)
-    if summary_warning:
-        logger.warning("Depot-Summary konnte nicht vollständig geladen werden: %s", summary_warning)
+    def _load_holdings_data():
+        summary_payload, summary_warning = client.load_depot_holdings_summary(unique_isins)
+        summary_holdings = (summary_payload or {}).get("holdings")
+        holdings_meta = (summary_payload or {}).get("meta")
+        if not isinstance(summary_holdings, list):
+            summary_holdings = []
+        if not isinstance(holdings_meta, dict):
+            holdings_meta = {}
 
-    summary_holdings = (summary_payload or {}).get("holdings")
-    holdings_meta = (summary_payload or {}).get("meta")
-    if not isinstance(summary_holdings, list):
-        summary_holdings = []
-    if not isinstance(holdings_meta, dict):
-        holdings_meta = {}
+        price_cache: dict[str, float] = {}
+        company_cache: dict[str, str] = {}
+        metadata_cache: dict[str, dict] = {}
+        holdings_warnings: list[str] = []
 
-    price_cache: dict[str, float] = {}
-    company_cache: dict[str, str] = {}
-    metadata_cache: dict[str, dict] = {}
-    holdings_warnings: list[str] = []
+        for holding in summary_holdings:
+            if not isinstance(holding, dict):
+                continue
+            isin = str(holding.get("isin") or "").strip().upper()
+            if not isin:
+                continue
+            company_cache[isin] = str(holding.get("name") or holding.get("symbol") or isin)
+            metadata_cache[isin] = {
+                "name": holding.get("name") or holding.get("symbol"),
+                "sector": holding.get("sector") or UNKNOWN_GROUP_LABEL,
+                "country": holding.get("country") or UNKNOWN_GROUP_LABEL,
+                "currency": holding.get("currency") or "EUR",
+                "current_price": holding.get("current_price"),
+                "provider": holding.get("provider"),
+                "as_of": holding.get("as_of"),
+                "coverage": holding.get("coverage"),
+            }
+            try:
+                price_cache[isin] = float(holding.get("current_price"))
+            except (TypeError, ValueError):
+                price_cache[isin] = 0.0
 
-    for holding in summary_holdings:
-        if not isinstance(holding, dict):
-            continue
-        isin = str(holding.get("isin") or "").strip().upper()
-        if not isin:
-            continue
-        company_cache[isin] = str(holding.get("name") or holding.get("symbol") or isin)
-        metadata_cache[isin] = {
-            "name": holding.get("name") or holding.get("symbol"),
-            "sector": holding.get("sector") or UNKNOWN_GROUP_LABEL,
-            "country": holding.get("country") or UNKNOWN_GROUP_LABEL,
-            "currency": holding.get("currency") or "EUR",
-            "current_price": holding.get("current_price"),
-            "provider": holding.get("provider"),
-            "as_of": holding.get("as_of"),
-            "coverage": holding.get("coverage"),
-        }
-        try:
-            price_cache[isin] = float(holding.get("current_price"))
-        except (TypeError, ValueError):
-            price_cache[isin] = 0.0
+        fallback_candidates = []
+        for isin in unique_isins:
+            meta = metadata_cache.get(isin) or {}
+            missing_name = not (company_cache.get(isin) and company_cache.get(isin) != isin)
+            missing_price = to_float(price_cache.get(isin)) in (None, 0.0) and meta.get("current_price") in (None, "")
+            if isin not in metadata_cache or (missing_name and missing_price):
+                fallback_candidates.append(isin)
 
-    # Defensiver Fallback nur für wenige Sonderfälle mit fehlenden Kernfeldern.
-    fallback_candidates = []
-    for isin in unique_isins:
-        meta = metadata_cache.get(isin) or {}
-        missing_name = not (company_cache.get(isin) and company_cache.get(isin) != isin)
-        missing_price = to_float(price_cache.get(isin)) in (None, 0.0) and meta.get("current_price") in (None, "")
-        if isin not in metadata_cache or (missing_name and missing_price):
-            fallback_candidates.append(isin)
+        if fallback_candidates:
+            holdings_warnings.append(
+                "Für einzelne Positionen waren Summary-Daten unvollständig; defensiver Snapshot-Fallback wurde genutzt."
+            )
+        for isin in fallback_candidates[:2]:
+            fallback_meta = _resolve_metadata(client, isin)
+            metadata_cache[isin] = {**fallback_meta, **(metadata_cache.get(isin) or {})}
+            company_cache[isin] = company_cache.get(isin) or fallback_meta.get("name") or isin
+            if to_float(price_cache.get(isin)) in (None, 0.0):
+                fallback_price = to_float(fallback_meta.get("current_price"))
+                if fallback_price is not None:
+                    price_cache[isin] = fallback_price
 
-    fallback_limit = 2
-    if fallback_candidates:
-        holdings_warnings.append(
-            "Für einzelne Positionen waren Summary-Daten unvollständig; defensiver Snapshot-Fallback wurde genutzt."
-        )
-    for isin in fallback_candidates[:fallback_limit]:
-        fallback_meta = _resolve_metadata(client, isin)
-        metadata_cache[isin] = {**fallback_meta, **(metadata_cache.get(isin) or {})}
-        company_cache[isin] = company_cache.get(isin) or fallback_meta.get("name") or isin
-        if to_float(price_cache.get(isin)) in (None, 0.0):
-            fallback_price = to_float(fallback_meta.get("current_price"))
-            if fallback_price is not None:
-                price_cache[isin] = fallback_price
-
-    rows, helper_warnings = build_holdings_rows(depot_details, price_cache, company_cache, metadata_cache)
-    rows = sort_rows(with_weight_percent(rows), key="market_value", reverse=True)
-    holdings_warnings.extend(helper_warnings)
-    if summary_warning:
-        holdings_warnings.append(f"Depot-Summary Warnung: {summary_warning}")
-    if holdings_meta.get("failed"):
-        holdings_warnings.append(
-            f"Depot-Summary konnte {holdings_meta.get('failed')} ISIN(s) nicht verarbeiten."
-        )
+        rows, helper_warnings = build_holdings_rows(depot_details, price_cache, company_cache, metadata_cache)
+        rows = sort_rows(with_weight_percent(rows), key="market_value", reverse=True)
+        holdings_warnings.extend(helper_warnings)
+        if summary_warning:
+            holdings_warnings.append(f"Depot-Summary Warnung: {summary_warning}")
+        if holdings_meta.get("failed"):
+            holdings_warnings.append(f"Depot-Summary konnte {holdings_meta.get('failed')} ISIN(s) nicht verarbeiten.")
+        return rows, holdings_warnings, holdings_meta
 
     root = ctk.CTkFrame(app, fg_color="transparent")
     root.grid(row=0, column=0, sticky="nsew")
@@ -220,7 +216,8 @@ def create_screen(
     holdings_frame = ctk.CTkFrame(root)
     holdings_frame.grid(row=2, column=0, columnspan=2, sticky="nsew", padx=8, pady=(0, 8))
 
-    selection_map = {row["isin"]: row for row in rows if row.get("isin")}
+    rows_state = {"rows": []}
+    selection_map: dict[str, dict] = {}
     stateful = {"group_by": "position", "summary_rows": []}
 
     def _emit_selection(isin: str | None):
@@ -331,29 +328,10 @@ def create_screen(
     holdings_frame.grid_columnconfigure(0, weight=1)
 
     holdings_iid_to_isin: dict[str, str] = {}
-    for row in rows:
-        iid = holdings_tree.insert(
-            "",
-            "end",
-            values=(
-                row.get("name", ""),
-                row.get("isin", ""),
-                _format_number(row.get("quantity", 0.0), 4),
-                _format_money(row.get("price", 0.0), row.get("currency", "EUR")),
-                _format_money(row.get("market_value", 0.0), row.get("currency", "EUR")),
-                f"{row.get('weight_pct', 0.0):.2f}%",
-                row.get("sector", UNKNOWN_GROUP_LABEL),
-                row.get("country", UNKNOWN_GROUP_LABEL),
-                row.get("currency", "EUR"),
-            ),
-        )
-        holdings_iid_to_isin[iid] = row.get("isin", "")
-
-    _sort_table("value", True)
 
     def _render_grouped_view():
         group_by = stateful["group_by"]
-        summary_rows = summarize_groups(rows, group_by)
+        summary_rows = summarize_groups(rows_state["rows"], group_by)
         stateful["summary_rows"] = summary_rows
 
         for item in summary_tree.get_children(""):
@@ -426,25 +404,64 @@ def create_screen(
 
     holdings_tree.bind("<<TreeviewSelect>>", _on_holdings_select)
     summary_tree.bind("<<TreeviewSelect>>", _on_summary_select)
-    _render_grouped_view()
-    if rows:
-        app.after(75, lambda: _emit_selection(rows[0].get("isin")))
+    loading_label = ctk.CTkLabel(root, text="Lade Holdings...", text_color="gray70")
+    loading_label.grid(row=3, column=0, columnspan=2, sticky="w", padx=10, pady=(0, 6))
+    warning_label = ctk.CTkLabel(root, text="", text_color="#ffb347")
 
-    if holdings_warnings:
+    def _render_holdings(rows: list[dict], holdings_warnings: list[str], holdings_meta: dict):
+        rows_state["rows"] = rows
+        selection_map.clear()
+        selection_map.update({row["isin"]: row for row in rows if row.get("isin")})
+
+        for item in holdings_tree.get_children(""):
+            holdings_tree.delete(item)
+        holdings_iid_to_isin.clear()
+        for row in rows:
+            iid = holdings_tree.insert(
+                "",
+                "end",
+                values=(
+                    row.get("name", ""),
+                    row.get("isin", ""),
+                    _format_number(row.get("quantity", 0.0), 4),
+                    _format_money(row.get("price", 0.0), row.get("currency", "EUR")),
+                    _format_money(row.get("market_value", 0.0), row.get("currency", "EUR")),
+                    f"{row.get('weight_pct', 0.0):.2f}%",
+                    row.get("sector", UNKNOWN_GROUP_LABEL),
+                    row.get("country", UNKNOWN_GROUP_LABEL),
+                    row.get("currency", "EUR"),
+                ),
+            )
+            holdings_iid_to_isin[iid] = row.get("isin", "")
+        _sort_table("value", True)
+        _render_grouped_view()
+        if rows:
+            app.after(75, lambda: _emit_selection(rows[0].get("isin")))
+
         warning_text = " | ".join(dict.fromkeys(holdings_warnings))
-        ctk.CTkLabel(root, text=f"Hinweise: {warning_text}", text_color="#ffb347").grid(
-            row=3, column=0, columnspan=2, sticky="w", padx=10, pady=(0, 6)
-        )
+        if warning_text:
+            warning_label.configure(text=f"Hinweise: {warning_text}")
+            warning_label.grid(row=4, column=0, columnspan=2, sticky="w", padx=10, pady=(0, 6))
+        else:
+            warning_label.grid_forget()
+
+        if settings.performance_logging:
+            analysis_requests = client.request_count - client_calls_before
+            logger.info(
+                "DepotPositionPieScreen loaded in %.2fs (holdings=%s, analysis_requests=%s, summary_returned=%s, summary_failed=%s)",
+                time.perf_counter() - create_started,
+                len(rows),
+                analysis_requests,
+                holdings_meta.get("returned"),
+                holdings_meta.get("failed"),
+            )
+
+    def _on_holdings_loaded(result):
+        rows, holdings_warnings, holdings_meta = result
+        loading_label.grid_forget()
+        _render_holdings(rows, holdings_warnings, holdings_meta)
+
+    run_in_background(app, _load_holdings_data, _on_holdings_loaded)
 
     app.grid_rowconfigure(0, weight=1)
     app.grid_columnconfigure(0, weight=1)
-    if settings.performance_logging:
-        analysis_requests = client.request_count - client_calls_before
-        logger.info(
-            "DepotPositionPieScreen loaded in %.2fs (holdings=%s, analysis_requests=%s, summary_returned=%s, summary_failed=%s)",
-            time.perf_counter() - create_started,
-            len(rows),
-            analysis_requests,
-            holdings_meta.get("returned"),
-            holdings_meta.get("failed"),
-        )
