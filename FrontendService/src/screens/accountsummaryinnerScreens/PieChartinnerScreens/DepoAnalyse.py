@@ -202,6 +202,8 @@ def _ensure_workspace(registry: dict, isin: str):
             "benchmark": None,
             "benchmark_options": None,
             "selected_series": list(SERIES_OPTIONS),
+            "comparison_symbols": [],
+            "comparison_search_results": [],
         }
     return registry[isin]
 
@@ -220,7 +222,16 @@ def _load_benchmark_catalog(client: AnalysisApiClient, workspace: dict):
     payload, warning = client.load_benchmark_catalog()
     items = payload.get("benchmarks") if isinstance(payload, dict) else None
     options: list[tuple[str, str | None]] = [("Kein Benchmark", None)]
-    if isinstance(items, list):
+    if isinstance(items, dict):
+        for key, item in items.items():
+            if not key:
+                continue
+            if isinstance(item, dict):
+                label = item.get("name") or key
+            else:
+                label = key
+            options.append((str(label), str(key)))
+    elif isinstance(items, list):
         for item in items:
             if isinstance(item, dict):
                 value = item.get("id") or item.get("symbol") or item.get("code")
@@ -230,12 +241,20 @@ def _load_benchmark_catalog(client: AnalysisApiClient, workspace: dict):
             elif item:
                 options.append((str(item), str(item)))
     workspace["benchmark_options"] = options
+    default_key = payload.get("default") if isinstance(payload, dict) else None
+    if workspace.get("benchmark") is None and default_key:
+        workspace["benchmark"] = str(default_key)
     if warning:
         workspace["warnings"]["benchmark_catalog"] = [warning]
 
 
 def _series_cache_key(series: list[str], benchmark: str | None):
     return f"timeseries::{','.join(sorted(series))}::{benchmark or '_none_'}"
+
+
+def _comparison_cache_key(symbols: list[str]):
+    normalized = sorted({str(symbol).upper() for symbol in (symbols or []) if symbol})
+    return f"comparison::{','.join(normalized) if normalized else '_none_'}"
 
 
 def _render_fundamental_section(parent, title: str, payload: dict):
@@ -350,6 +369,17 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
         ws["payloads"]["timeseries_active"] = ws["payloads"].get(key) or {}
         ws["warnings"]["timeseries_active"] = ws["warnings"].get(key, [])
 
+    def _load_comparison_timeseries(ws: dict, isin: str):
+        symbols = ws.get("comparison_symbols") or []
+        if not symbols:
+            ws["payloads"]["comparison_active"] = {}
+            ws["warnings"]["comparison_active"] = []
+            return
+        key = _comparison_cache_key(symbols)
+        _load_into(ws, key, lambda: client.load_comparison_timeseries(isin, symbols))
+        ws["payloads"]["comparison_active"] = ws["payloads"].get(key) or {}
+        ws["warnings"]["comparison_active"] = ws["warnings"].get(key, [])
+
     def _load_risk(ws: dict, isin: str):
         benchmark = ws.get("benchmark")
         _load_into(ws, f"risk::{benchmark or '_none_'}", lambda: client.load_risk(isin, benchmark))
@@ -432,16 +462,72 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
             for name, var in selector._vars.items():
                 var.set(name in selected_set)
 
+            search_card = ctk.CTkFrame(content)
+            search_card.pack(fill="x", pady=(0, 8))
+            ctk.CTkLabel(search_card, text="Freie Vergleiche (Kurschart):").pack(anchor="w", padx=10, pady=(8, 4))
+
+            search_row = ctk.CTkFrame(search_card, fg_color="transparent")
+            search_row.pack(fill="x", padx=10, pady=(0, 6))
+            query_var = ctk.StringVar(value="")
+            search_entry = ctk.CTkEntry(search_row, textvariable=query_var, placeholder_text="z. B. Apple, MSFT, SPY")
+            search_entry.pack(side="left", fill="x", expand=True, padx=(0, 8))
+
+            def _run_search(*_):
+                query = query_var.get().strip()
+                results, search_warning = client.search_benchmark_candidates(query)
+                ws["comparison_search_results"] = list((results or {}).get("results") or [])
+                ws["warnings"]["comparison_search"] = [search_warning] if search_warning else []
+                _render_tab("returns")
+
+            ctk.CTkButton(search_row, text="Suchen", width=90, command=_run_search).pack(side="left")
+            search_entry.bind("<Return>", _run_search)
+
+            results_frame = ctk.CTkFrame(search_card, fg_color="transparent")
+            results_frame.pack(fill="x", padx=10, pady=(0, 4))
+            results = ws.get("comparison_search_results") or []
+            if results:
+                ctk.CTkLabel(results_frame, text="Suchergebnisse:").pack(anchor="w")
+                for item in results[:8]:
+                    symbol = str(item.get("symbol") or "").upper()
+                    if not symbol:
+                        continue
+                    name = item.get("name") or symbol
+                    exchange = item.get("exchange") or "—"
+                    quote_type = item.get("quote_type") or "—"
+                    row = ctk.CTkFrame(results_frame, fg_color="transparent")
+                    row.pack(fill="x", pady=1)
+                    ctk.CTkLabel(row, text=f"{symbol} — {name} ({exchange}, {quote_type})").pack(side="left", anchor="w")
+                    ctk.CTkButton(
+                        row,
+                        text="Hinzufügen",
+                        width=90,
+                        command=lambda s=symbol: _add_comparison_symbol(s),
+                    ).pack(side="right")
+
+            selected_frame = ctk.CTkFrame(search_card, fg_color="transparent")
+            selected_frame.pack(fill="x", padx=10, pady=(4, 8))
+            ctk.CTkLabel(selected_frame, text="Ausgewählte Vergleiche:").pack(anchor="w")
+            selected_symbols = ws.get("comparison_symbols") or []
+            if not selected_symbols:
+                ctk.CTkLabel(selected_frame, text="Keine freien Vergleichswerte ausgewählt.", text_color="gray70").pack(anchor="w")
+            for symbol in selected_symbols:
+                row = ctk.CTkFrame(selected_frame, fg_color="transparent")
+                row.pack(fill="x", pady=1)
+                ctk.CTkLabel(row, text=symbol).pack(side="left")
+                ctk.CTkButton(row, text="Entfernen", width=90, command=lambda s=symbol: _remove_comparison_symbol(s)).pack(side="right")
+
             chart_box, chart_body = section_card(content, "Zeitreihen")
             chart_box.pack(fill="both", expand=True)
             _load_timeseries(ws, isin)
+            _load_comparison_timeseries(ws, isin)
             create_chart_screen(
                 chart_body,
                 isin=isin,
                 payload=ws["payloads"].get("timeseries_active", {}),
-                warnings=ws["warnings"].get("timeseries_active", []),
+                warnings=ws["warnings"].get("timeseries_active", []) + ws["warnings"].get("comparison_active", []) + ws["warnings"].get("comparison_search", []),
                 selected_series=ws["selected_series"],
                 benchmark=ws.get("benchmark"),
+                comparison_payload=ws["payloads"].get("comparison_active", {}),
             )
             return
 
@@ -581,6 +667,29 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
         if ws is None:
             return
         ws["selected_series"] = columns or ["price"]
+        if current["tab"] == "returns":
+            _render_tab("returns")
+
+    def _add_comparison_symbol(symbol: str):
+        ws = _active_workspace()
+        if ws is None:
+            return
+        normalized = (symbol or "").strip().upper()
+        if not normalized:
+            return
+        selected = list(ws.get("comparison_symbols") or [])
+        if normalized not in selected:
+            selected.append(normalized)
+            ws["comparison_symbols"] = selected
+        if current["tab"] == "returns":
+            _render_tab("returns")
+
+    def _remove_comparison_symbol(symbol: str):
+        ws = _active_workspace()
+        if ws is None:
+            return
+        normalized = (symbol or "").strip().upper()
+        ws["comparison_symbols"] = [entry for entry in (ws.get("comparison_symbols") or []) if entry != normalized]
         if current["tab"] == "returns":
             _render_tab("returns")
 

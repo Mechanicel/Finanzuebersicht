@@ -88,6 +88,19 @@ class AnalysisApiClient:
             return None, " | ".join(errors)
         return None, "Benchmark-Katalog derzeit nicht verfügbar"
 
+    def search_benchmark_candidates(self, query: str):
+        normalized = (query or "").strip()
+        if not normalized:
+            return {"results": []}, None
+        return self._cached_get("/analysis/benchmark-search", params={"q": normalized})
+
+    def load_comparison_timeseries(self, isin: str, symbols: list[str]):
+        normalized = sorted({str(symbol).strip().upper() for symbol in (symbols or []) if str(symbol).strip()})
+        if not normalized:
+            return {"company": {"isin": isin, "series": []}, "comparisons": []}, None
+        params = {"symbols": ",".join(normalized)}
+        return self._cached_get(f"/analysis/company/{isin}/comparison-timeseries", params=params)
+
     def load_company_analysis(self, isin: str) -> tuple[dict[str, Any], list[str]]:
         """Lädt Snapshot + Full und merged die wichtigsten Blöcke robust zusammen."""
         warnings: list[str] = []

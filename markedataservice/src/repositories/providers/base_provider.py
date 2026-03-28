@@ -41,6 +41,9 @@ class BaseProvider:
     def fetch_benchmark_timeseries(self, symbol: str) -> List[Dict[str, Any]]:
         raise NotImplementedError
 
+    def search_quotes(self, query: str, max_results: int = 10) -> List[Dict[str, Any]]:
+        raise NotImplementedError
+
     # Legacy-Adapter
     def fetch_basic(self, isin: str, symbol: str | None = None) -> Dict[str, Any]:
         instrument = self.fetch_instrument(isin, symbol=symbol)
