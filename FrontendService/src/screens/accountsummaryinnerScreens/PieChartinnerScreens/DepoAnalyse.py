@@ -351,9 +351,19 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
 
     _, workspace_body = section_card(ui["content"], "Analyse-Workspace")
 
-    empty_state(workspace_body, "Bitte oben eine Position auswählen.")
-
     current = {"isin": None, "tab": "overview"}
+    ui_state: dict[str, Any] = {
+        "tab_bar": None,
+        "tabs_host": None,
+        "empty_box": None,
+        "tab_frames": {},
+        "active_tab": None,
+        "returns": {"initialized": False},
+    }
+
+    def _clear_children(parent):
+        for widget in parent.winfo_children():
+            widget.destroy()
 
     def _active_workspace():
         isin = current["isin"]
@@ -389,7 +399,11 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
         benchmark = ws.get("benchmark")
         _load_into(ws, f"risk::{benchmark or '_none_'}", lambda: client.load_risk(isin, benchmark))
         _load_into(ws, f"benchmark::{benchmark or '_none_'}", lambda: client.load_benchmark(isin, benchmark))
-        _load_into(ws, f"timeseries::risk::{benchmark or '_none_'}", lambda: client.load_timeseries(isin, series="benchmark_relative", benchmark=benchmark))
+        _load_into(
+            ws,
+            f"timeseries::risk::{benchmark or '_none_'}",
+            lambda: client.load_timeseries(isin, series="benchmark_relative", benchmark=benchmark),
+        )
 
     def _load_fundamentals(ws: dict, isin: str):
         _load_into(ws, "fundamentals", lambda: client.load_fundamentals(isin))
@@ -406,33 +420,199 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
                 raw[key] = payload
         return raw
 
-    def _render_tab(tab: str):
-        for widget in workspace_body.winfo_children():
-            widget.destroy()
-
-        isin = current["isin"]
-        if not isin:
-            empty_state(workspace_body, "Bitte oben eine Position auswählen.")
+    def _ensure_shell():
+        if ui_state["tab_bar"] is not None:
             return
-
-        ws = _active_workspace()
-        if ws is None:
-            return
-
-        _load_benchmark_catalog(client, ws)
-
-        tab_bar = ctk.CTkSegmentedButton(
+        ui_state["empty_box"] = empty_state(workspace_body, "Bitte oben eine Position auswählen.")
+        ui_state["tab_bar"] = ctk.CTkSegmentedButton(
             workspace_body,
             values=[TAB_LABELS[k] for k in TAB_LABELS],
             command=lambda label: _set_tab(next(key for key, val in TAB_LABELS.items() if val == label)),
         )
-        tab_bar.pack(fill="x", pady=(0, 10))
-        tab_bar.set(TAB_LABELS[tab])
+        ui_state["tabs_host"] = ctk.CTkFrame(workspace_body, fg_color="transparent")
 
-        content = ctk.CTkFrame(workspace_body, fg_color="transparent")
-        content.pack(fill="both", expand=True)
+    def _show_empty():
+        _ensure_shell()
+        ui_state["tab_bar"].pack_forget()
+        ui_state["tabs_host"].pack_forget()
+        if not ui_state["empty_box"].winfo_manager():
+            ui_state["empty_box"].pack(fill="x", pady=10)
+
+    def _show_shell():
+        _ensure_shell()
+        ui_state["empty_box"].pack_forget()
+        if not ui_state["tab_bar"].winfo_manager():
+            ui_state["tab_bar"].pack(fill="x", pady=(0, 10))
+        if not ui_state["tabs_host"].winfo_manager():
+            ui_state["tabs_host"].pack(fill="both", expand=True)
+
+    def _ensure_tab_frame(tab: str):
+        frame = ui_state["tab_frames"].get(tab)
+        if frame is None:
+            frame = ctk.CTkFrame(ui_state["tabs_host"], fg_color="transparent")
+            ui_state["tab_frames"][tab] = frame
+        return frame
+
+    def _show_tab_frame(tab: str):
+        frame = _ensure_tab_frame(tab)
+        if ui_state["active_tab"] and ui_state["active_tab"] != tab:
+            ui_state["tab_frames"][ui_state["active_tab"]].pack_forget()
+        if not frame.winfo_manager():
+            frame.pack(fill="both", expand=True)
+        ui_state["active_tab"] = tab
+        return frame
+
+    def _returns_state() -> dict[str, Any]:
+        return ui_state["returns"]
+
+    def _ensure_returns_frame(frame):
+        rs = _returns_state()
+        if rs.get("initialized"):
+            return
+
+        controls, controls_body = section_card(frame, "Steuerung", "Serienauswahl und Benchmark")
+        controls.pack(fill="x", pady=(0, 8))
+        ctk.CTkLabel(controls_body, text="Benchmark:").pack(side="left", padx=(0, 8))
+        benchmark_menu = ctk.CTkOptionMenu(controls_body, values=["Kein Benchmark"], command=lambda _: None)
+        benchmark_menu.pack(side="left", padx=(0, 14))
+        ctk.CTkLabel(controls_body, text="Serien:").pack(side="left", padx=(0, 6))
+        selector = create_column_selector_screen(controls_body, SERIES_OPTIONS, callback=lambda cols: _set_series(cols))
+
+        search_card = ctk.CTkFrame(frame)
+        search_card.pack(fill="x", pady=(0, 8))
+        ctk.CTkLabel(search_card, text="Freie Vergleiche (Kurschart):").pack(anchor="w", padx=10, pady=(8, 4))
+        search_row = ctk.CTkFrame(search_card, fg_color="transparent")
+        search_row.pack(fill="x", padx=10, pady=(0, 6))
+        query_var = ctk.StringVar(value="")
+        search_entry = ctk.CTkEntry(search_row, textvariable=query_var, placeholder_text="z. B. Apple, MSFT, SPY")
+        search_entry.pack(side="left", fill="x", expand=True, padx=(0, 8))
+        ctk.CTkButton(search_row, text="Suchen", width=90, command=lambda: _run_returns_search()).pack(side="left")
+        search_entry.bind("<Return>", lambda *_: _run_returns_search())
+
+        results_frame = ctk.CTkFrame(search_card, fg_color="transparent")
+        results_frame.pack(fill="x", padx=10, pady=(0, 4))
+        selected_frame = ctk.CTkFrame(search_card, fg_color="transparent")
+        selected_frame.pack(fill="x", padx=10, pady=(4, 8))
+
+        chart_box, chart_body = section_card(frame, "Zeitreihen")
+        chart_box.pack(fill="both", expand=True)
+
+        warning_var = ctk.StringVar(value="")
+        warning_label = ctk.CTkLabel(frame, textvariable=warning_var, text_color="#ffb347")
+        warning_label.pack(anchor="w", pady=(8, 0))
+        warning_label.pack_forget()
+
+        rs.update(
+            {
+                "initialized": True,
+                "benchmark_menu": benchmark_menu,
+                "selector": selector,
+                "query_var": query_var,
+                "results_frame": results_frame,
+                "selected_frame": selected_frame,
+                "chart_body": chart_body,
+                "warning_var": warning_var,
+                "warning_label": warning_label,
+            }
+        )
+
+    def _update_returns_controls(ws: dict):
+        rs = _returns_state()
+        options = ws.get("benchmark_options") or [("Kein Benchmark", None)]
+        labels = [label for label, _ in options]
+        reverse = {label: value for label, value in options}
+        selected_label = next((label for label, value in options if value == ws.get("benchmark")), "Kein Benchmark")
+
+        menu = rs.get("benchmark_menu")
+        if menu is not None:
+            menu.configure(values=labels, command=lambda label: _set_benchmark(reverse.get(label)))
+            menu.set(selected_label)
+
+        selector = rs.get("selector")
+        if selector is not None:
+            selected_set = set(ws["selected_series"])
+            for name, var in selector._vars.items():
+                var.set(name in selected_set)
+
+    def _update_returns_search_selection(ws: dict):
+        rs = _returns_state()
+        results_frame = rs.get("results_frame")
+        selected_frame = rs.get("selected_frame")
+        if results_frame is None or selected_frame is None:
+            return
+
+        _clear_children(results_frame)
+        _clear_children(selected_frame)
+
+        results = ws.get("comparison_search_results") or []
+        if results:
+            ctk.CTkLabel(results_frame, text="Suchergebnisse:").pack(anchor="w")
+            for item in results[:8]:
+                symbol = str(item.get("symbol") or "").upper()
+                if not symbol:
+                    continue
+                name = item.get("name") or symbol
+                exchange = item.get("exchange") or "—"
+                quote_type = item.get("quote_type") or "—"
+                row = ctk.CTkFrame(results_frame, fg_color="transparent")
+                row.pack(fill="x", pady=1)
+                ctk.CTkLabel(row, text=f"{symbol} — {name} ({exchange}, {quote_type})").pack(side="left", anchor="w")
+                ctk.CTkButton(row, text="Hinzufügen", width=90, command=lambda s=symbol: _add_comparison_symbol(s)).pack(side="right")
+
+        ctk.CTkLabel(selected_frame, text="Ausgewählte Vergleiche:").pack(anchor="w")
+        selected_symbols = ws.get("comparison_symbols") or []
+        if not selected_symbols:
+            ctk.CTkLabel(selected_frame, text="Keine freien Vergleichswerte ausgewählt.", text_color="gray70").pack(anchor="w")
+        for symbol in selected_symbols:
+            row = ctk.CTkFrame(selected_frame, fg_color="transparent")
+            row.pack(fill="x", pady=1)
+            ctk.CTkLabel(row, text=symbol).pack(side="left")
+            ctk.CTkButton(row, text="Entfernen", width=90, command=lambda s=symbol: _remove_comparison_symbol(s)).pack(side="right")
+
+    def _update_returns_chart_and_warnings(ws: dict, isin: str):
+        _load_timeseries(ws, isin)
+        _load_comparison_timeseries(ws, isin)
+        rs = _returns_state()
+        warnings = ws["warnings"].get("timeseries_active", []) + ws["warnings"].get("comparison_active", []) + ws["warnings"].get("comparison_search", [])
+        create_chart_screen(
+            rs["chart_body"],
+            isin=isin,
+            payload=ws["payloads"].get("timeseries_active", {}),
+            warnings=warnings,
+            selected_series=ws["selected_series"],
+            benchmark=ws.get("benchmark"),
+            comparison_payload=ws["payloads"].get("comparison_active", {}),
+        )
+        warning_label = rs.get("warning_label")
+        warning_var = rs.get("warning_var")
+        if warning_label is not None and warning_var is not None:
+            if warnings:
+                warning_var.set("Hinweise: " + " | ".join(warnings))
+                if not warning_label.winfo_manager():
+                    warning_label.pack(anchor="w", pady=(8, 0))
+            else:
+                warning_var.set("")
+                if warning_label.winfo_manager():
+                    warning_label.pack_forget()
+
+    def _render_tab(tab: str):
+        isin = current["isin"]
+        if not isin:
+            _show_empty()
+            return
+
+        ws = _active_workspace()
+        if ws is None:
+            _show_empty()
+            return
+
+        _show_shell()
+        _load_benchmark_catalog(client, ws)
+        ui_state["tab_bar"].set(TAB_LABELS[tab])
+        content = _show_tab_frame(tab)
 
         if tab == "overview":
+            _clear_children(content)
             _load_overview(ws, isin)
             _render_snapshot(
                 content,
@@ -445,98 +625,14 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
             return
 
         if tab == "returns":
-            controls, controls_body = section_card(content, "Steuerung", "Serienauswahl und Benchmark")
-            controls.pack(fill="x", pady=(0, 8))
-
-            ctk.CTkLabel(controls_body, text="Benchmark:").pack(side="left", padx=(0, 8))
-            options = ws.get("benchmark_options") or [("Kein Benchmark", None)]
-            reverse = {label: value for label, value in options}
-            selected_label = next((label for label, value in options if value == ws.get("benchmark")), "Kein Benchmark")
-
-            benchmark_menu = ctk.CTkOptionMenu(
-                controls_body,
-                values=[label for label, _ in options],
-                command=lambda label: _set_benchmark(reverse.get(label)),
-            )
-            benchmark_menu.set(selected_label)
-            benchmark_menu.pack(side="left", padx=(0, 14))
-
-            ctk.CTkLabel(controls_body, text="Serien:").pack(side="left", padx=(0, 6))
-            selector = create_column_selector_screen(controls_body, SERIES_OPTIONS, callback=lambda cols: _set_series(cols))
-            selected_set = set(ws["selected_series"])
-            for name, var in selector._vars.items():
-                var.set(name in selected_set)
-
-            search_card = ctk.CTkFrame(content)
-            search_card.pack(fill="x", pady=(0, 8))
-            ctk.CTkLabel(search_card, text="Freie Vergleiche (Kurschart):").pack(anchor="w", padx=10, pady=(8, 4))
-
-            search_row = ctk.CTkFrame(search_card, fg_color="transparent")
-            search_row.pack(fill="x", padx=10, pady=(0, 6))
-            query_var = ctk.StringVar(value="")
-            search_entry = ctk.CTkEntry(search_row, textvariable=query_var, placeholder_text="z. B. Apple, MSFT, SPY")
-            search_entry.pack(side="left", fill="x", expand=True, padx=(0, 8))
-
-            def _run_search(*_):
-                query = query_var.get().strip()
-                results, search_warning = client.search_benchmark_candidates(query)
-                ws["comparison_search_results"] = list((results or {}).get("results") or [])
-                ws["warnings"]["comparison_search"] = [search_warning] if search_warning else []
-                _render_tab("returns")
-
-            ctk.CTkButton(search_row, text="Suchen", width=90, command=_run_search).pack(side="left")
-            search_entry.bind("<Return>", _run_search)
-
-            results_frame = ctk.CTkFrame(search_card, fg_color="transparent")
-            results_frame.pack(fill="x", padx=10, pady=(0, 4))
-            results = ws.get("comparison_search_results") or []
-            if results:
-                ctk.CTkLabel(results_frame, text="Suchergebnisse:").pack(anchor="w")
-                for item in results[:8]:
-                    symbol = str(item.get("symbol") or "").upper()
-                    if not symbol:
-                        continue
-                    name = item.get("name") or symbol
-                    exchange = item.get("exchange") or "—"
-                    quote_type = item.get("quote_type") or "—"
-                    row = ctk.CTkFrame(results_frame, fg_color="transparent")
-                    row.pack(fill="x", pady=1)
-                    ctk.CTkLabel(row, text=f"{symbol} — {name} ({exchange}, {quote_type})").pack(side="left", anchor="w")
-                    ctk.CTkButton(
-                        row,
-                        text="Hinzufügen",
-                        width=90,
-                        command=lambda s=symbol: _add_comparison_symbol(s),
-                    ).pack(side="right")
-
-            selected_frame = ctk.CTkFrame(search_card, fg_color="transparent")
-            selected_frame.pack(fill="x", padx=10, pady=(4, 8))
-            ctk.CTkLabel(selected_frame, text="Ausgewählte Vergleiche:").pack(anchor="w")
-            selected_symbols = ws.get("comparison_symbols") or []
-            if not selected_symbols:
-                ctk.CTkLabel(selected_frame, text="Keine freien Vergleichswerte ausgewählt.", text_color="gray70").pack(anchor="w")
-            for symbol in selected_symbols:
-                row = ctk.CTkFrame(selected_frame, fg_color="transparent")
-                row.pack(fill="x", pady=1)
-                ctk.CTkLabel(row, text=symbol).pack(side="left")
-                ctk.CTkButton(row, text="Entfernen", width=90, command=lambda s=symbol: _remove_comparison_symbol(s)).pack(side="right")
-
-            chart_box, chart_body = section_card(content, "Zeitreihen")
-            chart_box.pack(fill="both", expand=True)
-            _load_timeseries(ws, isin)
-            _load_comparison_timeseries(ws, isin)
-            create_chart_screen(
-                chart_body,
-                isin=isin,
-                payload=ws["payloads"].get("timeseries_active", {}),
-                warnings=ws["warnings"].get("timeseries_active", []) + ws["warnings"].get("comparison_active", []) + ws["warnings"].get("comparison_search", []),
-                selected_series=ws["selected_series"],
-                benchmark=ws.get("benchmark"),
-                comparison_payload=ws["payloads"].get("comparison_active", {}),
-            )
+            _ensure_returns_frame(content)
+            _update_returns_controls(ws)
+            _update_returns_search_selection(ws)
+            _update_returns_chart_and_warnings(ws, isin)
             return
 
         if tab == "risk":
+            _clear_children(content)
             _load_risk(ws, isin)
             risk_payload = ws["payloads"].get(f"risk::{ws.get('benchmark') or '_none_'}", {})
             risk_root = risk_payload.get("risk", {}) if isinstance(risk_payload, dict) else {}
@@ -594,6 +690,7 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
             )
             return
 
+        _clear_children(content)
         if tab == "fundamentals":
             _load_fundamentals(ws, isin)
             payload = ws["payloads"].get("fundamentals", {})
@@ -621,8 +718,7 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
                 period = period_var.get()
                 _load_financials(ws, isin, period)
                 payload = ws["payloads"].get(f"financials::{period}", {})
-                for widget in financial_area.winfo_children():
-                    widget.destroy()
+                _clear_children(financial_area)
                 _render_financial_block(financial_area, "Income Statement", payload.get("income_statement", {}))
                 _render_financial_block(financial_area, "Balance Sheet", payload.get("balance_sheet", {}))
                 _render_financial_block(financial_area, "Cash Flow", payload.get("cash_flow", {}))
@@ -665,6 +761,10 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
         if ws.get("benchmark") == benchmark:
             return
         ws["benchmark"] = benchmark
+        if current["tab"] == "returns" and current["isin"]:
+            _update_returns_controls(ws)
+            _update_returns_chart_and_warnings(ws, current["isin"])
+            return
         _render_tab(current["tab"])
 
     def _set_series(columns: list[str]):
@@ -672,8 +772,9 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
         if ws is None:
             return
         ws["selected_series"] = columns or ["price"]
-        if current["tab"] == "returns":
-            _render_tab("returns")
+        if current["tab"] == "returns" and current["isin"]:
+            _update_returns_controls(ws)
+            _update_returns_chart_and_warnings(ws, current["isin"])
 
     def _add_comparison_symbol(symbol: str):
         ws = _active_workspace()
@@ -686,8 +787,9 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
         if normalized not in selected:
             selected.append(normalized)
             ws["comparison_symbols"] = selected
-        if current["tab"] == "returns":
-            _render_tab("returns")
+        if current["tab"] == "returns" and current["isin"]:
+            _update_returns_search_selection(ws)
+            _update_returns_chart_and_warnings(ws, current["isin"])
 
     def _remove_comparison_symbol(symbol: str):
         ws = _active_workspace()
@@ -695,15 +797,29 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
             return
         normalized = (symbol or "").strip().upper()
         ws["comparison_symbols"] = [entry for entry in (ws.get("comparison_symbols") or []) if entry != normalized]
-        if current["tab"] == "returns":
-            _render_tab("returns")
+        if current["tab"] == "returns" and current["isin"]:
+            _update_returns_search_selection(ws)
+            _update_returns_chart_and_warnings(ws, current["isin"])
+
+    def _run_returns_search():
+        ws = _active_workspace()
+        isin = current["isin"]
+        if ws is None or not isin:
+            return
+        query_var = _returns_state().get("query_var")
+        query = query_var.get().strip() if query_var is not None else ""
+        results, search_warning = client.search_benchmark_candidates(query)
+        ws["comparison_search_results"] = list((results or {}).get("results") or [])
+        ws["warnings"]["comparison_search"] = [search_warning] if search_warning else []
+        _update_returns_search_selection(ws)
+        _update_returns_chart_and_warnings(ws, isin)
 
     def on_stock_selected(ev):
         selection_started = time.perf_counter()
         sel_isin = ev.get("isin")
         logger.debug("DepoAnalyse: Instrument ausgewählt ISIN=%s", sel_isin)
         if not sel_isin:
-            empty_state(workspace_body, "Ungültige Auswahl: keine ISIN")
+            _show_empty()
             return
 
         provider_meta_var.set(
@@ -721,6 +837,7 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
         if settings.performance_logging:
             logger.info("DepoAnalyse initial workspace render for %s took %.2fs", sel_isin, time.perf_counter() - selection_started)
 
+    _show_empty()
     create_depot_pie(
         panel_container,
         navigator,
