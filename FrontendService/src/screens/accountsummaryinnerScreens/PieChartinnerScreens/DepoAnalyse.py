@@ -266,6 +266,24 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
     workspace_registry: dict[str, dict] = {}
 
     _, top_body = section_card(ui["content"], "Depot-Aufteilung", "Klicken Sie auf eine Position, um den Workspace zu laden.")
+    method_card = ctk.CTkFrame(top_body)
+    method_card.pack(fill="x", pady=(0, 8))
+    ctk.CTkLabel(
+        method_card,
+        text=(
+            "Depot-Performance (TWR/MWR) noch nicht implementiert, da im aktuellen Datenmodell "
+            "keine belastbare Cashflow-Historie für Ein-/Auszahlungen vorliegt."
+        ),
+        text_color="#ffb347",
+        wraplength=980,
+        justify="left",
+    ).pack(anchor="w", padx=10, pady=(8, 4))
+    provider_meta_var = ctk.StringVar(value="Datenstand: — | Provider: — | Coverage: —")
+    ctk.CTkLabel(method_card, textvariable=provider_meta_var, text_color="gray70").pack(anchor="w", padx=10, pady=(0, 8))
+
+    panel_container = ctk.CTkFrame(top_body, fg_color="transparent")
+    panel_container.pack(fill="both", expand=True)
+
     _, workspace_body = section_card(ui["content"], "Analyse-Workspace")
 
     empty_state(workspace_body, "Bitte oben eine Position auswählen.")
@@ -530,9 +548,18 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
         if not sel_isin:
             empty_state(workspace_body, "Ungültige Auswahl: keine ISIN")
             return
+
+        provider_meta_var.set(
+            "Datenstand: {as_of} | Provider: {provider} | Coverage: {coverage}".format(
+                as_of=ev.get("as_of") or "—",
+                provider=ev.get("provider") or "—",
+                coverage=ev.get("coverage") or "—",
+            )
+        )
+
         current["isin"] = sel_isin
         current["tab"] = "overview"
         _ensure_workspace(workspace_registry, sel_isin)
         _render_tab("overview")
 
-    create_depot_pie(top_body, navigator, state, depot_index=depot_index, pick_callback=on_stock_selected)
+    create_depot_pie(panel_container, navigator, state, depot_index=depot_index, pick_callback=on_stock_selected, clear_before_render=False)
