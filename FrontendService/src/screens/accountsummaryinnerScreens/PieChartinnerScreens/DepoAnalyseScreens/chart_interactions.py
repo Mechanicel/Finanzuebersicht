@@ -59,45 +59,50 @@ def enable_timeseries_hover(canvas: FigureCanvasTkAgg, axes: list[Axes], precisi
             _hide_if_needed()
             return
 
-        current_ax = event.inaxes
-        best = None
-        for line in current_ax.get_lines():
-            x_values = list(line.get_xdata())
-            y_values = list(line.get_ydata())
-            if not x_values or not y_values or len(x_values) != len(y_values):
-                continue
+        nearest_x: float | None = None
+        nearest_distance: float | None = None
+        per_line_points: list[tuple[float, str, float]] = []
+        for axis in axes:
+            for line in axis.get_lines():
+                x_values = list(line.get_xdata())
+                y_values = list(line.get_ydata())
+                if not x_values or not y_values or len(x_values) != len(y_values):
+                    continue
 
-            try:
-                x_values_num = [mdates.date2num(x) for x in x_values]
-            except Exception:
-                continue
+                try:
+                    x_values_num = [mdates.date2num(x) for x in x_values]
+                except Exception:
+                    continue
 
-            idx = _closest_index(x_values_num, float(event.xdata))
-            if idx is None:
-                continue
-            x_num = x_values_num[idx]
-            y_val = y_values[idx]
-            if y_val is None:
-                continue
+                idx = _closest_index(x_values_num, float(event.xdata))
+                if idx is None:
+                    continue
+                x_num = x_values_num[idx]
+                y_val = y_values[idx]
+                if y_val is None:
+                    continue
+                per_line_points.append((x_num, str(line.get_label() or "Serie"), float(y_val)))
+                distance = abs(x_num - float(event.xdata))
+                if nearest_distance is None or distance < nearest_distance:
+                    nearest_distance = distance
+                    nearest_x = x_num
 
-            distance = abs(x_num - float(event.xdata))
-            candidate = {
-                "distance": distance,
-                "x_num": x_num,
-                "y": float(y_val),
-                "label": str(line.get_label() or "Serie"),
-            }
-            if best is None or candidate["distance"] < best["distance"]:
-                best = candidate
-
-        if best is None:
+        if nearest_x is None:
             _hide_if_needed()
             return
 
-        text = f"{best['label']}\n{_format_date(best['x_num'])}\n{best['y']:.{precision}f}"
+        same_date_points = [entry for entry in per_line_points if abs(entry[0] - nearest_x) < 1e-9]
+        if not same_date_points:
+            _hide_if_needed()
+            return
+        same_date_points.sort(key=lambda item: item[1].lower())
+        lines = [f"{label}: {value:.{precision}f}" for _, label, value in same_date_points]
+        text = _format_date(nearest_x) + "\n" + "\n".join(lines)
+
+        anchor_y = same_date_points[0][2]
         previous_text = annotation.get_text()
         previous_xy = annotation.xy
-        annotation.xy = (best["x_num"], best["y"])
+        annotation.xy = (nearest_x, anchor_y)
         annotation.set_text(text)
         annotation.set_visible(True)
 

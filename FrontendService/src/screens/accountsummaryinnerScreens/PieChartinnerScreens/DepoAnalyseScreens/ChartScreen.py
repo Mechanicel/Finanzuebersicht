@@ -9,7 +9,6 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolb
 from matplotlib.figure import Figure
 
 from finanzuebersicht_shared import get_settings
-from src.helpers.UniversalMethoden import clear_ui
 from src.screens.accountsummaryinnerScreens.PieChartinnerScreens.analysis_api_client import AnalysisApiClient
 from src.screens.accountsummaryinnerScreens.PieChartinnerScreens.DepoAnalyseScreens.chart_interactions import (
     enable_timeseries_hover,
@@ -160,24 +159,24 @@ class TimeSeriesChartModule:
     ):
         self.parent = parent
         self.isin = isin
-        self.visible_keys = visible_keys
-        self.all_series = all_series
-        self.comparison_series = comparison_series
+        self.visible_keys: list[str] = []
+        self.all_series: dict[str, list[tuple[datetime, float]]] = {}
+        self.comparison_series: list[tuple[str, list[tuple[datetime, float]]]] = []
 
         self.canvas: FigureCanvasTkAgg | None = None
+        self.figure: Figure | None = None
         self.axes: list[Axes] = []
         self.hover_ids: tuple[int, int, int] | None = None
         self.toolbar: NavigationToolbar2Tk | None = None
         self.date_error_var = ctk.StringVar(value="")
 
-        min_date, max_date = self._compute_bounds()
-        self.min_date = min_date
-        self.max_date = max_date
-        self.from_var = ctk.StringVar(value=self._fmt_date(min_date))
-        self.to_var = ctk.StringVar(value=self._fmt_date(max_date))
+        self.min_date: datetime | None = None
+        self.max_date: datetime | None = None
+        self.from_var = ctk.StringVar(value="")
+        self.to_var = ctk.StringVar(value="")
 
         self._build_layout()
-        self.update_chart()
+        self.set_data(isin, visible_keys, all_series, comparison_series)
 
     @staticmethod
     def _fmt_date(value: datetime | None) -> str:
@@ -204,6 +203,26 @@ class TimeSeriesChartModule:
         if not all_dates:
             return None, None
         return min(all_dates), max(all_dates)
+
+    def _refresh_bounds(self, preserve_range: bool = True):
+        old_from = self._parse_date(self.from_var.get())
+        old_to = self._parse_date(self.to_var.get())
+        self.min_date, self.max_date = self._compute_bounds()
+        if not preserve_range or (old_from is None and old_to is None):
+            self.from_var.set(self._fmt_date(self.min_date))
+            self.to_var.set(self._fmt_date(self.max_date))
+            return
+        clamped_from = old_from
+        clamped_to = old_to
+        if self.min_date and clamped_from and clamped_from < self.min_date:
+            clamped_from = self.min_date
+        if self.max_date and clamped_to and clamped_to > self.max_date:
+            clamped_to = self.max_date
+        if clamped_from and clamped_to and clamped_from > clamped_to:
+            clamped_from = self.min_date
+            clamped_to = self.max_date
+        self.from_var.set(self._fmt_date(clamped_from))
+        self.to_var.set(self._fmt_date(clamped_to))
 
     def _build_layout(self):
         actions_frame = ctk.CTkFrame(self.parent, fg_color="transparent")
@@ -272,12 +291,31 @@ class TimeSeriesChartModule:
         return filtered
 
     def _destroy_canvas(self):
+        if self.hover_ids and self.canvas is not None:
+            for event_id in self.hover_ids:
+                self.canvas.mpl_disconnect(event_id)
+            self.hover_ids = None
         if self.canvas is not None:
             self.canvas.get_tk_widget().destroy()
             self.canvas = None
+            self.figure = None
         if self.toolbar is not None:
             self.toolbar.destroy()
             self.toolbar = None
+
+    def set_data(
+        self,
+        isin: str,
+        visible_keys: list[str],
+        all_series: dict[str, list[tuple[datetime, float]]],
+        comparison_series: list[tuple[str, list[tuple[datetime, float]]]],
+    ):
+        self.isin = isin
+        self.visible_keys = list(visible_keys)
+        self.all_series = {key: list(points or []) for key, points in (all_series or {}).items()}
+        self.comparison_series = [(label, list(points or [])) for label, points in (comparison_series or [])]
+        self._refresh_bounds(preserve_range=True)
+        self.update_chart()
 
     def update_chart(self):
         start = self._parse_date(self.from_var.get())
@@ -305,15 +343,31 @@ class TimeSeriesChartModule:
             figsize=(7, 4.35 if lower else 3.05),
         )
 
-        self._destroy_canvas()
-        self.canvas = FigureCanvasTkAgg(fig, master=self.chart_area)
-        self.axes = axes
-        self.canvas.draw()
-        self.canvas.get_tk_widget().pack(fill="both", expand=True)
-        self.hover_ids = enable_timeseries_hover(self.canvas, axes)
+        if self.canvas is None:
+            self.canvas = FigureCanvasTkAgg(fig, master=self.chart_area)
+            self.figure = fig
+            self.axes = axes
+            self.canvas.draw()
+            self.canvas.get_tk_widget().pack(fill="both", expand=True)
+            self.hover_ids = enable_timeseries_hover(self.canvas, axes)
 
-        self.toolbar = NavigationToolbar2Tk(self.canvas, self.toolbar_frame)
-        self.toolbar.update()
+            self.toolbar = NavigationToolbar2Tk(self.canvas, self.toolbar_frame)
+            self.toolbar.update()
+            return
+
+        previous_figure = self.canvas.figure
+        self.canvas.figure = fig
+        self.figure = fig
+        self.axes = axes
+        if previous_figure is not None:
+            previous_figure.clf()
+        if self.hover_ids:
+            for event_id in self.hover_ids:
+                self.canvas.mpl_disconnect(event_id)
+        self.hover_ids = enable_timeseries_hover(self.canvas, axes)
+        self.canvas.draw_idle()
+        if self.toolbar is not None:
+            self.toolbar.update()
 
     def apply_preset(self, days: int | None):
         if not self.max_date:
@@ -371,10 +425,19 @@ def create_screen(
 ):
     """Rendert Kurs-/Performance-Verläufe aus dem /timeseries-Endpoint."""
     logger.debug("ChartScreen: Initialisiere für ISIN %s", isin)
-    clear_ui(parent)
-
-    frame = ctk.CTkFrame(parent, fg_color="transparent")
-    frame.pack(fill="both", expand=True, padx=4, pady=4)
+    module: TimeSeriesChartModule | None = getattr(parent, "_timeseries_chart_module", None)
+    frame = getattr(parent, "_timeseries_chart_frame", None)
+    if frame is None:
+        frame = ctk.CTkFrame(parent, fg_color="transparent")
+        frame.pack(fill="both", expand=True, padx=4, pady=4)
+        parent._timeseries_chart_frame = frame
+    warning_var: ctk.StringVar | None = getattr(parent, "_timeseries_chart_warning_var", None)
+    warning_label = getattr(parent, "_timeseries_chart_warning_label", None)
+    if warning_var is None or warning_label is None:
+        warning_var = ctk.StringVar(value="")
+        warning_label = ctk.CTkLabel(frame, textvariable=warning_var, text_color="#ffb347")
+        parent._timeseries_chart_warning_var = warning_var
+        parent._timeseries_chart_warning_label = warning_label
 
     effective_warnings = list(warnings or [])
     data = payload
@@ -407,23 +470,44 @@ def create_screen(
     visible_keys = [key for key in selected if key in series_map]
 
     if not visible_keys:
-        ctk.CTkLabel(frame, text="Keine Serie ausgewählt.", justify="left").pack(pady=20)
+        if module is not None:
+            module._destroy_canvas()
+        warning_var.set("Keine Serie ausgewählt.")
+        if not warning_label.winfo_manager():
+            warning_label.pack(anchor="w", pady=(8, 0))
         return
 
     visible_series = {key: series_map.get(key) or [] for key in visible_keys}
     if not any(visible_series.values()):
-        ctk.CTkLabel(frame, text="Keine Zeitreihendaten für die gewählten Serien vorhanden.", justify="left").pack(pady=20)
-        if effective_warnings:
-            ctk.CTkLabel(frame, text="Hinweise: " + " | ".join(effective_warnings), text_color="#ffb347").pack(anchor="w")
+        if module is not None:
+            module._destroy_canvas()
+        warning_var.set("Keine Zeitreihendaten für die gewählten Serien vorhanden.")
+        if not warning_label.winfo_manager():
+            warning_label.pack(anchor="w", pady=(8, 0))
         return
 
-    TimeSeriesChartModule(
-        parent=frame,
-        isin=isin,
-        visible_keys=visible_keys,
-        all_series=visible_series,
-        comparison_series=comparison_series,
-    )
+    if module is None:
+        module = TimeSeriesChartModule(
+            parent=frame,
+            isin=isin,
+            visible_keys=visible_keys,
+            all_series=visible_series,
+            comparison_series=comparison_series,
+        )
+        parent._timeseries_chart_module = module
+    else:
+        module.set_data(
+            isin=isin,
+            visible_keys=visible_keys,
+            all_series=visible_series,
+            comparison_series=comparison_series,
+        )
 
     if effective_warnings:
-        ctk.CTkLabel(frame, text="Hinweise: " + " | ".join(effective_warnings), text_color="#ffb347").pack(anchor="w", pady=(8, 0))
+        warning_var.set("Hinweise: " + " | ".join(effective_warnings))
+        if not warning_label.winfo_manager():
+            warning_label.pack(anchor="w", pady=(8, 0))
+    else:
+        warning_var.set("")
+        if warning_label.winfo_manager():
+            warning_label.pack_forget()
