@@ -22,6 +22,23 @@ from src.screens.accountsummaryinnerScreens.PieChartinnerScreens.ui_helpers impo
 from src.ui.components import section_card
 
 
+def _grid_section_card(parent, title: str, subtitle: str = ""):
+    """
+    Local grid-safe card helper.
+    `section_card` packs itself by default, which breaks in grid-managed parents.
+    """
+    card = ctk.CTkFrame(parent, corner_radius=12)
+    card.grid_columnconfigure(0, weight=1)
+    if title:
+        ctk.CTkLabel(card, text=title, font=("Arial", 18, "bold")).grid(row=0, column=0, sticky="w", padx=14, pady=(14, 0))
+    if subtitle:
+        ctk.CTkLabel(card, text=subtitle, text_color="gray70", font=("Arial", 12)).grid(row=1, column=0, sticky="w", padx=14, pady=(2, 10))
+    body = ctk.CTkFrame(card, fg_color="transparent")
+    body.grid(row=2, column=0, sticky="ew", padx=14, pady=(2, 14))
+    body.grid_columnconfigure(0, weight=1)
+    return card, body
+
+
 def _to_float(value):
     try:
         if value is None:
@@ -82,7 +99,7 @@ class OverviewTabController:
         shell.pack(fill="both", expand=True)
         shell.grid_columnconfigure((0, 1), weight=1)
 
-        identity_card, identity_body = section_card(shell, "Instrument")
+        identity_card, identity_body = _grid_section_card(shell, "Instrument")
         identity_card.grid(row=0, column=0, columnspan=2, sticky="ew", padx=2, pady=(0, 5))
         ctk.CTkLabel(identity_body, textvariable=self.title_var, font=("Arial", 18, "bold")).pack(anchor="w")
         ctk.CTkLabel(identity_body, textvariable=self.subtitle_var, text_color="gray70").pack(anchor="w", pady=(0, 4))
@@ -100,7 +117,7 @@ class OverviewTabController:
             self.summary_vars[key] = ctk.StringVar(value="—")
             ctk.CTkLabel(box, textvariable=self.summary_vars[key], font=("Arial", 14, "bold")).pack(anchor="w", padx=10, pady=(0, 6))
 
-        kpi_card, kpi_body = section_card(shell, "KPI-Kompakt")
+        kpi_card, kpi_body = _grid_section_card(shell, "KPI-Kompakt")
         kpi_card.grid(row=1, column=0, sticky="nsew", padx=(2, 3), pady=(0, 4))
         kpi_grid = ctk.CTkFrame(kpi_body, fg_color="transparent")
         kpi_grid.pack(fill="x")
@@ -115,12 +132,12 @@ class OverviewTabController:
             self.kpi_vars[key] = ctk.StringVar(value="—")
             ctk.CTkLabel(box, textvariable=self.kpi_vars[key], font=("Arial", 13, "bold")).pack(anchor="w", padx=8, pady=(0, 5))
 
-        meta_card, meta_body = section_card(shell, "Meta")
+        meta_card, meta_body = _grid_section_card(shell, "Meta")
         meta_card.grid(row=1, column=1, sticky="nsew", padx=(3, 2), pady=(0, 4))
         self.meta_var = ctk.StringVar(value="Provider: — | As-of: — | Coverage: —")
         ctk.CTkLabel(meta_body, textvariable=self.meta_var, text_color="gray70").pack(anchor="w")
 
-        profile_card, profile_body = section_card(shell, "Profil")
+        profile_card, profile_body = _grid_section_card(shell, "Profil")
         profile_card.grid(row=2, column=0, columnspan=2, sticky="ew", padx=2)
         self.profile_var = ctk.StringVar(value="Land: — | Währung: — | Börse: —")
         ctk.CTkLabel(profile_body, textvariable=self.profile_var, text_color="gray70").pack(anchor="w")

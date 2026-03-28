@@ -212,21 +212,36 @@ def create_screen(
 
     root = ctk.CTkFrame(app, fg_color="transparent")
     root.grid(row=0, column=0, sticky="nsew")
-    root.grid_columnconfigure(0, weight=5, minsize=720)
-    root.grid_columnconfigure(1, weight=3, minsize=380)
+    root.grid_columnconfigure(0, weight=1)
     root.grid_rowconfigure(1, weight=1)
     root.grid_rowconfigure(2, weight=0)
 
     control_frame = ctk.CTkFrame(root)
-    control_frame.grid(row=0, column=0, columnspan=2, sticky="ew", padx=8, pady=(6, 8))
+    control_frame.grid(row=0, column=0, sticky="ew", padx=8, pady=(6, 8))
     ctk.CTkLabel(control_frame, text="Gruppieren nach:").pack(side="left", padx=(8, 8), pady=8)
 
-    chart_frame = ctk.CTkFrame(root)
-    chart_frame.grid(row=1, column=0, sticky="nsew", padx=(8, 6), pady=(0, 8))
-    summary_frame = ctk.CTkFrame(root)
-    summary_frame.grid(row=1, column=1, sticky="nsew", padx=(6, 8), pady=(0, 8))
+    analysis_group_frame = ctk.CTkFrame(root)
+    analysis_group_frame.grid(row=1, column=0, sticky="nsew", padx=8, pady=(0, 8))
+    analysis_group_frame.grid_columnconfigure(0, weight=3, minsize=300)
+    analysis_group_frame.grid_columnconfigure(1, weight=4, minsize=620)
+    analysis_group_frame.grid_columnconfigure(2, weight=3, minsize=320)
+    analysis_group_frame.grid_rowconfigure(0, weight=1)
+
+    reserved_frame = ctk.CTkFrame(analysis_group_frame, fg_color="transparent", border_width=1, border_color="#30363d")
+    reserved_frame.grid(row=0, column=0, sticky="nsew", padx=(4, 6), pady=4)
+    reserved_frame.grid_propagate(False)
+    reserved_frame.configure(height=420)
+
+    chart_frame = ctk.CTkFrame(analysis_group_frame)
+    chart_frame.grid(row=0, column=1, sticky="nsew", padx=6, pady=4)
+
+    summary_frame = ctk.CTkFrame(analysis_group_frame)
+    summary_frame.grid(row=0, column=2, sticky="nsew", padx=(6, 4), pady=4)
+    summary_frame.grid_propagate(False)
+    summary_frame.configure(width=360, height=420)
+
     holdings_frame = ctk.CTkFrame(root)
-    holdings_frame.grid(row=2, column=0, columnspan=2, sticky="nsew", padx=8, pady=(0, 8))
+    holdings_frame.grid(row=2, column=0, sticky="nsew", padx=8, pady=(0, 8))
 
     rows_state = {"rows": []}
     selection_map: dict[str, dict] = {}
@@ -248,21 +263,15 @@ def create_screen(
             )
 
     chart_frame.grid_rowconfigure(0, weight=1)
-    chart_frame.grid_columnconfigure(0, weight=3, minsize=560)
-    chart_frame.grid_columnconfigure(1, weight=2, minsize=240)
+    chart_frame.grid_columnconfigure(0, weight=1)
 
     chart_canvas_host = ctk.CTkFrame(chart_frame)
-    chart_canvas_host.grid(row=0, column=0, sticky="nsew", padx=(4, 6), pady=4)
+    chart_canvas_host.grid(row=0, column=0, sticky="nsew", padx=4, pady=4)
     chart_canvas_host.pack_propagate(False)
     chart_canvas_host.configure(width=620, height=420)
 
-    reserved_slot = ctk.CTkFrame(chart_frame, fg_color="transparent", border_width=1, border_color="#30363d")
-    reserved_slot.grid(row=0, column=1, sticky="nsew", padx=(6, 4), pady=4)
-    ctk.CTkLabel(
-        reserved_slot,
-        text="Freie Fläche für zukünftiges Widget",
-        text_color="gray60",
-    ).pack(anchor="center", expand=True)
+    reserved_slot = ctk.CTkFrame(reserved_frame, fg_color="transparent")
+    reserved_slot.pack(fill="both", expand=True)
 
     chart_figure = Figure(figsize=(6.2, 4.2), dpi=100)
     chart_ax = chart_figure.add_subplot(111)
@@ -270,7 +279,6 @@ def create_screen(
     chart_canvas.get_tk_widget().pack(fill="both", expand=True, padx=2, pady=2)
     chart_actions = ctk.CTkFrame(chart_frame, fg_color="transparent")
     chart_actions.grid(row=1, column=0, sticky="ew", padx=4, pady=(0, 2))
-    ctk.CTkFrame(chart_frame, fg_color="transparent").grid(row=1, column=1, sticky="ew")
 
     tree_style = ttk.Style()
     try:
@@ -560,7 +568,7 @@ def create_screen(
     holdings_tree.bind("<<TreeviewSelect>>", _on_holdings_select)
     summary_tree.bind("<<TreeviewSelect>>", _on_summary_select)
     loading_label = ctk.CTkLabel(root, text="Lade Holdings...", text_color="gray70")
-    loading_label.grid(row=3, column=0, columnspan=2, sticky="w", padx=10, pady=(0, 6))
+    loading_label.grid(row=3, column=0, sticky="w", padx=10, pady=(0, 6))
     warning_label = ctk.CTkLabel(root, text="", text_color="#ffb347")
 
     def _render_holdings(rows: list[dict], holdings_warnings: list[str], holdings_meta: dict):
@@ -597,7 +605,7 @@ def create_screen(
         warning_text = " | ".join(dict.fromkeys(holdings_warnings))
         if warning_text:
             warning_label.configure(text=f"Hinweise: {warning_text}")
-            warning_label.grid(row=4, column=0, columnspan=2, sticky="w", padx=10, pady=(0, 6))
+            warning_label.grid(row=4, column=0, sticky="w", padx=10, pady=(0, 6))
         else:
             warning_label.grid_forget()
 
