@@ -76,6 +76,7 @@ def create_screen(
     warnings: list[str] | None = None,
     selected_series: list[str] | None = None,
     benchmark: str | None = None,
+    comparison_payload: dict[str, Any] | None = None,
 ):
     """Rendert Kurs-/Performance-Verläufe aus dem /timeseries-Endpoint."""
     logger.debug("ChartScreen: Initialisiere für ISIN %s", isin)
@@ -95,6 +96,22 @@ def create_screen(
             effective_warnings.append(fetch_error)
 
     series_map = _extract_timeseries_api_series(data or {})
+    comparison_series: list[tuple[str, list[tuple[datetime, float]]]] = []
+    comparisons = (comparison_payload or {}).get("comparisons") if isinstance(comparison_payload, dict) else []
+    if isinstance(comparisons, list):
+        for item in comparisons:
+            if not isinstance(item, dict):
+                continue
+            points = _parse_points(item.get("series"), "close", "close")
+            if not points:
+                continue
+            label = str(item.get("name") or item.get("symbol") or "Vergleich")
+            comparison_series.append((label, points))
+    meta = (comparison_payload or {}).get("meta") if isinstance(comparison_payload, dict) else {}
+    if isinstance(meta, dict):
+        for warning in meta.get("warnings") or []:
+            if isinstance(warning, str) and warning.strip():
+                effective_warnings.append(warning)
     selected = selected_series or ["price", "returns", "drawdown", "benchmark_relative", "benchmark_price"]
     visible_keys = [key for key in selected if key in series_map]
 
@@ -123,12 +140,14 @@ def create_screen(
         points = visible_series.get(key) or []
         if points:
             ax_price.plot([p[0] for p in points], [p[1] for p in points], label=SERIES_LABELS.get(key, key))
+    for label, points in comparison_series:
+        ax_price.plot([p[0] for p in points], [p[1] for p in points], label=label, alpha=0.85, linewidth=1.6)
 
     ax_price.grid(alpha=0.3)
     ax_price.set_ylabel("Preis")
     ax_price.xaxis.set_major_locator(mdates.AutoDateLocator())
     ax_price.xaxis.set_major_formatter(mdates.ConciseDateFormatter(ax_price.xaxis.get_major_locator()))
-    if any(visible_series.get(k) for k in ("price", "benchmark_price")):
+    if any(visible_series.get(k) for k in ("price", "benchmark_price")) or comparison_series:
         ax_price.legend(loc="best")
 
     if ax_metric is not None:

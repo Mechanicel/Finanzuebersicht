@@ -165,6 +165,16 @@ class StockService(BaseService):
         }
 
     @handle_errors
+    def search_benchmark_candidates(self, query: str) -> dict[str, Any]:
+        normalized_query = (query or "").strip()
+        if len(normalized_query) < 2:
+            raise InvalidRequestError("Query muss mindestens 2 Zeichen enthalten")
+        return {
+            "results": self.provider.search_quotes(normalized_query, max_results=10),
+            "meta": asdict(self._meta("benchmark_search")),
+        }
+
+    @handle_errors
     def get_volatility(self, isin: str) -> dict[str, Any]:
         model = self._get_or_build_model(isin, include_prices=True)
         metrics = self._analysis_service().build_metrics_payload(model)
@@ -216,6 +226,43 @@ class StockService(BaseService):
         return {
             **self._analysis_service().build_timeseries(model, requested, benchmark_key=benchmark_key),
             "meta": asdict(self._meta("timeseries_analysis")),
+        }
+
+    @handle_errors
+    def get_analysis_comparison_timeseries(self, isin: str, symbols: str) -> dict[str, Any]:
+        model = self._get_or_build_model(isin, include_prices=True)
+        requested_symbols = self._parse_symbols(symbols)
+        if not requested_symbols:
+            raise InvalidRequestError("Symbols dürfen nicht leer sein")
+
+        search_index = {
+            str(item.get("symbol")).upper(): item
+            for item in self.provider.search_quotes(" ".join(requested_symbols), max_results=25)
+            if isinstance(item, dict) and item.get("symbol")
+        }
+
+        comparisons: list[dict[str, Any]] = []
+        warnings: list[str] = []
+        for symbol in requested_symbols:
+            try:
+                series = self.provider.fetch_benchmark_timeseries(symbol)
+            except Exception:
+                logger.warning("Vergleichszeitreihe für %s fehlgeschlagen", symbol, exc_info=True)
+                warnings.append(f"Zeitreihe für {symbol} konnte nicht geladen werden")
+                continue
+            info = search_index.get(symbol.upper(), {})
+            comparisons.append(
+                {
+                    "symbol": symbol,
+                    "name": info.get("name") if isinstance(info, dict) else None,
+                    "series": series,
+                }
+            )
+
+        return {
+            "company": {"isin": model.isin, "series": list(model.price_history or [])},
+            "comparisons": comparisons,
+            "meta": {**asdict(self._meta("comparison_timeseries")), "warnings": warnings},
         }
 
     def _get_or_build_model(
@@ -302,6 +349,18 @@ class StockService(BaseService):
         model.sync_legacy_fields()
         self.mongo_repo.write(normalized_isin, model.to_dict())
         return model
+
+    @staticmethod
+    def _parse_symbols(symbols_raw: str) -> list[str]:
+        out: list[str] = []
+        seen: set[str] = set()
+        for token in (symbols_raw or "").split(","):
+            symbol = token.strip().upper()
+            if not symbol or symbol in seen:
+                continue
+            seen.add(symbol)
+            out.append(symbol)
+        return out
 
     def _provider_call(self, method: str, isin: str, symbol: str | None = None, *, cache: dict[tuple[str, str | None, tuple[tuple[str, Any], ...]], Any] | None = None, **kwargs: Any) -> Any:
         key_kwargs = tuple(sorted(kwargs.items()))

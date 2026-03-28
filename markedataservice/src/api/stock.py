@@ -154,6 +154,24 @@ def get_benchmark_catalog():
         return _handle_service_error(exc, "", "/analysis/benchmarks")
 
 
+@stock_bp.route("/analysis/benchmark-search", methods=["GET"])
+def benchmark_search():
+    query = request.args.get("q", "")
+    try:
+        return jsonify(service.search_benchmark_candidates(query))
+    except Exception as exc:
+        return _handle_service_error(exc, "", "/analysis/benchmark-search")
+
+
+@stock_bp.route("/analysis/company/<isin>/comparison-timeseries", methods=["GET"])
+def get_company_comparison_timeseries(isin: str):
+    symbols = request.args.get("symbols", "")
+    try:
+        return jsonify(service.get_analysis_comparison_timeseries(isin, symbols=symbols))
+    except Exception as exc:
+        return _handle_service_error(exc, isin, "/analysis/company/<isin>/comparison-timeseries")
+
+
 @stock_bp.route("/volatility", methods=["GET"])
 def get_volatility():
     isin = request.args.get("isin", "")

@@ -309,10 +309,17 @@ class YFinanceProvider(BaseProvider):
         return best_symbol
 
     def _search_symbols(self, isin: str) -> List[Dict[str, Any]]:
+        quotes = self.search_quotes(isin, max_results=12)
+        return [{"symbol": q.get("symbol"), "quote": q} for q in quotes if q.get("symbol")]
+
+    def search_quotes(self, query: str, max_results: int = 10) -> List[Dict[str, Any]]:
+        normalized_query = (query or "").strip()
+        if not normalized_query:
+            return []
         try:
             search = yf.Search(
-                query=isin,
-                max_results=12,
+                query=normalized_query,
+                max_results=max_results,
                 news_count=0,
                 lists_count=0,
                 include_cb=False,
@@ -321,8 +328,25 @@ class YFinanceProvider(BaseProvider):
             )
         except Exception:
             return []
-        quotes = [quote for quote in getattr(search, "quotes", []) if isinstance(quote, dict)]
-        return [{"symbol": q.get("symbol"), "quote": q} for q in quotes if q.get("symbol")]
+        out: List[Dict[str, Any]] = []
+        for quote in getattr(search, "quotes", []) or []:
+            if not isinstance(quote, dict):
+                continue
+            symbol = quote.get("symbol")
+            if not symbol:
+                continue
+            out.append(
+                {
+                    "symbol": str(symbol),
+                    "name": quote.get("shortname") or quote.get("longname") or quote.get("name"),
+                    "exchange": quote.get("exchange") or quote.get("exchDisp"),
+                    "quote_type": quote.get("quoteType"),
+                    "isin": quote.get("isin"),
+                }
+            )
+            if len(out) >= max_results:
+                break
+        return out
 
     def _fallback_symbol_lookup(self, isin: str) -> List[Dict[str, Any]]:
         try:
