@@ -11,6 +11,9 @@ from src.screens.accountsummaryinnerScreens.PieChartinnerScreens.DepoAnalyseScre
 from src.screens.accountsummaryinnerScreens.PieChartinnerScreens.DepoAnalyseScreens.ColumnSelectorScreen import (
     create_column_selector_screen,
 )
+from src.screens.accountsummaryinnerScreens.PieChartinnerScreens.DepoAnalyseScreens.TableScreen import (
+    create_screen as create_table_screen,
+)
 from src.screens.accountsummaryinnerScreens.PieChartinnerScreens.ui_helpers import (
     attach_tooltip,
     create_hover_icon_button,
@@ -75,10 +78,14 @@ class OverviewTabController:
         self.subtitle_var = ctk.StringVar(value="Symbol: — | ISIN: —")
         self.warning_var = ctk.StringVar(value="")
 
-        identity_card, identity_body = section_card(self.frame, "Instrument")
-        identity_card.pack(fill="x", pady=(0, 6))
-        ctk.CTkLabel(identity_body, textvariable=self.title_var, font=("Arial", 20, "bold")).pack(anchor="w")
-        ctk.CTkLabel(identity_body, textvariable=self.subtitle_var, text_color="gray70").pack(anchor="w", pady=(0, 6))
+        shell = ctk.CTkFrame(self.frame, fg_color="transparent")
+        shell.pack(fill="both", expand=True)
+        shell.grid_columnconfigure((0, 1), weight=1)
+
+        identity_card, identity_body = section_card(shell, "Instrument")
+        identity_card.grid(row=0, column=0, columnspan=2, sticky="ew", padx=2, pady=(0, 5))
+        ctk.CTkLabel(identity_body, textvariable=self.title_var, font=("Arial", 18, "bold")).pack(anchor="w")
+        ctk.CTkLabel(identity_body, textvariable=self.subtitle_var, text_color="gray70").pack(anchor="w", pady=(0, 4))
 
         grid = ctk.CTkFrame(identity_body, fg_color="transparent")
         grid.pack(fill="x")
@@ -88,30 +95,35 @@ class OverviewTabController:
             row = idx // 2
             col = idx % 2
             box = ctk.CTkFrame(grid)
-            box.grid(row=row, column=col, sticky="ew", padx=4, pady=4)
+            box.grid(row=row, column=col, sticky="ew", padx=3, pady=3)
             ctk.CTkLabel(box, text=key, text_color="gray70", font=("Arial", 11)).pack(anchor="w", padx=10, pady=(6, 0))
             self.summary_vars[key] = ctk.StringVar(value="—")
-            ctk.CTkLabel(box, textvariable=self.summary_vars[key], font=("Arial", 15, "bold")).pack(anchor="w", padx=10, pady=(0, 6))
+            ctk.CTkLabel(box, textvariable=self.summary_vars[key], font=("Arial", 14, "bold")).pack(anchor="w", padx=10, pady=(0, 6))
 
-        kpi_card, kpi_body = section_card(self.frame, "KPI-Kompakt")
-        kpi_card.pack(fill="x", pady=(0, 6))
+        kpi_card, kpi_body = section_card(shell, "KPI-Kompakt")
+        kpi_card.grid(row=1, column=0, sticky="nsew", padx=(2, 3), pady=(0, 4))
         kpi_grid = ctk.CTkFrame(kpi_body, fg_color="transparent")
         kpi_grid.pack(fill="x")
-        kpi_grid.grid_columnconfigure((0, 1, 2), weight=1)
+        kpi_grid.grid_columnconfigure((0, 1), weight=1)
         self.kpi_vars: dict[str, ctk.StringVar] = {}
         for idx, key in enumerate(["Total Return", "CAGR", "Volatilität", "Sharpe Ratio", "Max Drawdown", "Beta"]):
-            row = idx // 3
-            col = idx % 3
+            row = idx // 2
+            col = idx % 2
             box = ctk.CTkFrame(kpi_grid)
-            box.grid(row=row, column=col, sticky="ew", padx=4, pady=4)
+            box.grid(row=row, column=col, sticky="ew", padx=3, pady=3)
             ctk.CTkLabel(box, text=key, text_color="gray70", font=("Arial", 10)).pack(anchor="w", padx=8, pady=(5, 0))
             self.kpi_vars[key] = ctk.StringVar(value="—")
-            ctk.CTkLabel(box, textvariable=self.kpi_vars[key], font=("Arial", 14, "bold")).pack(anchor="w", padx=8, pady=(0, 5))
+            ctk.CTkLabel(box, textvariable=self.kpi_vars[key], font=("Arial", 13, "bold")).pack(anchor="w", padx=8, pady=(0, 5))
 
-        meta_card, meta_body = section_card(self.frame, "Meta")
-        meta_card.pack(fill="x")
+        meta_card, meta_body = section_card(shell, "Meta")
+        meta_card.grid(row=1, column=1, sticky="nsew", padx=(3, 2), pady=(0, 4))
         self.meta_var = ctk.StringVar(value="Provider: — | As-of: — | Coverage: —")
         ctk.CTkLabel(meta_body, textvariable=self.meta_var, text_color="gray70").pack(anchor="w")
+
+        profile_card, profile_body = section_card(shell, "Profil")
+        profile_card.grid(row=2, column=0, columnspan=2, sticky="ew", padx=2)
+        self.profile_var = ctk.StringVar(value="Land: — | Währung: — | Börse: —")
+        ctk.CTkLabel(profile_body, textvariable=self.profile_var, text_color="gray70").pack(anchor="w")
 
         self.warning_label = ctk.CTkLabel(self.frame, textvariable=self.warning_var, text_color="#ffb347")
 
@@ -129,6 +141,13 @@ class OverviewTabController:
         self.summary_vars["Marktkapitalisierung"].set(_fmt_currency(market.get("marketCap"), currency, 0))
         self.summary_vars["Sektor"].set(_display_value(profile.get("sector")))
         self.summary_vars["Branche"].set(_display_value(profile.get("industry")))
+        self.profile_var.set(
+            "Land: {country} | Währung: {currency} | Börse: {exchange}".format(
+                country=_display_value(profile.get("country")),
+                currency=_display_value(currency),
+                exchange=_display_value(instrument.get("exchange")),
+            )
+        )
 
         metrics_root = metrics.get("metrics", {}) if isinstance(metrics, dict) else {}
         performance = metrics_root.get("performance", {}) if isinstance(metrics_root, dict) else {}
@@ -235,6 +254,7 @@ class ReturnsTabController:
         self.warning_label = ctk.CTkLabel(self.frame, textvariable=self.warning_var, text_color="#ffb347")
         self.loading_var = ctk.StringVar(value="")
         self.loading_label = ctk.CTkLabel(self.frame, textvariable=self.loading_var, text_color="gray70")
+        self._chart_signature = None
 
     def update_data(self, isin: str, ws: dict):
         options = ws.get("benchmark_options") or [("Kein Benchmark", None)]
@@ -260,15 +280,28 @@ class ReturnsTabController:
             var.set(name in selected_set)
 
         self._render_search_rows(ws)
-        create_chart_screen(
-            self.chart_body,
-            isin=isin,
-            payload=ws.get("payloads", {}).get("timeseries_active", {}),
-            warnings=(ws.get("warnings", {}).get("timeseries_active", []) + ws.get("warnings", {}).get("comparison_active", [])),
-            selected_series=ws.get("selected_series"),
-            benchmark=ws.get("benchmark"),
-            comparison_payload=ws.get("payloads", {}).get("comparison_active", {}),
+        payload = ws.get("payloads", {}).get("timeseries_active", {})
+        comparison_payload = ws.get("payloads", {}).get("comparison_active", {})
+        signature = (
+            isin,
+            tuple(ws.get("selected_series") or []),
+            ws.get("benchmark"),
+            id(payload),
+            id(comparison_payload),
+            tuple(ws.get("warnings", {}).get("timeseries_active", [])),
+            tuple(ws.get("warnings", {}).get("comparison_active", [])),
         )
+        if signature != self._chart_signature:
+            self._chart_signature = signature
+            create_chart_screen(
+                self.chart_body,
+                isin=isin,
+                payload=payload,
+                warnings=(ws.get("warnings", {}).get("timeseries_active", []) + ws.get("warnings", {}).get("comparison_active", [])),
+                selected_series=ws.get("selected_series"),
+                benchmark=ws.get("benchmark"),
+                comparison_payload=comparison_payload,
+            )
 
     def _render_search_rows(self, ws: dict):
         for widget in self.results_frame.winfo_children():
@@ -407,6 +440,7 @@ class RiskTabController:
         self.warning_label = ctk.CTkLabel(self.frame, textvariable=self.warning_var, text_color="#ffb347")
         self.loading_var = ctk.StringVar(value="")
         self.loading_label = ctk.CTkLabel(self.frame, textvariable=self.loading_var, text_color="gray70")
+        self._chart_signature = None
 
     def update_data(self, isin: str, ws: dict):
         options = ws.get("benchmark_options") or [("Kein Benchmark", None)]
@@ -433,14 +467,19 @@ class RiskTabController:
         self.compare_vars["Benchmark Total Return"].set(_fmt_pct(_extract_first(benchmark_payload, ["benchmark_total_return"])))
         self.compare_vars["Excess Return"].set(_fmt_pct(_extract_first(benchmark_payload, ["excess_return"])))
 
-        create_chart_screen(
-            self.rel_body,
-            isin=isin,
-            payload=ws.get("payloads", {}).get(rel_series_key, {}),
-            warnings=ws.get("warnings", {}).get(rel_series_key, []),
-            selected_series=["benchmark_relative"],
-            benchmark=benchmark,
-        )
+        rel_payload = ws.get("payloads", {}).get(rel_series_key, {})
+        rel_warnings = ws.get("warnings", {}).get(rel_series_key, [])
+        signature = (isin, benchmark, id(rel_payload), tuple(rel_warnings))
+        if signature != self._chart_signature:
+            self._chart_signature = signature
+            create_chart_screen(
+                self.rel_body,
+                isin=isin,
+                payload=rel_payload,
+                warnings=rel_warnings,
+                selected_series=["benchmark_relative"],
+                benchmark=benchmark,
+            )
 
     def update_loading(self, loading: bool, text: str = ""):
         if loading:
@@ -489,6 +528,79 @@ class FinancialsTabController:
     def clear_body(self):
         for widget in self.body.winfo_children():
             widget.destroy()
+
+    def update_data(self, _isin: str, _ws: dict):
+        return
+
+    def update_loading(self, _loading: bool, _text: str = ""):
+        return
+
+    def update_warnings(self, _warnings: list[str]):
+        return
+
+    def update_selection(self, _isin: str):
+        return
+
+
+class FundamentalsTabController:
+    def __init__(self, parent):
+        self.frame = ctk.CTkFrame(parent, fg_color="transparent")
+        self._render_signature = None
+        self.warning_var = ctk.StringVar(value="")
+        self.warning_label = ctk.CTkLabel(self.frame, textvariable=self.warning_var, text_color="#ffb347")
+
+    def update_data(self, _isin: str, payload: dict):
+        valuation = payload.get("valuation", {}) if isinstance(payload, dict) else {}
+        quality = payload.get("quality", {}) if isinstance(payload, dict) else {}
+        growth = payload.get("growth", {}) if isinstance(payload, dict) else {}
+        signature = (id(valuation), id(quality), id(growth))
+        if signature == self._render_signature:
+            return
+        self._render_signature = signature
+        for widget in self.frame.winfo_children():
+            if widget != self.warning_label:
+                widget.destroy()
+        render_fundamental_section(self.frame, "Valuation", valuation)
+        render_fundamental_section(self.frame, "Quality", quality)
+        render_fundamental_section(self.frame, "Growth", growth)
+
+    def update_loading(self, _loading: bool, _text: str = ""):
+        return
+
+    def update_warnings(self, warnings: list[str]):
+        if warnings:
+            self.warning_var.set("Hinweise: " + " | ".join(warnings))
+            if not self.warning_label.winfo_manager():
+                self.warning_label.pack(anchor="w", pady=(8, 0))
+            return
+        self.warning_var.set("")
+        if self.warning_label.winfo_manager():
+            self.warning_label.pack_forget()
+
+    def update_selection(self, _isin: str):
+        return
+
+
+class RawTabController:
+    def __init__(self, parent):
+        self.frame = ctk.CTkFrame(parent, fg_color="transparent")
+        self._render_signature = None
+
+    def update_data(self, isin: str, payload: dict, warnings: list[str]):
+        signature = (isin, id(payload), tuple(warnings))
+        if signature == self._render_signature:
+            return
+        self._render_signature = signature
+        create_table_screen(self.frame, isin=isin, payload=payload, warnings=warnings, mode="raw")
+
+    def update_loading(self, _loading: bool, _text: str = ""):
+        return
+
+    def update_warnings(self, _warnings: list[str]):
+        return
+
+    def update_selection(self, _isin: str):
+        return
 
 
 def render_financial_block(parent, title: str, payload: dict):
