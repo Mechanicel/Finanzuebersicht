@@ -146,8 +146,14 @@ def _render_snapshot(parent, isin: str, full_data: dict, metrics: dict, risk: di
         ("Max Drawdown", _fmt_pct(_extract_first(risk, ["max_drawdown"]))),
         ("Beta", _fmt_number(_extract_first(risk, ["beta"]), 3)),
     ]
-    _, kpi_body = section_card(body, "KPI-Übersicht")
-    kpi_body.grid(row=4, column=0, columnspan=2, sticky="ew")
+    kpi_card = ctk.CTkFrame(body, corner_radius=12)
+    kpi_card.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(8, 0))
+    kpi_card.grid_columnconfigure(0, weight=1)
+    ctk.CTkLabel(kpi_card, text="KPI-Übersicht", font=("Arial", 16, "bold")).grid(
+        row=0, column=0, sticky="w", padx=16, pady=(12, 6)
+    )
+    kpi_body = ctk.CTkFrame(kpi_card, fg_color="transparent")
+    kpi_body.grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 10))
     _metric_card_grid(kpi_body, kpis, columns=3, layout="grid", row=0, column=0, columnspan=1)
 
     meta = {}
@@ -155,8 +161,14 @@ def _render_snapshot(parent, isin: str, full_data: dict, metrics: dict, risk: di
         if isinstance(source, dict):
             meta.update({k: v for k, v in source.items() if v not in (None, "")})
 
-    _, meta_body = section_card(body, "Meta / As-of")
-    meta_body.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(8, 0))
+    meta_card = ctk.CTkFrame(body, corner_radius=12)
+    meta_card.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(8, 0))
+    meta_card.grid_columnconfigure(0, weight=1)
+    ctk.CTkLabel(meta_card, text="Meta / As-of", font=("Arial", 16, "bold")).grid(
+        row=0, column=0, sticky="w", padx=16, pady=(12, 6)
+    )
+    meta_body = ctk.CTkFrame(meta_card, fg_color="transparent")
+    meta_body.grid(row=1, column=0, sticky="ew", padx=16, pady=(0, 12))
     ctk.CTkLabel(
         meta_body,
         text=(
