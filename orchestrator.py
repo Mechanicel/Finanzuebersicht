@@ -62,6 +62,7 @@ def main() -> int:
         log_file=ORCHESTRATOR_LOG,
         service_name="orchestrator",
         verbosity=settings.log_verbosity,
+        performance_logging=settings.performance_logging,
     )
     logger = logging.getLogger(__name__)
     logger.info("Orchestrator-Start: starte FrontendService + markedataservice")

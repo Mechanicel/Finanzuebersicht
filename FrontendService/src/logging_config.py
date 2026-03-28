@@ -14,4 +14,5 @@ def configure_logging() -> None:
         log_file=FRONTEND_LOG,
         service_name="FrontendService",
         verbosity=settings.log_verbosity,
+        performance_logging=settings.performance_logging,
     )

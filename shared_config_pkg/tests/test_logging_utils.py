@@ -26,3 +26,11 @@ def test_trace_mode_enables_third_party_debug(tmp_path: Path) -> None:
     configure_application_logging(tmp_path / "trace.log", verbosity="trace")
     for logger_name in THIRD_PARTY_NOISY_LOGGERS:
         assert logging.getLogger(logger_name).level == logging.DEBUG
+
+
+def test_performance_logger_is_enabled_independently_from_error_level(tmp_path: Path) -> None:
+    configure_application_logging(tmp_path / "error.log", verbosity="error", performance_logging=True)
+    perf_logger = logging.getLogger("performance")
+    assert perf_logger.level == logging.INFO
+    assert perf_logger.propagate is False
+    assert len(perf_logger.handlers) == 2

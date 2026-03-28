@@ -20,6 +20,7 @@ def setup_logger(name: str | None = None) -> logging.Logger:
             log_file=MARKETDATASERVICE_LOG,
             service_name="markedataservice",
             verbosity=settings.log_verbosity,
+            performance_logging=settings.performance_logging,
         )
         _LOGGING_CONFIGURED = True
     return logging.getLogger(name)

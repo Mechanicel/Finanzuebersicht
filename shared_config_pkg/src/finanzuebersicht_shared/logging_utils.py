@@ -27,6 +27,7 @@ def configure_application_logging(
     log_file: Path,
     service_name: str | None = None,
     verbosity: str = "debug",
+    performance_logging: bool = False,
 ) -> None:
     mode = normalize_log_verbosity(verbosity)
     levels = _LEVEL_MATRIX[mode]
@@ -60,3 +61,18 @@ def configure_application_logging(
         noisy_logger = logging.getLogger(logger_name)
         noisy_logger.setLevel(levels["third_party"])
         noisy_logger.propagate = True
+
+    performance_logger = logging.getLogger("performance")
+    performance_logger.handlers.clear()
+    performance_logger.propagate = False
+    if performance_logging:
+        performance_logger.setLevel(logging.INFO)
+        stream_perf_handler = logging.StreamHandler(sys.stdout)
+        file_perf_handler = logging.FileHandler(log_file, encoding="utf-8")
+        performance_formatter = logging.Formatter("%(asctime)s | INFO | performance | [PERF] %(message)s")
+        stream_perf_handler.setFormatter(performance_formatter)
+        file_perf_handler.setFormatter(performance_formatter)
+        performance_logger.addHandler(stream_perf_handler)
+        performance_logger.addHandler(file_perf_handler)
+    else:
+        performance_logger.setLevel(logging.WARNING)

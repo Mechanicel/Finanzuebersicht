@@ -16,6 +16,13 @@ def create_app() -> customtkinter.CTk:
     app.geometry("1100x780")
     app.minsize(980, 680)
     app.title("Finanzübersicht")
+    try:
+        app.state("zoomed")
+    except Exception:
+        try:
+            app.attributes("-zoomed", True)
+        except Exception:
+            app.attributes("-fullscreen", True)
     return app
 
 
