@@ -1,11 +1,11 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="api-gateway" type="PythonConfigurationType" factoryName="Python">
+  <configuration default="false" name="person-service" type="PythonConfigurationType" factoryName="Python">
     <option name="MODULE_MODE" value="true" />
     <option name="MODULE_NAME" value="app" />
-    <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$/services/api-gateway" />
+    <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$/services/person-service" />
     <option name="EMULATE_TERMINAL" value="true" />
     <envs>
-      <env name="PORT" value="8000" />
+      <env name="PORT" value="8002" />
     </envs>
     <module name="Finanzuebersicht" />
   </configuration>

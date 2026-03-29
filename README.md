@@ -23,11 +23,14 @@ Dieses Repository ist ein **Greenfield-Monorepo** für eine webbasierte Finanzü
 - FastAPI als Basis aller Python-Services
 - uv als bevorzugtes Python-Tooling
 
-## Lokale Entwicklung (Skeleton)
+## Lokale Entwicklung
 
-1. uv installieren
-2. Gewünschten Service betreten, z. B. `services/api-gateway/`
-3. Abhängigkeiten synchronisieren: `uv sync`
-4. Service starten: `uv run uvicorn app.main:app --reload --port 8000`
+Die komplette Entwicklungs- und Startlogik ist in `scripts/dev.py` zentralisiert.
 
-Der aktuelle Stand ist ein struktureller Ausgangspunkt. Fachliche Implementierungen folgen in weiteren Schritten.
+1. Setup: `make setup`
+2. Alle Backends starten: `make dev-backend`
+3. Full-Stack-Entwicklung (Backend + Frontend): `make dev`
+
+Alle Details inkl. Portplan, IntelliJ-Run-Konfigurationen und Einzelstarts stehen in:
+
+- `docs/architecture/development.md`
