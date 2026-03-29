@@ -1,8 +1,3 @@
-from fastapi import FastAPI
+from app.app_factory import create_application
 
-app = FastAPI(title="analytics-service")
-
-
-@app.get("/health")
-def health() -> dict[str, str]:
-    return {"status": "ok", "service": "analytics-service"}
+app = create_application()

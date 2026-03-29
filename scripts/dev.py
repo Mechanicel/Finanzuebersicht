@@ -94,7 +94,9 @@ def cmd_format(_: argparse.Namespace) -> int:
     format_result = subprocess.run(["uv", "run", "ruff", "format", "."], cwd=ROOT, check=False)
     if format_result.returncode != 0:
         return format_result.returncode
-    return subprocess.run(["uv", "run", "ruff", "check", ".", "--fix"], cwd=ROOT, check=False).returncode
+    return subprocess.run(
+        ["uv", "run", "ruff", "check", ".", "--fix"], cwd=ROOT, check=False
+    ).returncode
 
 
 def cmd_test(_: argparse.Namespace) -> int:
@@ -144,7 +146,9 @@ def cmd_dev(_: argparse.Namespace) -> int:
     if frontend_cmd is not None:
         processes.start("frontend-web", frontend_cmd, frontend_dir)
     else:
-        print("[dev] frontend-web übersprungen (kein package.json und kein FRONTEND_DEV_CMD gesetzt).")
+        print(
+            "[dev] frontend-web übersprungen (kein package.json und kein FRONTEND_DEV_CMD gesetzt)."
+        )
 
     return processes.wait()
 

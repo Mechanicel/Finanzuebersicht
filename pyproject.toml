@@ -8,6 +8,7 @@ dependencies = []
 
 [dependency-groups]
 dev = [
+  "mypy>=1.11,<2",
   "pytest>=8.2,<9",
   "ruff>=0.6,<1",
 ]
@@ -32,4 +33,26 @@ line-length = 100
 target-version = "py312"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP"]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["UP046"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+testpaths = [
+  "services",
+]
+
+[tool.mypy]
+python_version = "3.12"
+warn_unused_ignores = true
+warn_redundant_casts = true
+disallow_untyped_defs = true
+check_untyped_defs = true
+no_implicit_optional = true
+exclude = [
+  "shared_config_pkg",
+]
