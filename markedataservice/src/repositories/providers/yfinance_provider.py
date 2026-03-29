@@ -314,6 +314,34 @@ class YFinanceProvider(BaseProvider):
         self._symbol_cache[normalized_isin] = best_symbol
         return best_symbol
 
+    def resolve_instrument_for_symbol(self, symbol: str) -> Dict[str, Any]:
+        normalized_symbol = (symbol or "").strip().upper()
+        if not normalized_symbol:
+            return {}
+        candidates = self.search_quotes(normalized_symbol, max_results=8)
+        exact = next((item for item in candidates if str(item.get("symbol") or "").upper() == normalized_symbol), None)
+        if exact:
+            return {
+                "symbol": exact.get("symbol") or normalized_symbol,
+                "isin": exact.get("isin"),
+                "name": exact.get("name"),
+                "exchange": exact.get("exchange"),
+                "quote_type": exact.get("quote_type"),
+                "currency": exact.get("currency"),
+            }
+        try:
+            info = yf.Ticker(normalized_symbol).info or {}
+        except Exception:
+            info = {}
+        return {
+            "symbol": info.get("symbol") or normalized_symbol,
+            "isin": info.get("isin"),
+            "name": info.get("shortName") or info.get("longName"),
+            "exchange": info.get("exchange"),
+            "quote_type": info.get("quoteType"),
+            "currency": info.get("currency"),
+        }
+
     def _search_symbols(self, isin: str) -> List[Dict[str, Any]]:
         quotes = self.search_quotes(isin, max_results=12)
         return [{"symbol": q.get("symbol"), "quote": q} for q in quotes if q.get("symbol")]

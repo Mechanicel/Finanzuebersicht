@@ -28,6 +28,7 @@ class CompanyAnalysisModel:
     metrics_history: List[Dict[str, Any]] = field(default_factory=list)
     price_history: List[Dict[str, Any]] = field(default_factory=list)
     etf: Dict[str, Any] = field(default_factory=dict)
+    aliases: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)

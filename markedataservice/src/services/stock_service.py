@@ -358,11 +358,33 @@ class StockService(BaseService):
         symbol = model.instrument.get("symbol") or model.basic.get("symbol")
         if not symbol:
             symbol = self._resolve_symbol_or_raise(normalized_isin)
+        model.aliases = model.aliases if isinstance(model.aliases, dict) else {}
+        model.aliases.setdefault("symbols", [])
+        if symbol and symbol not in model.aliases["symbols"]:
+            model.aliases["symbols"].append(symbol)
+        model.aliases["primary_symbol"] = symbol
 
         provider_cache: dict[tuple[str, str | None, tuple[tuple[str, Any], ...]], Any] = {}
 
+        if include_prices:
+            timeseries_updated = self._ensure_company_timeseries(
+                model=model,
+                isin=normalized_isin,
+                symbol=symbol,
+                target_date=target_date,
+                provider_cache=provider_cache,
+            )
+            if timeseries_updated:
+                model.meta["updated_at"] = now.replace(microsecond=0).isoformat()
+                model.sync_legacy_fields()
+                self.mongo_repo.write(normalized_isin, model.to_dict())
+
         if not model.instrument:
             model.instrument = self._provider_call("fetch_instrument", normalized_isin, symbol, cache=provider_cache)
+        if model.instrument:
+            model.aliases["primary_symbol"] = model.instrument.get("symbol") or model.aliases.get("primary_symbol")
+            if model.aliases.get("primary_symbol") and model.aliases["primary_symbol"] not in model.aliases["symbols"]:
+                model.aliases["symbols"].append(model.aliases["primary_symbol"])
 
         if not model.profile:
             model.profile = self._provider_call("fetch_profile", normalized_isin, symbol, cache=provider_cache)
@@ -394,15 +416,6 @@ class StockService(BaseService):
             model.fund = self._optional_provider_call("fetch_fund", normalized_isin, symbol, default={}, cache=provider_cache)
         elif include_fund and not can_have_fund:
             model.fund = {}
-
-        if include_prices:
-            self._ensure_company_timeseries(
-                model=model,
-                isin=normalized_isin,
-                symbol=symbol,
-                target_date=target_date,
-                provider_cache=provider_cache,
-            )
 
         provider_name = getattr(self.provider, "provider_name", "yfinance")
         model.meta.setdefault("provider_map", {
@@ -443,7 +456,7 @@ class StockService(BaseService):
         symbol: str,
         target_date: Optional[datetime.date],
         provider_cache: dict[tuple[str, str | None, tuple[tuple[str, Any], ...]], Any],
-    ) -> None:
+    ) -> bool:
         model.timeseries = model.timeseries if isinstance(model.timeseries, dict) else {}
         model.meta = model.meta if isinstance(model.meta, dict) else {}
         existing_price_history = list(model.price_history or model.timeseries.get("price_history") or [])
@@ -456,7 +469,7 @@ class StockService(BaseService):
             model.timeseries["price_history"] = existing_price_history
             model.timeseries["metrics_history"] = existing_metrics_history
             model.meta["last_timeseries_refresh"] = ts_meta.get("last_refresh_at") or model.meta.get("last_timeseries_refresh")
-            return
+            return False
 
         fetch_start_date = self._timeseries_refresh_start_date(existing_price_history, ts_meta)
         fetched = self._provider_call("fetch_timeseries", isin, symbol, cache=provider_cache, start_date=fetch_start_date) or {}
@@ -481,6 +494,7 @@ class StockService(BaseService):
             "record_count": len(merged_price_history),
         }
         model.meta["last_timeseries_refresh"] = now_iso
+        return True
 
     def _get_benchmark_timeseries_cached(self, symbol: str) -> dict[str, Any]:
         return self._get_symbol_timeseries_cached(symbol)
@@ -490,6 +504,8 @@ class StockService(BaseService):
         if not normalized_symbol:
             raise InvalidRequestError("Symbol darf nicht leer sein")
 
+        resolved_instrument = self._resolve_instrument_for_symbol(normalized_symbol)
+        resolved_isin = str(resolved_instrument.get("isin") or "").strip().upper()
         repo_read = getattr(self.mongo_repo, "read_symbol_timeseries", None)
         cached = repo_read(normalized_symbol) if callable(repo_read) else None
         cached = cached if isinstance(cached, dict) else {}
@@ -502,6 +518,7 @@ class StockService(BaseService):
         merged_history = self._merge_series_by_date(cached_history, list(fresh_history or []))
         now_iso = datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat()
         payload = {
+            "isin": resolved_isin or None,
             "symbol": normalized_symbol,
             "price_history": merged_history,
             "as_of": self._latest_history_date(merged_history),
@@ -509,11 +526,20 @@ class StockService(BaseService):
             "source": getattr(self.provider, "provider_name", "yfinance"),
             "last_refresh_at": now_iso,
             "record_count": len(merged_history),
+            "fallback": "symbol_cache" if not resolved_isin else None,
         }
         repo_write = getattr(self.mongo_repo, "write_symbol_timeseries", None)
         if callable(repo_write):
-            repo_write(normalized_symbol, payload)
+            repo_write(normalized_symbol, payload, isin=resolved_isin or None, instrument=resolved_instrument or None)
         return payload
+
+    def _resolve_instrument_for_symbol(self, symbol: str) -> dict[str, Any]:
+        resolver = getattr(self.provider, "resolve_instrument_for_symbol", None)
+        if callable(resolver):
+            resolved = resolver(symbol)
+            if isinstance(resolved, dict):
+                return resolved
+        return {}
 
     @staticmethod
     def _parse_symbols(symbols_raw: str) -> list[str]:
