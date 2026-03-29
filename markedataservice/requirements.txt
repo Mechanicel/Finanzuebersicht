@@ -1,8 +1,0 @@
-# Compatibility requirements for markedataservice only.
-# Source of truth: markedataservice/pyproject.toml
-
-flask>=2.3,<4
-yfinance>=0.2.18,<1
-pandas>=1.5,<3
-python-dotenv>=1.0,<2
-pymongo>=4.8,<5
