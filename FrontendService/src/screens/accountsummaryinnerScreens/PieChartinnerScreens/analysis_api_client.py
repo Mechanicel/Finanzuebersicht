@@ -114,6 +114,28 @@ class AnalysisApiClient:
             params["end_date"] = end_date
         return self._cached_get(f"/analysis/company/{isin}/timeseries", params=params)
 
+    def load_priority_timeseries(self, isin: str, selected_series: list[str] | None = None, benchmark: str | None = None):
+        """
+        Schnellpfad für den initialen Chart-Render beim Aktienwechsel.
+        Lädt ausschließlich die BasistimeSeries für die aktuell sichtbaren Reihen.
+        """
+        query_series = [str(item).strip() for item in (selected_series or ["price"]) if str(item).strip()]
+        if not query_series:
+            query_series = ["price"]
+        return self.load_timeseries(isin, series=",".join(query_series), benchmark=benchmark)
+
+    def load_detail_blocks(self, isin: str, benchmark: str | None = None):
+        """
+        Gebündelter Detail-Load für Hintergrund-Updates (Phase 2).
+        """
+        return {
+            "snapshot": self.load_snapshot(isin),
+            "full": self.load_full(isin),
+            "metrics": self.load_metrics(isin),
+            "risk": self.load_risk(isin, benchmark),
+            "fundamentals": self.load_fundamentals(isin),
+        }
+
     def load_financials(self, isin: str, period: str):
         return self._cached_get(f"/analysis/company/{isin}/financials", params={"period": period})
 

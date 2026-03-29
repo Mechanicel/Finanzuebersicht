@@ -94,6 +94,7 @@ class OverviewTabController:
         self.title_var = ctk.StringVar(value="—")
         self.subtitle_var = ctk.StringVar(value="Symbol: — | ISIN: —")
         self.warning_var = ctk.StringVar(value="")
+        self.loading_var = ctk.StringVar(value="")
 
         shell = ctk.CTkFrame(self.frame, fg_color="transparent")
         shell.pack(fill="both", expand=True)
@@ -143,6 +144,7 @@ class OverviewTabController:
         ctk.CTkLabel(profile_body, textvariable=self.profile_var, text_color="gray70").pack(anchor="w")
 
         self.warning_label = ctk.CTkLabel(self.frame, textvariable=self.warning_var, text_color="#ffb347")
+        self.loading_label = ctk.CTkLabel(self.frame, textvariable=self.loading_var, text_color="gray70")
 
     def update_data(self, isin: str, full_data: dict, metrics: dict, risk: dict):
         instrument = full_data.get("instrument", {}) if isinstance(full_data.get("instrument"), dict) else {}
@@ -196,7 +198,14 @@ class OverviewTabController:
             self.warning_label.pack_forget()
 
     def update_loading(self, loading: bool):
-        return
+        if loading:
+            self.loading_var.set("Lade Kennzahlen...")
+            if not self.loading_label.winfo_manager():
+                self.loading_label.pack(anchor="w", pady=(6, 0))
+            return
+        self.loading_var.set("")
+        if self.loading_label.winfo_manager():
+            self.loading_label.pack_forget()
 
     def update_selection(self, _isin: str):
         return
@@ -591,7 +600,9 @@ class FundamentalsTabController:
         self.frame = ctk.CTkFrame(parent, fg_color="transparent")
         self._render_signature = None
         self.warning_var = ctk.StringVar(value="")
+        self.loading_var = ctk.StringVar(value="")
         self.warning_label = ctk.CTkLabel(self.frame, textvariable=self.warning_var, text_color="#ffb347")
+        self.loading_label = ctk.CTkLabel(self.frame, textvariable=self.loading_var, text_color="gray70")
 
     def update_data(self, _isin: str, payload: dict):
         valuation = payload.get("valuation", {}) if isinstance(payload, dict) else {}
@@ -609,7 +620,14 @@ class FundamentalsTabController:
         render_fundamental_section(self.frame, "Growth", growth)
 
     def update_loading(self, _loading: bool, _text: str = ""):
-        return
+        if _loading:
+            self.loading_var.set(_text or "Lade Kennzahlen...")
+            if not self.loading_label.winfo_manager():
+                self.loading_label.pack(anchor="w", pady=(8, 0))
+            return
+        self.loading_var.set("")
+        if self.loading_label.winfo_manager():
+            self.loading_label.pack_forget()
 
     def update_warnings(self, warnings: list[str]):
         if warnings:
