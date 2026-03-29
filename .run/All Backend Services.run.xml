@@ -1,0 +1,11 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="All Backend Services" type="CompoundRunConfigurationType" factoryName="Compound">
+    <toRun name="api-gateway" type="PythonConfigurationType" />
+    <toRun name="masterdata-service" type="PythonConfigurationType" />
+    <toRun name="person-service" type="PythonConfigurationType" />
+    <toRun name="account-service" type="PythonConfigurationType" />
+    <toRun name="portfolio-service" type="PythonConfigurationType" />
+    <toRun name="marketdata-service" type="PythonConfigurationType" />
+    <toRun name="analytics-service" type="PythonConfigurationType" />
+  </configuration>
+</component>
