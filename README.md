@@ -1,95 +1,33 @@
-# Finanzübersicht
+# Finanzuebersicht Monorepo
 
-## Projektüberblick
-Monorepo mit zwei Services:
+Dieses Repository ist ein **Greenfield-Monorepo** für eine webbasierte Finanzübersicht.
 
-- **`FrontendService/`**: Desktop-UI (customtkinter) für Personen, Banken, Konten, Kontostände und Depotdaten.
-- **`markedataservice/`**: Flask-API für Kurs- und Unternehmensdaten.
+## Zielarchitektur
 
-Zusätzlich orchestriert `orchestrator.py` den lokalen Start von MongoDB (Docker), markedataservice und Frontend.
+- `frontend-web/` – zukünftiges Web-Frontend (nur UI)
+- `services/api-gateway/` – BFF/Gateway für das Frontend
+- `services/masterdata-service/` – Banken, Kontotypen, Referenzdaten
+- `services/person-service/` – Personen, Bankzuordnungen, Freibeträge
+- `services/account-service/` – Konten, manuelle Snapshots
+- `services/portfolio-service/` – Depotkonten und Holdings
+- `services/marketdata-service/` – Wertpapier- und Marktdaten
+- `services/analytics-service/` – Aggregationen, Charts, Forecasts, Readmodels
+- `shared/` – gemeinsame Pydantic-Modelle und Utilities
+- `scripts/` – Entwicklungs- und Startskripte
+- `.run/` – IntelliJ/PyCharm Run-Konfigurationen
+- `docs/architecture/` – Architektur- und API-Dokumentation
 
-## Persistenz & Konfiguration
-- **Produktive Persistenz läuft vollständig über MongoDB.**
-- JSON-Dateien werden nur noch als einmalige **Seed-/Migrationsartefakte** genutzt (bei leeren Collections).
-- Alle Konfigurationen laufen zentral über Root-`.env` und `finanzuebersicht_shared`.
+## Technologie-Stack
 
-Wichtige MongoDB-Parameter:
-- `MONGO_URI` (optionaler Override)
-- `MONGO_HOST`
-- `MONGO_PORT`
-- `MONGO_DB_NAME`
-- `MONGO_USERNAME`
-- `MONGO_PASSWORD`
-- `MONGO_AUTH_SOURCE`
-- `MONGO_PERSON_COLLECTION`
-- `MONGO_BANK_COLLECTION`
-- `MONGO_ACCOUNT_TYPE_COLLECTION`
-- `MONGO_MARKETDATA_COLLECTION`
+- Python **>= 3.12**
+- FastAPI als Basis aller Python-Services
+- uv als bevorzugtes Python-Tooling
 
-## MongoDB-Authentifizierung
-- MongoDB wird lokal mit aktivierter Authentifizierung gestartet (Docker Compose).
-- `MONGO_URI` bleibt als optionaler Override unterstützt.
-- Ist `MONGO_URI` nicht gesetzt, wird die Verbindungs-URI zentral in `finanzuebersicht_shared` aus `MONGO_HOST`, `MONGO_PORT`, `MONGO_DB_NAME`, `MONGO_USERNAME`, `MONGO_PASSWORD` und `MONGO_AUTH_SOURCE` aufgebaut.
+## Lokale Entwicklung (Skeleton)
 
-## Lokales Setup (Neu-Developer-Flow)
-1. Env-Datei anlegen:
-   ```bash
-   cp .env.example .env
-   ```
-2. MongoDB via Docker starten:
-   ```bash
-   docker compose up -d mongodb
-   ```
-3. Dependencies installieren:
-   ```bash
-   uv sync
-   uv sync --project FrontendService
-   uv sync --project markedataservice
-   ```
-4. Gesamtsystem starten:
-   ```bash
-   uv run finanzuebersicht
-   ```
+1. uv installieren
+2. Gewünschten Service betreten, z. B. `services/api-gateway/`
+3. Abhängigkeiten synchronisieren: `uv sync`
+4. Service starten: `uv run uvicorn app.main:app --reload --port 8000`
 
-Alternativ per Script:
-```bash
-./start.sh
-```
-
-## Einzelstart der Services
-### Frontend
-```bash
-uv run --project FrontendService frontendservice
-```
-
-### markedataservice
-```bash
-uv run --project markedataservice markedataservice
-```
-
-## Seed-Artefakte (nur Migration)
-- `FrontendService/seeds/personen.json`
-- `FrontendService/seeds/banken.json`
-- `FrontendService/seeds/kontotypen.json`
-
-Diese Dateien sind keine produktive Laufzeit-Persistenz.
-
-## Logging
-- Frontend: `logs/frontend.log`
-- Marktdatenservice: `logs/markedataservice.log`
-- Orchestrator: `logs/orchestrator.log`
-
-## Smoke-Test (MongoDB)
-Minimaler Persistenztest für Markt-Cache-Collection:
-```bash
-uv run --project markedataservice python tests/smoke_marketdata_mongo.py
-```
-
-## PyCharm Run-Konfigurationen (versioniert)
-Im Repo sind projektweite Run-Konfigurationen unter `.run/` abgelegt.
-Sie erscheinen in PyCharm als teilbare Konfigurationen und können im **Services**-Tab ausgeführt werden.
-
-- `FrontendService`: `uv run --project FrontendService frontendservice`
-- `markedataservice`: `uv run --project markedataservice markedataservice`
-- `Orchestrator`: `uv run python orchestrator.py`
-- `All Services`: Compound-Start von `FrontendService` + `markedataservice` (ohne `Orchestrator`, damit keine Doppelstarts entstehen)
+Der aktuelle Stand ist ein struktureller Ausgangspunkt. Fachliche Implementierungen folgen in weiteren Schritten.

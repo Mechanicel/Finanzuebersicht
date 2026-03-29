@@ -1,23 +1,22 @@
 [project]
-name = "finanzuebersicht-orchestrator"
+name = "finanzuebersicht-monorepo"
 version = "0.1.0"
-description = "Optional root-level orchestrator for FrontendService and markedataservice"
+description = "Greenfield monorepo for a web-based finance platform"
 readme = "README.md"
-requires-python = ">=3.10,<3.13"
-dependencies = [
-  "python-dotenv>=1.0,<2",
-  "finanzuebersicht-shared",
+requires-python = ">=3.12"
+dependencies = []
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = [
+  "services/api-gateway",
+  "services/masterdata-service",
+  "services/person-service",
+  "services/account-service",
+  "services/portfolio-service",
+  "services/marketdata-service",
+  "services/analytics-service",
+  "shared",
 ]
-
-[project.scripts]
-finanzuebersicht = "orchestrator:main"
-
-[build-system]
-requires = ["setuptools>=68", "wheel"]
-build-backend = "setuptools.build_meta"
-
-[tool.setuptools]
-py-modules = ["orchestrator"]
-
-[tool.uv.sources]
-finanzuebersicht-shared = { path = "shared_config_pkg", editable = true }
