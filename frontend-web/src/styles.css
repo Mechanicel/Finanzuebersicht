@@ -1,0 +1,22 @@
+:root {
+  font-family: Inter, system-ui, Arial, sans-serif;
+  color: #0f172a;
+  background: #f8fafc;
+}
+body { margin: 0; }
+* { box-sizing: border-box; }
+.container { max-width: 1150px; margin: 0 auto; padding: 1rem; }
+.card { background: white; border-radius: 12px; padding: 1rem; border: 1px solid #e2e8f0; }
+.grid { display: grid; gap: 1rem; }
+.btn { border: 0; padding: 0.55rem 0.85rem; border-radius: 8px; background: #2563eb; color: white; cursor: pointer; }
+.btn.secondary { background: #475569; }
+.input, select { width: 100%; border: 1px solid #cbd5e1; border-radius: 8px; padding: 0.55rem; }
+label { display:block; font-size: 0.85rem; margin-bottom: 0.35rem; color: #334155; }
+.table { width:100%; border-collapse: collapse; }
+.table th, .table td { text-align:left; padding: 0.55rem; border-bottom: 1px solid #e2e8f0; }
+.nav { display:flex; gap: .6rem; flex-wrap: wrap; margin-bottom: 1rem; }
+.nav a { text-decoration:none; color:#1d4ed8; padding: .35rem .6rem; border-radius:8px; }
+.nav a.router-link-active { background:#dbeafe; }
+.error { color:#b91c1c; }
+.empty { color:#64748b; }
+.kpis { display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: .75rem; }

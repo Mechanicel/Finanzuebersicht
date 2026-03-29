@@ -1,12 +1,7 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="marketdata-service" type="PythonConfigurationType" factoryName="Python">
-    <option name="MODULE_MODE" value="true" />
-    <option name="MODULE_NAME" value="app" />
-    <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$/services/marketdata-service" />
-    <option name="EMULATE_TERMINAL" value="true" />
-    <envs>
-      <env name="PORT" value="8005" />
-    </envs>
-    <module name="Finanzuebersicht" />
+  <configuration default="false" name="marketdata-service" type="ShConfigurationType" factoryName="Shell Script">
+    <option name="SCRIPT_TEXT" value="uv run python scripts/dev.py run-service marketdata-service" />
+    <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
+    <option name="EXECUTE_IN_TERMINAL" value="true" />
   </configuration>
 </component>
