@@ -80,9 +80,10 @@ def _series_cache_key(series: list[str], benchmark: str | None):
     return f"timeseries::{','.join(sorted(series))}::{benchmark or '_none_'}"
 
 
-def _comparison_cache_key(symbols: list[str]):
+def _comparison_cache_key(isin: str, symbols: list[str]):
     normalized = sorted({str(symbol).upper() for symbol in (symbols or []) if symbol})
-    return f"comparison::{','.join(normalized) if normalized else '_none_'}"
+    symbol_key = ",".join(normalized) if normalized else "_none_"
+    return f"comparison::{isin}::{symbol_key}"
 
 
 def _next_generation(ws: dict, key: str) -> int:
@@ -259,6 +260,36 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
         _load_into(ws, "metrics", lambda: client.load_metrics(isin))
         _load_into(ws, f"risk::{ws.get('benchmark') or '_none_'}", lambda: client.load_risk(isin, ws.get("benchmark")))
 
+    def _prime_timeseries(isin: str, ws: dict, on_ready=None):
+        benchmark = ws.get("benchmark")
+        series_key = _series_cache_key(list(ws.get("selected_series") or ["price"]), benchmark)
+        if series_key in ws["payloads"]:
+            ws["payloads"]["timeseries_active"] = ws["payloads"].get(series_key) or {}
+            ws["warnings"]["timeseries_active"] = ws["warnings"].get(series_key, [])
+            if on_ready:
+                on_ready()
+            return
+
+        _set_loading(ws, "timeseries_priority", True)
+        generation = _next_generation(ws, "timeseries_priority")
+
+        def _worker():
+            return client.load_priority_timeseries(isin, selected_series=ws.get("selected_series"), benchmark=benchmark)
+
+        def _done(result):
+            if ws["request_generation"].get("timeseries_priority") != generation:
+                return
+            payload, warning = result
+            ws["payloads"][series_key] = payload or {}
+            ws["warnings"][series_key] = [warning] if warning else []
+            ws["payloads"]["timeseries_active"] = ws["payloads"].get(series_key) or {}
+            ws["warnings"]["timeseries_active"] = ws["warnings"].get(series_key, [])
+            _set_loading(ws, "timeseries_priority", False)
+            if on_ready:
+                on_ready()
+
+        run_in_background(app, _worker, _done)
+
     def _ensure_benchmark_catalog_async(ws: dict, callback=None):
         if ws.get("benchmark_catalog_loaded") or ws.get("benchmark_options") is not None:
             ws["benchmark_catalog_loaded"] = True
@@ -323,11 +354,54 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
         if ws is None or not isin:
             return
         _show_tab("overview")
-        _load_overview(ws, isin)
-        risk_key = f"risk::{ws.get('benchmark') or '_none_'}"
         controller: OverviewTabController = ui_state["controllers"]["overview"]
+        risk_key = f"risk::{ws.get('benchmark') or '_none_'}"
+
         controller.update_data(isin, ws["payloads"].get("company", {}), ws["payloads"].get("metrics", {}), ws["payloads"].get(risk_key, {}))
-        controller.update_warnings(ws["warnings"].get("company", []) + ws["warnings"].get("metrics", []))
+        controller.update_warnings(ws["warnings"].get("company", []) + ws["warnings"].get("metrics", []) + ws["warnings"].get(risk_key, []))
+
+        missing_keys = []
+        if "company" not in ws["payloads"]:
+            missing_keys.append("company")
+        if "metrics" not in ws["payloads"]:
+            missing_keys.append("metrics")
+        if risk_key not in ws["payloads"]:
+            missing_keys.append(risk_key)
+        if not missing_keys:
+            controller.update_loading(False)
+            return
+
+        controller.update_loading(True)
+        _set_loading(ws, "overview_panel", True)
+        generation = _next_generation(ws, "overview_panel")
+
+        def _worker():
+            result: dict[str, tuple[dict[str, Any] | None, str | None]] = {}
+            if "company" in missing_keys:
+                result["company"] = client.load_company_analysis(isin)
+            if "metrics" in missing_keys:
+                result["metrics"] = client.load_metrics(isin)
+            if risk_key in missing_keys:
+                result[risk_key] = client.load_risk(isin, ws.get("benchmark"))
+            return result
+
+        def _done(result):
+            if ws["request_generation"].get("overview_panel") != generation:
+                return
+            for key, value in result.items():
+                payload, warning = value
+                ws["payloads"][key] = payload or {}
+                if isinstance(warning, list):
+                    ws["warnings"][key] = [entry for entry in warning if entry]
+                else:
+                    ws["warnings"][key] = [warning] if warning else []
+            _set_loading(ws, "overview_panel", False)
+            if current["tab"] == "overview" and current["isin"] == isin:
+                controller.update_data(isin, ws["payloads"].get("company", {}), ws["payloads"].get("metrics", {}), ws["payloads"].get(risk_key, {}))
+                controller.update_warnings(ws["warnings"].get("company", []) + ws["warnings"].get("metrics", []) + ws["warnings"].get(risk_key, []))
+                controller.update_loading(False)
+
+        run_in_background(app, _worker, _done)
 
     def _refresh_returns():
         ws = _active_workspace()
@@ -341,7 +415,7 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
         benchmark = ws.get("benchmark")
         series_key = _series_cache_key(list(ws["selected_series"]), benchmark)
         symbols = comparison_state.get("symbols") or []
-        comparison_key = _comparison_cache_key(symbols)
+        comparison_key = _comparison_cache_key(isin, symbols)
 
         has_series_cache = series_key in ws["payloads"]
         has_comparison_cache = not symbols or comparison_key in ws["payloads"]
@@ -363,7 +437,8 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
             controller.update_loading(False)
             return
 
-        controller.update_loading(True, "Lade Zeitreihen...")
+        loading_text = "Lade Zeitreihe..." if not has_series_cache else "Lade Vergleichsreihen..."
+        controller.update_loading(True, loading_text)
         _set_loading(ws, "returns_chart", True)
         generation = _next_generation(ws, "returns_chart")
 
@@ -457,19 +532,40 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
             return
         _show_tab("fundamentals")
         controller: FundamentalsTabController = ui_state["controllers"]["fundamentals"]
-        _load_into(ws, "fundamentals", lambda: client.load_fundamentals(isin))
-        if not ws["payloads"].get("fundamentals"):
-            _load_into(ws, "company", lambda: client.load_company_analysis(isin))
+        payload = ws["payloads"].get("fundamentals", {})
+        if not payload and ws["payloads"].get("company"):
             company = ws["payloads"].get("company", {})
             payload = {
                 "valuation": company.get("valuation", {}),
                 "quality": company.get("quality", {}),
                 "growth": company.get("growth", {}),
             }
-        else:
-            payload = ws["payloads"].get("fundamentals", {})
         controller.update_data(isin, payload)
         controller.update_warnings(ws["warnings"].get("fundamentals", []))
+
+        if "fundamentals" in ws["payloads"]:
+            controller.update_loading(False)
+            return
+
+        controller.update_loading(True, "Lade Kennzahlen...")
+        generation = _next_generation(ws, "fundamentals_panel")
+
+        def _worker():
+            return client.load_fundamentals(isin)
+
+        def _done(result):
+            if ws["request_generation"].get("fundamentals_panel") != generation:
+                return
+            fundamentals_payload, fundamentals_warning = result
+            ws["payloads"]["fundamentals"] = fundamentals_payload or {}
+            ws["warnings"]["fundamentals"] = [fundamentals_warning] if fundamentals_warning else []
+            if current["tab"] == "fundamentals" and current["isin"] == isin:
+                fresh_payload = ws["payloads"].get("fundamentals", {})
+                controller.update_data(isin, fresh_payload)
+                controller.update_warnings(ws["warnings"].get("fundamentals", []))
+                controller.update_loading(False)
+
+        run_in_background(app, _worker, _done)
 
     def _reload_financials(period: str):
         if current["tab"] != "financials":
@@ -640,7 +736,20 @@ def create_screen(app, navigator, state, depot_index: int = 0, **kwargs):
         ws["comparison_search_results"] = list(comparison_state.get("search_results") or [])
         ws["comparison_last_query"] = str(comparison_state.get("last_query") or "")
         ws["warnings"]["comparison_search"] = list(comparison_state.get("search_warnings") or [])
-        _refresh_tab(current["tab"])
+
+        active_tab = current["tab"] if current["tab"] in TAB_LABELS else "overview"
+        _show_tab(active_tab)
+        controllers = ui_state["controllers"]
+        if active_tab == "returns":
+            controllers["returns"].update_loading(True, "Lade Zeitreihe...")
+        elif active_tab == "overview":
+            controllers["overview"].update_loading(True)
+        elif active_tab == "risk":
+            controllers["risk"].update_loading(True, "Lade Risiko/Benchmark...")
+        elif active_tab == "fundamentals":
+            controllers["fundamentals"].update_loading(True, "Lade Kennzahlen...")
+
+        _prime_timeseries(sel_isin, ws, on_ready=lambda: current["isin"] == sel_isin and _refresh_tab(active_tab))
         if settings.performance_logging:
             performance_logger.info(
                 "DepoAnalyse workspace render for %s took %.2fs", sel_isin, time.perf_counter() - selection_started
