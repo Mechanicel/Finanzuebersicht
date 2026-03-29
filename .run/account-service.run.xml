@@ -1,12 +1,7 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="account-service" type="PythonConfigurationType" factoryName="Python">
-    <option name="MODULE_MODE" value="true" />
-    <option name="MODULE_NAME" value="app" />
-    <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$/services/account-service" />
-    <option name="EMULATE_TERMINAL" value="true" />
-    <envs>
-      <env name="PORT" value="8003" />
-    </envs>
-    <module name="Finanzuebersicht" />
+  <configuration default="false" name="account-service" type="ShConfigurationType" factoryName="Shell Script">
+    <option name="SCRIPT_TEXT" value="uv run python scripts/dev.py run-service account-service" />
+    <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
+    <option name="EXECUTE_IN_TERMINAL" value="true" />
   </configuration>
 </component>

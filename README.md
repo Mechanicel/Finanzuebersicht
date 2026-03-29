@@ -1,36 +1,48 @@
-# Finanzuebersicht Monorepo
+# Finanzübersicht Monorepo (Vue + FastAPI + Microservices)
 
-Dieses Repository ist ein **Greenfield-Monorepo** für eine webbasierte Finanzübersicht.
+Dieses Repository enthält ausschließlich die Zielarchitektur mit **Vue-Frontend**, **FastAPI-API-Gateway** und fachlichen Microservices.
 
-## Zielarchitektur
+## Stack
 
-- `frontend-web/` – zukünftiges Web-Frontend (nur UI)
-- `services/api-gateway/` – BFF/Gateway für das Frontend
-- `services/masterdata-service/` – Banken, Kontotypen, Referenzdaten
-- `services/person-service/` – Personen, Bankzuordnungen, Freibeträge
-- `services/account-service/` – Konten, manuelle Snapshots
-- `services/portfolio-service/` – Depotkonten und Holdings
-- `services/marketdata-service/` – Wertpapier- und Marktdaten
-- `services/analytics-service/` – Aggregationen, Charts, Forecasts, Readmodels
-- `shared/` – gemeinsame Pydantic-Modelle und Utilities
-- `scripts/` – Entwicklungs- und Startskripte
-- `.run/` – IntelliJ/PyCharm Run-Konfigurationen
-- `docs/architecture/` – Architektur- und API-Dokumentation
+- Frontend: **Vue 3 + TypeScript + Vite** (`frontend-web/`)
+- API Edge/BFF: **api-gateway** (`services/api-gateway`)
+- Backend Services (FastAPI):
+  - `masterdata-service`
+  - `person-service`
+  - `account-service`
+  - `portfolio-service`
+  - `marketdata-service`
+  - `analytics-service`
+- Shared Python Package: `shared/`
 
-## Technologie-Stack
+## Repository-Struktur
 
-- Python **>= 3.12**
-- FastAPI als Basis aller Python-Services
-- uv als bevorzugtes Python-Tooling
+- `frontend-web/` – Web-Frontend inkl. Router, API-Client, Views, Components
+- `services/` – FastAPI-Microservices
+- `docs/architecture/` – finale Architektur- und Betriebsdokumentation
+- `scripts/dev.py` – zentraler Dev-Entrypoint (CLI)
+- `.run/` – IntelliJ/PyCharm Run-Konfigurationen (einzeln + Compound)
 
-## Lokale Entwicklung
+## Lokaler Start
 
-Die komplette Entwicklungs- und Startlogik ist in `scripts/dev.py` zentralisiert.
+### 1) Setup
 
-1. Setup: `make setup`
-2. Alle Backends starten: `make dev-backend`
-3. Full-Stack-Entwicklung (Backend + Frontend): `make dev`
+```bash
+make setup
+```
 
-Alle Details inkl. Portplan, IntelliJ-Run-Konfigurationen und Einzelstarts stehen in:
+### 2) Full-Stack starten (zentral)
 
-- `docs/architecture/development.md`
+```bash
+make dev
+```
+
+### 3) Einzelstarts
+
+```bash
+make dev-backend
+make dev-frontend
+uv run python scripts/dev.py run-service api-gateway
+```
+
+Weitere Details: `docs/architecture/local-development.md`.
