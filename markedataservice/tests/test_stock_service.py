@@ -22,9 +22,58 @@ class FakeMongoRepo:
         self.data[isin] = data
 
     def read_symbol_timeseries(self, symbol: str):
-        return self.symbol_data.get(symbol.upper())
+        normalized = symbol.upper()
+        direct = self.symbol_data.get(normalized)
+        if direct:
+            return direct
+        for isin_doc in self.data.values():
+            aliases = (isin_doc.get("aliases") or {}).get("symbols") or []
+            if normalized not in aliases:
+                continue
+            timeseries = isin_doc.get("timeseries") or {}
+            meta_ts = (isin_doc.get("meta") or {}).get("timeseries") or {}
+            return {
+                "isin": isin_doc.get("isin"),
+                "symbol": normalized,
+                "price_history": list(timeseries.get("price_history") or isin_doc.get("price_history") or []),
+                "metrics_history": list(timeseries.get("metrics_history") or isin_doc.get("metrics_history") or []),
+                "as_of": meta_ts.get("as_of"),
+                "updated_at": meta_ts.get("updated_at"),
+                "source": meta_ts.get("source"),
+                "last_refresh_at": meta_ts.get("last_refresh_at"),
+                "record_count": meta_ts.get("record_count"),
+            }
+        return None
 
-    def write_symbol_timeseries(self, symbol: str, payload):
+    def write_symbol_timeseries(self, symbol: str, payload, *, isin: str | None = None, instrument=None):
+        if isin:
+            existing = self.data.get(isin, {"isin": isin})
+            existing["timeseries"] = existing.get("timeseries") or {}
+            existing["timeseries"]["price_history"] = list(payload.get("price_history") or [])
+            existing["price_history"] = list(payload.get("price_history") or [])
+            existing["meta"] = existing.get("meta") or {}
+            existing["meta"]["timeseries"] = {
+                "as_of": payload.get("as_of"),
+                "source": payload.get("source"),
+                "updated_at": payload.get("updated_at"),
+                "last_refresh_at": payload.get("last_refresh_at"),
+                "record_count": payload.get("record_count"),
+            }
+            aliases = existing.get("aliases") or {"symbols": []}
+            symbols = aliases.get("symbols") or []
+            if symbol.upper() not in symbols:
+                symbols.append(symbol.upper())
+            aliases["symbols"] = symbols
+            aliases["primary_symbol"] = symbol.upper()
+            existing["aliases"] = aliases
+            if instrument:
+                existing["instrument"] = {
+                    "isin": instrument.get("isin") or isin,
+                    "symbol": instrument.get("symbol") or symbol.upper(),
+                    "long_name": instrument.get("name"),
+                }
+            self.data[isin] = existing
+            return
         self.symbol_data[symbol.upper()] = payload
 
 
@@ -40,6 +89,7 @@ class FakeProvider:
         self.timeseries_calls = []
         self.search_calls = []
         self.provider_name = "fake"
+        self.symbol_to_instrument = {}
 
     def resolve_symbol(self, isin: str) -> str:
         self.resolve_calls.append(isin)
@@ -82,6 +132,9 @@ class FakeProvider:
     def search_quotes(self, query: str, max_results: int = 10):
         self.search_calls.append((query, max_results))
         return [{"symbol": "MSFT", "name": "Microsoft Corp"}]
+
+    def resolve_instrument_for_symbol(self, symbol: str):
+        return self.symbol_to_instrument.get(symbol.upper(), {"symbol": symbol.upper()})
 
 
 def _build_service(repo: FakeMongoRepo, provider: FakeProvider) -> StockService:
@@ -184,6 +237,7 @@ def test_benchmark_timeseries_is_cached_after_first_load():
     assert first["price_history"]
     assert second["price_history"] == first["price_history"]
     assert provider.benchmark_calls == [("^GSPC", None)]
+    assert "^GSPC" in repo.symbol_data
 
 
 def test_stale_benchmark_cache_gets_refreshed():
@@ -202,6 +256,20 @@ def test_stale_benchmark_cache_gets_refreshed():
 
     assert provider.benchmark_calls == [("^GSPC", (datetime.date.today() - datetime.timedelta(days=17)).isoformat())]
     assert payload["as_of"] >= stale_date
+
+
+def test_benchmark_timeseries_with_isin_is_stored_under_isin_object():
+    repo = FakeMongoRepo()
+    provider = FakeProvider()
+    provider.symbol_to_instrument["URTH"] = {"symbol": "URTH", "isin": "IE00B4L5Y983", "name": "iShares MSCI World ETF"}
+    service = _build_service(repo, provider)
+
+    payload = service._get_symbol_timeseries_cached("URTH")
+
+    assert payload["isin"] == "IE00B4L5Y983"
+    assert repo.data["IE00B4L5Y983"]["timeseries"]["price_history"]
+    assert repo.data["IE00B4L5Y983"]["aliases"]["primary_symbol"] == "URTH"
+    assert "URTH" not in repo.symbol_data
 
 
 def test_stale_company_timeseries_gets_incremental_refresh_and_persisted():
@@ -224,7 +292,7 @@ def test_stale_company_timeseries_gets_incremental_refresh_and_persisted():
 
     assert model.price_history
     assert provider.timeseries_calls[0][2] == (stale_day - datetime.timedelta(days=7)).isoformat()
-    assert repo.writes == 1
+    assert repo.writes == 2
     assert repo.data["DE000BASF111"]["meta"]["timeseries"]["source"] == "fake"
 
 
