@@ -1,9 +1,12 @@
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, FastAPI, Request
+from fastapi.responses import JSONResponse
 from finanzuebersicht_shared import create_app
+from finanzuebersicht_shared.models import ErrorDetail, ErrorResponse
 
 from app.config import get_settings
+from app.models import BadRequestError, NotFoundError
 from app.routers import api_v1_router
 
 
@@ -13,6 +16,28 @@ def build_api_router() -> APIRouter:
     return router
 
 
-def create_application():
+def _register_marketdata_error_handlers(app: FastAPI) -> None:
+    @app.exception_handler(NotFoundError)
+    async def not_found_handler(request: Request, exc: NotFoundError) -> JSONResponse:
+        payload = ErrorResponse(
+            error="not_found",
+            request_id=getattr(request.state, "request_id", None),
+            details=[ErrorDetail(code="not_found", message=exc.message)],
+        )
+        return JSONResponse(status_code=404, content=payload.model_dump())
+
+    @app.exception_handler(BadRequestError)
+    async def bad_request_handler(request: Request, exc: BadRequestError) -> JSONResponse:
+        payload = ErrorResponse(
+            error="bad_request",
+            request_id=getattr(request.state, "request_id", None),
+            details=[ErrorDetail(code="bad_request", message=exc.message)],
+        )
+        return JSONResponse(status_code=400, content=payload.model_dump())
+
+
+def create_application() -> FastAPI:
     settings = get_settings()
-    return create_app(settings=settings, api_router=build_api_router())
+    app = create_app(settings=settings, api_router=build_api_router())
+    _register_marketdata_error_handlers(app)
+    return app
