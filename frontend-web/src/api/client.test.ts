@@ -128,3 +128,77 @@ describe('apiClient allowances', () => {
     expect(mock.history.put[0]?.data).toBe(JSON.stringify({ tax_year: taxYear, amount: '125.00', currency: 'EUR' }))
   })
 })
+
+
+describe('apiClient accounts', () => {
+  it('calls account list/create/update endpoints', async () => {
+    const personId = '00000000-0000-0000-0000-000000000101'
+    const accountId = '40000000-0000-0000-0000-000000000001'
+
+    mock.onGet(`/app/persons/${personId}/accounts`).reply(200, {
+      data: [
+        {
+          account_id: accountId,
+          person_id: personId,
+          bank_id: '30000000-0000-0000-0000-000000000001',
+          account_type: 'girokonto',
+          label: 'Giro Hauptkonto',
+          balance: '1000.00',
+          currency: 'EUR',
+          created_at: '2026-03-01',
+          updated_at: '2026-03-01'
+        }
+      ]
+    })
+    mock.onPost(`/app/persons/${personId}/accounts`).reply(201, {
+      data: {
+        account_id: accountId,
+        person_id: personId,
+        bank_id: '30000000-0000-0000-0000-000000000001',
+        account_type: 'girokonto',
+        label: 'Giro Hauptkonto',
+        balance: '1250.00',
+        currency: 'EUR',
+        created_at: '2026-03-01',
+        updated_at: '2026-03-01'
+      }
+    })
+    mock.onPatch(`/app/persons/${personId}/accounts/${accountId}`).reply(200, {
+      data: {
+        account_id: accountId,
+        person_id: personId,
+        bank_id: '30000000-0000-0000-0000-000000000001',
+        account_type: 'girokonto',
+        label: 'Giro Notgroschen',
+        balance: '1500.00',
+        currency: 'EUR',
+        created_at: '2026-03-01',
+        updated_at: '2026-03-02'
+      }
+    })
+
+    const list = await apiClient.accounts(personId)
+    const created = await apiClient.createAccount(personId, {
+      bank_id: '30000000-0000-0000-0000-000000000001',
+      account_type: 'girokonto',
+      label: 'Giro Hauptkonto',
+      balance: '1250.00',
+      currency: 'EUR'
+    })
+    const updated = await apiClient.updateAccount(personId, accountId, { label: 'Giro Notgroschen', balance: '1500.00' })
+
+    expect(list).toHaveLength(1)
+    expect(created.balance).toBe('1250.00')
+    expect(updated.label).toBe('Giro Notgroschen')
+    expect(mock.history.post[0]?.data).toBe(
+      JSON.stringify({
+        bank_id: '30000000-0000-0000-0000-000000000001',
+        account_type: 'girokonto',
+        label: 'Giro Hauptkonto',
+        balance: '1250.00',
+        currency: 'EUR'
+      })
+    )
+    expect(mock.history.patch[0]?.data).toBe(JSON.stringify({ label: 'Giro Notgroschen', balance: '1500.00' }))
+  })
+})
