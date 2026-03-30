@@ -41,7 +41,8 @@
   </section>
 </template>
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { apiClient } from '../api/client'
 import type { DashboardReadModel } from '../types/models'
 import LoadingState from '../components/LoadingState.vue'
@@ -50,7 +51,8 @@ import EmptyState from '../components/EmptyState.vue'
 import SimpleLineChart from '../components/SimpleLineChart.vue'
 import SimplePieChart from '../components/SimplePieChart.vue'
 
-const personId = ref('00000000-0000-0000-0000-000000000101')
+const route = useRoute()
+const personId = ref(typeof route.query.personId === 'string' ? route.query.personId : '00000000-0000-0000-0000-000000000101')
 const dashboard = ref<DashboardReadModel | null>(null)
 const loading = ref(false)
 const error = ref<string | null>(null)
@@ -70,4 +72,9 @@ async function load() {
     loading.value = false
   }
 }
+onMounted(() => {
+  if (typeof route.query.personId === 'string') {
+    void load()
+  }
+})
 </script>
