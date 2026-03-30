@@ -46,3 +46,17 @@ uv run python scripts/dev.py run-service api-gateway
 ```
 
 Weitere Details: `docs/architecture/local-development.md`.
+
+## Hinweis für Windows/PowerShell
+
+`scripts/dev.py` startet das Frontend auf Windows automatisch mit:
+
+```powershell
+cmd /c "npm install && npm run dev"
+```
+
+Auf macOS/Linux bleibt der Start:
+
+```bash
+bash -lc "npm install && npm run dev"
+```
