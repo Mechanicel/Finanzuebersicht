@@ -29,7 +29,7 @@
             Zuordnung an.
           </p>
           <form v-else class="account-form" @submit.prevent="submitCreate">
-            <AccountFormFields :form="createForm" :bank-options="bankOptions" />
+            <AccountFormFields v-model="createForm" :bank-options="bankOptions" />
             <p v-if="createError" class="error">{{ createError }}</p>
             <button class="btn" type="submit" :disabled="submitting">Konto anlegen</button>
           </form>
@@ -66,7 +66,7 @@
               </dl>
 
               <form v-else class="account-form edit-form" @submit.prevent="submitEdit(account.account_id)">
-                <AccountFormFields :form="editForm" :bank-options="bankOptions" />
+                <AccountFormFields v-model="editForm" :bank-options="bankOptions" />
                 <p v-if="editError" class="error">{{ editError }}</p>
                 <div class="edit-actions">
                   <button class="btn" type="submit" :disabled="submitting">Speichern</button>
@@ -280,18 +280,37 @@ async function submitEdit(accountId: string) {
 const AccountFormFields = defineComponent({
   name: 'AccountFormFields',
   props: {
-    form: { type: Object as () => AccountFormState, required: true },
+    modelValue: { type: Object as () => AccountFormState, required: true },
     bankOptions: { type: Array as () => BankReadModel[], required: true }
   },
-  setup(props) {
-    const visibleFields = computed(() => new Set(visibleFieldsForAccountType(props.form.account_type)))
-    return { accountTypeLabels, visibleFields }
+  emits: ['update:modelValue'],
+  setup(props, { emit }) {
+    const visibleFields = computed(() => new Set(visibleFieldsForAccountType(props.modelValue.account_type)))
+
+    const updateField = <Field extends keyof AccountFormState>(field: Field, value: AccountFormState[Field]) => {
+      emit('update:modelValue', {
+        ...props.modelValue,
+        [field]: value
+      })
+    }
+
+    const onInput = (field: keyof AccountFormState, event: Event) => {
+      const input = event.target as HTMLInputElement
+      updateField(field, input.value)
+    }
+
+    const onSelect = (field: keyof AccountFormState, event: Event) => {
+      const select = event.target as HTMLSelectElement
+      updateField(field, select.value)
+    }
+
+    return { accountTypeLabels, visibleFields, onInput, onSelect }
   },
   template: `
     <div class="grid form-grid">
       <div>
         <label>Kontotyp</label>
-        <select class="input" v-model="form.account_type">
+        <select class="input" :value="modelValue.account_type" @change="onSelect('account_type', $event)">
           <option value="girokonto">{{ accountTypeLabels.girokonto }}</option>
           <option value="tagesgeldkonto">{{ accountTypeLabels.tagesgeldkonto }}</option>
           <option value="festgeldkonto">{{ accountTypeLabels.festgeldkonto }}</option>
@@ -300,11 +319,17 @@ const AccountFormFields = defineComponent({
       </div>
       <div>
         <label>Bezeichnung</label>
-        <input class="input" v-model="form.label" maxlength="120" placeholder="z. B. Giro Hauptkonto" />
+        <input
+          class="input"
+          :value="modelValue.label"
+          @input="onInput('label', $event)"
+          maxlength="120"
+          placeholder="z. B. Giro Hauptkonto"
+        />
       </div>
       <div>
         <label>Bank</label>
-        <select class="input" v-model="form.bank_id">
+        <select class="input" :value="modelValue.bank_id" @change="onSelect('bank_id', $event)">
           <option value="">Bitte auswählen</option>
           <option v-for="bank in bankOptions" :key="bank.bank_id" :value="bank.bank_id">
             {{ bank.name }} ({{ bank.bic }})
@@ -313,40 +338,62 @@ const AccountFormFields = defineComponent({
       </div>
       <div>
         <label>Saldo</label>
-        <input class="input" v-model="form.balance" inputmode="decimal" placeholder="0.00" />
+        <input
+          class="input"
+          :value="modelValue.balance"
+          @input="onInput('balance', $event)"
+          inputmode="decimal"
+          placeholder="0.00"
+        />
       </div>
       <div>
         <label>Währung</label>
-        <input class="input" v-model="form.currency" maxlength="3" placeholder="EUR" />
+        <input
+          class="input"
+          :value="modelValue.currency"
+          @input="onInput('currency', $event)"
+          maxlength="3"
+          placeholder="EUR"
+        />
       </div>
 
       <div v-if="visibleFields.has('account_number')">
         <label>Kontonummer</label>
-        <input class="input" v-model="form.account_number" />
+        <input class="input" :value="modelValue.account_number" @input="onInput('account_number', $event)" />
       </div>
       <div v-if="visibleFields.has('depot_number')">
         <label>Deponummer</label>
-        <input class="input" v-model="form.depot_number" />
+        <input class="input" :value="modelValue.depot_number" @input="onInput('depot_number', $event)" />
       </div>
       <div v-if="visibleFields.has('iban')">
         <label>IBAN</label>
-        <input class="input" v-model="form.iban" />
+        <input class="input" :value="modelValue.iban" @input="onInput('iban', $event)" />
       </div>
       <div v-if="visibleFields.has('opening_date')">
         <label>Eröffnungsdatum</label>
-        <input class="input" v-model="form.opening_date" type="date" />
+        <input class="input" :value="modelValue.opening_date" @input="onInput('opening_date', $event)" type="date" />
       </div>
       <div v-if="visibleFields.has('interest_rate')">
         <label>Zinssatz</label>
-        <input class="input" v-model="form.interest_rate" inputmode="decimal" placeholder="z. B. 2.1500" />
+        <input
+          class="input"
+          :value="modelValue.interest_rate"
+          @input="onInput('interest_rate', $event)"
+          inputmode="decimal"
+          placeholder="z. B. 2.1500"
+        />
       </div>
       <div v-if="visibleFields.has('payout_account_iban')">
         <label>Auszahlungskonto-IBAN</label>
-        <input class="input" v-model="form.payout_account_iban" />
+        <input class="input" :value="modelValue.payout_account_iban" @input="onInput('payout_account_iban', $event)" />
       </div>
       <div v-if="visibleFields.has('settlement_account_iban')">
         <label>Verrechnungskonto-IBAN</label>
-        <input class="input" v-model="form.settlement_account_iban" />
+        <input
+          class="input"
+          :value="modelValue.settlement_account_iban"
+          @input="onInput('settlement_account_iban', $event)"
+        />
       </div>
     </div>
   `
