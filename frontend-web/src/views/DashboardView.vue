@@ -1,10 +1,15 @@
 <template>
   <section class="grid">
     <article class="card">
-      <h2>Analytics-Dashboard</h2>
+      <div class="view-header">
+        <div class="view-header-copy">
+          <h2>Analytics-Dashboard</h2>
+          <p>Kennzahlen und Auswertungen im Personenkontext abrufen.</p>
+        </div>
+        <RouterLink class="btn flow-btn" :to="backTarget">{{ backLabel }}</RouterLink>
+      </div>
       <p v-if="!hasPersonContext" class="context-hint">
         Bitte zuerst eine Person auswählen und den Bereich aus dem Personen-Hub öffnen.
-        <RouterLink to="/persons/select">Zur Personenliste</RouterLink>
       </p>
       <div class="grid" style="grid-template-columns: 1fr auto">
         <div><label>Person-ID</label><input class="input" v-model.trim="personId" /></div>
@@ -58,6 +63,8 @@ import SimplePieChart from '../components/SimplePieChart.vue'
 const route = useRoute()
 const personId = ref(typeof route.query.personId === 'string' ? route.query.personId : '00000000-0000-0000-0000-000000000101')
 const hasPersonContext = computed(() => typeof route.query.personId === 'string' && route.query.personId.length > 0)
+const backTarget = computed(() => (hasPersonContext.value ? `/persons/${route.query.personId as string}` : '/persons/select'))
+const backLabel = computed(() => (hasPersonContext.value ? 'Zurück zum Personen-Hub' : 'Zur Personenliste'))
 const dashboard = ref<DashboardReadModel | null>(null)
 const loading = ref(false)
 const error = ref<string | null>(null)
@@ -95,7 +102,4 @@ onMounted(() => {
   padding: 0.65rem 0.75rem;
 }
 
-.context-hint :deep(a) {
-  margin-left: 0.35rem;
-}
 </style>

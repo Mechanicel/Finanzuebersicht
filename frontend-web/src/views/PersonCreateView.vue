@@ -1,13 +1,12 @@
 <template>
   <section class="card">
-    <div class="header-row">
-      <h2>Neue Person anlegen</h2>
-      <div class="header-actions">
-        <RouterLink class="btn flow-btn" to="/persons/select">Zur Personenliste</RouterLink>
-        <RouterLink class="btn flow-btn" to="/">Zur Startseite</RouterLink>
+    <div class="view-header">
+      <div class="view-header-copy">
+        <h2>Neue Person anlegen</h2>
+        <p>Erfasse eine neue Person. Nach erfolgreicher Anlage kannst du direkt in den Personen-Hub wechseln.</p>
       </div>
+      <RouterLink class="btn flow-btn" to="/">Zur Startseite</RouterLink>
     </div>
-    <p class="subtitle">Erfasse eine neue Person. Nach erfolgreicher Anlage kannst du direkt in den Personen-Hub wechseln.</p>
 
     <div class="grid" style="grid-template-columns: 1fr 1fr 1fr auto; align-items: end; margin-bottom: 1rem">
       <div><label>Vorname</label><input class="input" v-model.trim="form.firstName" /></div>
@@ -67,25 +66,6 @@ async function savePerson() {
 </script>
 
 <style scoped>
-.header-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 0.75rem;
-}
-
-.header-actions {
-  display: flex;
-  gap: 0.75rem;
-  flex-wrap: wrap;
-}
-
-.subtitle {
-  margin-top: 0.35rem;
-  margin-bottom: 1.25rem;
-  color: #475569;
-}
-
 .success-box {
   margin-top: 1rem;
   padding: 0.75rem;

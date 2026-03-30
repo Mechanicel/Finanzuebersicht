@@ -1,16 +1,13 @@
 <template>
   <section class="grid person-hub">
     <article class="card">
-      <div class="hub-head">
-        <div>
+      <div class="view-header">
+        <div class="view-header-copy">
           <p class="eyebrow">Personen-Hub</p>
           <h2>{{ fullName }}</h2>
           <p class="subline">{{ personEmail }}</p>
         </div>
-        <div class="head-actions">
-          <RouterLink class="btn secondary" to="/persons/select">Zur Personenliste</RouterLink>
-          <RouterLink class="btn secondary" to="/">Zum Start</RouterLink>
-        </div>
+        <RouterLink class="btn flow-btn" to="/persons/select">Zur Personenliste</RouterLink>
       </div>
 
       <LoadingState v-if="loading" />
@@ -178,14 +175,6 @@ onMounted(load)
   grid-template-columns: 1fr;
 }
 
-.hub-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 1rem;
-  margin-bottom: 1rem;
-}
-
 .eyebrow {
   margin: 0;
   color: #475569;
@@ -195,12 +184,6 @@ onMounted(load)
 .subline {
   margin-top: 0.4rem;
   color: #475569;
-}
-
-.head-actions {
-  display: flex;
-  gap: 0.5rem;
-  flex-wrap: wrap;
 }
 
 .stats-grid {

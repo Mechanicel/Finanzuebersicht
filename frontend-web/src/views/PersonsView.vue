@@ -1,14 +1,11 @@
 <template>
   <section class="card">
-    <div class="header-row">
-      <div>
+    <div class="view-header">
+      <div class="view-header-copy">
         <h2>Person suchen & auswählen</h2>
-        <p class="subtitle">Suche serverseitig nach Vorname, Nachname oder E-Mail und öffne danach den Personen-Hub.</p>
+        <p>Suche serverseitig nach Vorname, Nachname oder E-Mail und öffne danach den Personen-Hub.</p>
       </div>
-      <div class="header-actions">
-        <RouterLink class="btn flow-btn" to="/">Zur Startseite</RouterLink>
-        <RouterLink class="btn secondary" to="/persons/new">Neue Person anlegen</RouterLink>
-      </div>
+      <RouterLink class="btn flow-btn" to="/">Zur Startseite</RouterLink>
     </div>
 
     <div class="search-row">
@@ -107,25 +104,6 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.header-row {
-  display: flex;
-  justify-content: space-between;
-  gap: 1rem;
-  align-items: start;
-  margin-bottom: 1rem;
-}
-
-.header-actions {
-  display: flex;
-  gap: 0.75rem;
-  flex-wrap: wrap;
-}
-
-.subtitle {
-  margin-top: 0.35rem;
-  color: #475569;
-}
-
 .search-row {
   display: grid;
   gap: 0.5rem;
