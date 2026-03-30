@@ -12,6 +12,31 @@ Der Service modelliert die Domäne **entkoppelt** in drei Ressourcen:
 
 Es gibt **keine** eingebetteten Legacy-Gesamtdokumente und **keine** implizite Kopplung zum `account-service`.
 
+## Persistenz (MongoDB)
+
+Der Service verwendet standardmäßig MongoDB (kein In-Memory-CRUD-Default mehr).
+
+### Settings
+
+- `MONGO_URI` (optional, direkte URI)
+- Fallback bei leerem `MONGO_URI`:
+  - `MONGO_HOST` (default `localhost`)
+  - `MONGO_PORT` (default `27017`)
+  - `MONGO_DATABASE` (default `finanzuebersicht`)
+  - `MONGO_USER` (optional)
+  - `MONGO_PASSWORD` (optional)
+  - `MONGO_AUTH_SOURCE` (default `admin`)
+
+Wenn `MONGO_USER`/`MONGO_PASSWORD` leer sind, wird ohne Authentifizierung verbunden.
+
+### Collections
+
+- `MONGO_PERSON_COLLECTION` (default `persons`)
+- `MONGO_ASSIGNMENT_COLLECTION` (default `person_bank_assignments`)
+- `MONGO_ALLOWANCE_COLLECTION` (default `tax_allowances`)
+
+MongoDB legt Collections automatisch beim ersten Schreiben an. Benötigte Indizes werden beim Initialisieren des Repositories erstellt.
+
 ## API (v1)
 
 Basis-Prefix: `/api/v1`
@@ -36,30 +61,15 @@ Basis-Prefix: `/api/v1`
 - `PUT /persons/{person_id}/allowances/{bank_id}?amount=801.25`
 - `GET /persons/{person_id}/allowances/summary`
 
-## Frontend-freundliche Response-Struktur
+## Frontend-Flow
 
-Alle Endpunkte liefern das Standard-Envelope-Format:
+Personen-CRUD läuft lokal über:
 
-```json
-{
-  "data": { "...": "..." },
-  "request_id": "...",
-  "correlation_id": "..."
-}
-```
-
-- Listenendpunkte liefern `items` plus Metadaten (`pagination` oder `total`).
-- Detailendpunkt liefert `person` plus `stats`.
-- Summary-Endpunkt liefert `banks[]` und `total_amount` explizit.
-
-## Validierungen
-
-- Doppelte Person (`first_name + last_name + email`) → `409`
-- Doppelte Person↔Bank-Zuordnung → `409`
-- Freibetrag nur bei bestehender Person↔Bank-Zuordnung → `409`
+`frontend-web -> api-gateway -> person-service -> MongoDB`
 
 ## Entwicklung
 
 ```bash
-pytest services/person-service/tests -q
+uv sync --all-packages --dev
+PYTHONPATH=services/person-service:shared/src uv run --all-packages pytest services/person-service/tests/test_person_api.py
 ```

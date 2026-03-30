@@ -3,29 +3,37 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from uuid import uuid4
+from uuid import UUID, uuid4
 
+import mongomock
 import pytest
 
 ROOT = Path(__file__).resolve().parents[3]
 SHARED_SRC = ROOT / "shared" / "src"
 if str(SHARED_SRC) not in sys.path:
-    sys.path.append(str(SHARED_SRC))
+    sys.path.insert(0, str(SHARED_SRC))
 
 SERVICE_ROOT = Path(__file__).resolve().parents[1]
+
+if "app" in sys.modules:
+    del sys.modules["app"]
+
 if str(SERVICE_ROOT) not in sys.path:
-    sys.path.append(str(SERVICE_ROOT))
+    sys.path.insert(0, str(SERVICE_ROOT))
 
 
 from finanzuebersicht_shared.testing import assert_standard_health_payload, create_test_client
 
-from app.dependencies import get_repository
+from app.dependencies import get_mongo_client, get_mongo_database, get_repository
 from app.main import app
 
 
 @pytest.fixture(autouse=True)
-def reset_repo() -> None:
+def reset_repo(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("app.dependencies.MongoClient", mongomock.MongoClient)
     get_repository.cache_clear()
+    get_mongo_database.cache_clear()
+    get_mongo_client.cache_clear()
 
 
 def test_health_and_ready_endpoints() -> None:
@@ -57,7 +65,10 @@ def test_person_crud_and_list_filters() -> None:
     assert patched.status_code == 200
     assert patched.json()["data"]["last_name"] == "Meier"
 
-    listed = client.get("/api/v1/persons", params={"q": "ben", "sort_by": "first_name", "direction": "desc", "limit": 10, "offset": 0})
+    listed = client.get(
+        "/api/v1/persons",
+        params={"q": "ben", "sort_by": "first_name", "direction": "desc", "limit": 10, "offset": 0},
+    )
     assert listed.status_code == 200
     assert listed.json()["data"]["pagination"]["total"] == 1
     assert listed.json()["data"]["items"][0]["first_name"] == "Ben"
@@ -75,7 +86,9 @@ def test_person_validation_duplicate_not_allowed() -> None:
     payload = {"first_name": "Kira", "last_name": "Sommer", "email": "ks@example.com"}
     assert client.post("/api/v1/persons", json=payload).status_code == 201
 
-    duplicate = client.post("/api/v1/persons", json={"first_name": "kira", "last_name": "sommer", "email": "KS@example.com"})
+    duplicate = client.post(
+        "/api/v1/persons", json={"first_name": "kira", "last_name": "sommer", "email": "KS@example.com"}
+    )
     assert duplicate.status_code == 409
 
 
@@ -119,3 +132,19 @@ def test_allowance_requires_assignment() -> None:
 
     response = client.put(f"/api/v1/persons/{person_id}/allowances/{bank_id}", params={"amount": "100.00"})
     assert response.status_code == 409
+
+
+def test_mongo_persistence_inside_repository() -> None:
+    client = create_test_client(app)
+
+    created = client.post(
+        "/api/v1/persons",
+        json={"first_name": "Persist", "last_name": "Check", "email": "persist@example.com"},
+    )
+    assert created.status_code == 201
+    person_id = created.json()["data"]["person_id"]
+
+    repository = get_repository()
+    person = repository.get_person(UUID(person_id))
+    assert person is not None
+    assert person.email == "persist@example.com"

@@ -4,7 +4,7 @@ from typing import Annotated
 from uuid import UUID
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from finanzuebersicht_shared.models import ApiResponse
 
 from app.dependencies import get_gateway_service
@@ -12,7 +12,11 @@ from app.models import (
     AccountReadModel,
     DashboardReadModel,
     GatewayHealthReadModel,
+    PersonCreatePayload,
+    PersonDetailReadModel,
     PersonListReadModel,
+    PersonReadModel,
+    PersonUpdatePayload,
     PortfolioReadModel,
 )
 from app.service import GatewayService
@@ -25,6 +29,40 @@ async def list_persons(
     service: Annotated[GatewayService, Depends(get_gateway_service)],
 ) -> ApiResponse[PersonListReadModel]:
     return ApiResponse(data=await service.list_persons())
+
+
+@router.post("/app/persons", response_model=ApiResponse[PersonReadModel], status_code=status.HTTP_201_CREATED)
+async def create_person(
+    payload: PersonCreatePayload,
+    service: Annotated[GatewayService, Depends(get_gateway_service)],
+) -> ApiResponse[PersonReadModel]:
+    return ApiResponse(data=await service.create_person(payload))
+
+
+@router.get("/app/persons/{person_id}", response_model=ApiResponse[PersonDetailReadModel])
+async def get_person(
+    person_id: UUID,
+    service: Annotated[GatewayService, Depends(get_gateway_service)],
+) -> ApiResponse[PersonDetailReadModel]:
+    return ApiResponse(data=await service.get_person(person_id))
+
+
+@router.patch("/app/persons/{person_id}", response_model=ApiResponse[PersonReadModel])
+async def update_person(
+    person_id: UUID,
+    payload: PersonUpdatePayload,
+    service: Annotated[GatewayService, Depends(get_gateway_service)],
+) -> ApiResponse[PersonReadModel]:
+    return ApiResponse(data=await service.update_person(person_id, payload))
+
+
+@router.delete("/app/persons/{person_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_person(
+    person_id: UUID,
+    service: Annotated[GatewayService, Depends(get_gateway_service)],
+) -> Response:
+    await service.delete_person(person_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/app/persons/{person_id}/dashboard", response_model=ApiResponse[DashboardReadModel])

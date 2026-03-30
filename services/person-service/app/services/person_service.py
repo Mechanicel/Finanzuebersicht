@@ -23,7 +23,7 @@ from app.models import (
     SortDirection,
     TaxAllowance,
 )
-from app.repositories.person_repository import PersonRepository
+from app.repositories.person_repository import MongoPersonRepository, PersonRepository
 
 
 class PersonService:
@@ -76,7 +76,12 @@ class PersonService:
         )
         now = self._now()
         person = Person(**payload.model_dump(), created_at=now, updated_at=now)
-        return self.repository.create_person(person)
+        try:
+            return self.repository.create_person(person)
+        except Exception as exc:  # noqa: BLE001
+            if MongoPersonRepository.is_duplicate_error(exc):
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Person bereits vorhanden") from exc
+            raise
 
     def get_person(self, person_id: UUID) -> Person:
         person = self.repository.get_person(person_id)
@@ -98,7 +103,12 @@ class PersonService:
             email=merged.email,
             exclude_id=person_id,
         )
-        return self.repository.update_person(merged)
+        try:
+            return self.repository.update_person(merged)
+        except Exception as exc:  # noqa: BLE001
+            if MongoPersonRepository.is_duplicate_error(exc):
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Person bereits vorhanden") from exc
+            raise
 
     def delete_person(self, person_id: UUID) -> None:
         deleted = self.repository.delete_person(person_id)
