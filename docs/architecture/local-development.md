@@ -45,6 +45,17 @@ Dabei nutzt `scripts/dev.py` plattformspezifisch:
 - **Windows/PowerShell**: `cmd /c "npm install && npm run dev"`
 - **macOS/Linux**: `bash -lc "npm install && npm run dev"`
 
+
+## Konfiguration per `.env`
+
+Die Shared-`ServiceSettings` laden Konfiguration mit folgender Priorität:
+
+1. **Prozess-Umgebungsvariablen** (z. B. `export APP_ENV=...`)
+2. **Service-lokale `.env`** im aktuellen Working Directory
+3. **Repo-Root `.env`**
+
+Damit funktioniert sowohl der zentrale Start über `scripts/dev.py` (Service läuft mit `cwd=services/<name>`) als auch der direkte Start aus einem Service-Ordner.
+
 ## Alternativen
 
 ```bash
