@@ -7,6 +7,7 @@ from uuid import UUID
 
 import pytest
 from fastapi import HTTPException
+from httpx import ConnectError, Request
 
 ROOT = Path(__file__).resolve().parents[3]
 SERVICE_ROOT = Path(__file__).resolve().parents[1]
@@ -87,7 +88,7 @@ async def test_gateway_person_crud_forwarding(monkeypatch: pytest.MonkeyPatch) -
     service = GatewayService(
         analytics_base_url="http://analytics",
         person_base_url="http://localhost:8002",
-        masterdata_base_url="http://localhost:8005",
+        masterdata_base_url="http://localhost:8001",
         timeout_seconds=1.0,
     )
     person_id = UUID("00000000-0000-0000-0000-000000000101")
@@ -126,7 +127,7 @@ async def test_gateway_person_errors_are_translated(monkeypatch: pytest.MonkeyPa
     service = GatewayService(
         analytics_base_url="http://analytics",
         person_base_url="http://localhost:8002",
-        masterdata_base_url="http://localhost:8005",
+        masterdata_base_url="http://localhost:8001",
         timeout_seconds=1.0,
     )
 
@@ -189,7 +190,7 @@ async def test_gateway_bank_endpoints_forwarding(monkeypatch: pytest.MonkeyPatch
     service = GatewayService(
         analytics_base_url="http://analytics",
         person_base_url="http://localhost:8002",
-        masterdata_base_url="http://localhost:8005",
+        masterdata_base_url="http://localhost:8001",
         timeout_seconds=1.0,
     )
 
@@ -204,3 +205,26 @@ async def test_gateway_bank_endpoints_forwarding(monkeypatch: pytest.MonkeyPatch
     assert calls[0][1].endswith("/api/v1/banks")
     assert calls[1][0] == "POST"
     assert calls[1][1].endswith("/api/v1/banks")
+
+
+@pytest.mark.anyio
+async def test_gateway_masterdata_connect_error_is_translated(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def fake_request(self, method: str, url: str, json: dict | None = None, params: dict | None = None):
+        raise ConnectError("connection failed", request=Request(method, url))
+
+    monkeypatch.setattr("httpx.AsyncClient.request", fake_request)
+
+    service = GatewayService(
+        analytics_base_url="http://analytics",
+        person_base_url="http://localhost:8002",
+        masterdata_base_url="http://localhost:8001",
+        timeout_seconds=1.0,
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        await service.create_bank(
+            BankCreatePayload(name="Musterbank", bic="DEUTDEFFXXX", blz="12345678", country_code="DE")
+        )
+
+    assert exc.value.status_code == 502
+    assert exc.value.detail == "Masterdata-Service ist derzeit nicht erreichbar. Bitte später erneut versuchen."
