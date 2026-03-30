@@ -51,6 +51,10 @@ export interface PersonUpdatePayload {
   first_name?: string
   last_name?: string
   email?: string
+  tax_profile?: {
+    tax_country?: string
+    filing_status?: 'single' | 'joint'
+  }
 }
 
 

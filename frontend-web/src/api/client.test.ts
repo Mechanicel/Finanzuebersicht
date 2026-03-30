@@ -29,7 +29,10 @@ describe('apiClient person CRUD', () => {
 
     expect((await apiClient.createPerson({ first_name: 'A', last_name: 'B' })).person_id).toBe(id)
     expect((await apiClient.person(id)).person.person_id).toBe(id)
-    expect((await apiClient.updatePerson(id, { last_name: 'C' })).last_name).toBe('C')
+    expect((await apiClient.updatePerson(id, { last_name: 'C', tax_profile: { tax_country: 'DE', filing_status: 'joint' } })).last_name).toBe('C')
+    expect(mock.history.patch[0]?.data).toBe(
+      JSON.stringify({ last_name: 'C', tax_profile: { tax_country: 'DE', filing_status: 'joint' } })
+    )
     await expect(apiClient.deletePerson(id)).resolves.toBeUndefined()
   })
 })
