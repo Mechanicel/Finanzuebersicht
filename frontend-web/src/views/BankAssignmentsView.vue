@@ -6,13 +6,11 @@
     </p>
     <div v-if="!personId" class="back-links">
       <RouterLink class="btn secondary" to="/persons/select">Zur Personenliste</RouterLink>
-      <RouterLink class="btn secondary" to="/">Zur Startseite</RouterLink>
     </div>
 
     <template v-else>
       <div class="back-links">
         <RouterLink class="btn secondary" :to="`/persons/${personId}`">Zurück zum Personen-Hub</RouterLink>
-        <RouterLink class="btn secondary" to="/persons/select">Zur Personenliste</RouterLink>
       </div>
 
       <LoadingState v-if="loading" />
@@ -170,6 +168,7 @@ watch(personId, loadData)
 
 .back-links {
   display: flex;
+  justify-content: flex-end;
   gap: 0.5rem;
   margin-bottom: 1rem;
   flex-wrap: wrap;
