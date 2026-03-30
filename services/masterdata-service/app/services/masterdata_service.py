@@ -14,7 +14,7 @@ from app.models import (
     BankListResponse,
     BankUpdate,
 )
-from app.repositories.masterdata_repository import MasterdataRepository
+from app.repositories.masterdata_repository import MasterdataRepository, MongoMasterdataRepository
 
 
 class MasterdataService:
@@ -28,7 +28,16 @@ class MasterdataService:
     def create_bank(self, payload: BankCreate) -> Bank:
         self._assert_bank_uniqueness(bic=payload.bic, blz=payload.blz)
         bank = Bank(**payload.model_dump())
-        return self.repository.create_bank(bank)
+        try:
+            return self.repository.create_bank(bank)
+        except Exception as exc:  # noqa: BLE001
+            if MongoMasterdataRepository.is_duplicate_error(exc):
+                if "bic" in str(exc).lower():
+                    raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="BIC bereits vorhanden") from exc
+                if "blz" in str(exc).lower():
+                    raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="BLZ bereits vorhanden") from exc
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Bank bereits vorhanden") from exc
+            raise
 
     def get_bank(self, bank_id: UUID) -> Bank:
         bank = self.repository.get_bank(bank_id)
@@ -41,7 +50,16 @@ class MasterdataService:
         update_data = payload.model_dump(exclude_none=True)
         merged = current.model_copy(update=update_data)
         self._assert_bank_uniqueness(bic=merged.bic, blz=merged.blz, exclude_id=bank_id)
-        return self.repository.update_bank(merged)
+        try:
+            return self.repository.update_bank(merged)
+        except Exception as exc:  # noqa: BLE001
+            if MongoMasterdataRepository.is_duplicate_error(exc):
+                if "bic" in str(exc).lower():
+                    raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="BIC bereits vorhanden") from exc
+                if "blz" in str(exc).lower():
+                    raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="BLZ bereits vorhanden") from exc
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Bank bereits vorhanden") from exc
+            raise
 
     def delete_bank(self, bank_id: UUID) -> None:
         deleted = self.repository.delete_bank(bank_id)
@@ -56,7 +74,12 @@ class MasterdataService:
         self._assert_account_type_key_uniqueness(payload.key)
         account_type = AccountType(**payload.model_dump())
         account_type.schema_fields.sort(key=lambda item: item.order)
-        return self.repository.create_account_type(account_type)
+        try:
+            return self.repository.create_account_type(account_type)
+        except Exception as exc:  # noqa: BLE001
+            if MongoMasterdataRepository.is_duplicate_error(exc):
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Kontotyp-Key bereits vorhanden") from exc
+            raise
 
     def get_account_type(self, account_type_id: UUID) -> AccountType:
         account_type = self.repository.get_account_type(account_type_id)
@@ -69,7 +92,12 @@ class MasterdataService:
         merged = current.model_copy(update=payload.model_dump(exclude_none=True))
         self._assert_account_type_key_uniqueness(merged.key, exclude_id=account_type_id)
         merged.schema_fields.sort(key=lambda item: item.order)
-        return self.repository.update_account_type(merged)
+        try:
+            return self.repository.update_account_type(merged)
+        except Exception as exc:  # noqa: BLE001
+            if MongoMasterdataRepository.is_duplicate_error(exc):
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Kontotyp-Key bereits vorhanden") from exc
+            raise
 
     def delete_account_type(self, account_type_id: UUID) -> None:
         deleted = self.repository.delete_account_type(account_type_id)
