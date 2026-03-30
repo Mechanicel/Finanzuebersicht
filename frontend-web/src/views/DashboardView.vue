@@ -2,9 +2,13 @@
   <section class="grid">
     <article class="card">
       <h2>Analytics-Dashboard</h2>
+      <p v-if="!hasPersonContext" class="context-hint">
+        Bitte zuerst eine Person auswählen und den Bereich aus dem Personen-Hub öffnen.
+        <RouterLink to="/persons">Zur Personenliste</RouterLink>
+      </p>
       <div class="grid" style="grid-template-columns: 1fr auto">
         <div><label>Person-ID</label><input class="input" v-model.trim="personId" /></div>
-        <button class="btn" @click="load">Dashboard laden</button>
+        <button class="btn" @click="load" :disabled="!hasPersonContext">Dashboard laden</button>
       </div>
     </article>
 
@@ -53,6 +57,7 @@ import SimplePieChart from '../components/SimplePieChart.vue'
 
 const route = useRoute()
 const personId = ref(typeof route.query.personId === 'string' ? route.query.personId : '00000000-0000-0000-0000-000000000101')
+const hasPersonContext = computed(() => typeof route.query.personId === 'string' && route.query.personId.length > 0)
 const dashboard = ref<DashboardReadModel | null>(null)
 const loading = ref(false)
 const error = ref<string | null>(null)
@@ -78,3 +83,19 @@ onMounted(() => {
   }
 })
 </script>
+
+<style scoped>
+.context-hint {
+  margin-top: 0;
+  margin-bottom: 0.75rem;
+  color: #92400e;
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  border-radius: 8px;
+  padding: 0.65rem 0.75rem;
+}
+
+.context-hint :deep(a) {
+  margin-left: 0.35rem;
+}
+</style>
