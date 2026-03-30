@@ -3,7 +3,7 @@
     <h2>Bankzuordnung</h2>
     <p v-if="!hasPersonContext" class="context-hint">
       Bitte zuerst eine Person auswählen und Bankzuordnungen aus dem Personen-Hub öffnen.
-      <RouterLink to="/persons">Zur Personenliste</RouterLink>
+      <RouterLink to="/persons/select">Zur Personenliste</RouterLink>
     </p>
     <p class="empty">Bankzuordnungen werden über das API-Gateway pro Person gepflegt.</p>
     <div class="grid" style="grid-template-columns: 1fr 1fr auto">

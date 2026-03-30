@@ -6,14 +6,15 @@ import type {
   PersonCreatePayload,
   PersonDetailReadModel,
   PersonListReadModel,
+  PersonQueryParams,
   PersonReadModel,
   PersonUpdatePayload,
   PortfolioReadModel
 } from '../types/models'
 
 export const apiClient = {
-  async persons() {
-    return (await http.get<ApiEnvelope<PersonListReadModel>>('/app/persons')).data.data
+  async persons(params?: PersonQueryParams) {
+    return (await http.get<ApiEnvelope<PersonListReadModel>>('/app/persons', { params })).data.data
   },
   async createPerson(payload: PersonCreatePayload) {
     return (await http.post<ApiEnvelope<PersonReadModel>>('/app/persons', payload)).data.data

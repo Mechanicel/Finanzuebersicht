@@ -3,7 +3,7 @@
     <h2>Freibetragsverwaltung</h2>
     <p v-if="!hasPersonContext" class="context-hint">
       Bitte zuerst eine Person auswählen und Freibeträge aus dem Personen-Hub öffnen.
-      <RouterLink to="/persons">Zur Personenliste</RouterLink>
+      <RouterLink to="/persons/select">Zur Personenliste</RouterLink>
     </p>
     <div class="grid" style="grid-template-columns: 1fr 1fr 1fr auto">
       <div><label>Person-ID</label><input class="input" v-model.trim="personId" /></div>

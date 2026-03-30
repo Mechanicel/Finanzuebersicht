@@ -6,14 +6,14 @@
     </p>
 
     <div class="quickstart-actions">
-      <RouterLink class="action-card" to="/persons">
+      <RouterLink class="action-card" to="/persons/select">
         <h3>Person auswählen</h3>
-        <p>Zur Personenübersicht wechseln und mit einer bestehenden Person weiterarbeiten.</p>
+        <p>Zur Personensuche wechseln und mit einer bestehenden Person weiterarbeiten.</p>
       </RouterLink>
 
-      <RouterLink class="action-card" :to="{ path: '/persons', query: { intent: 'create' } }">
+      <RouterLink class="action-card" to="/persons/new">
         <h3>Neue Person anlegen</h3>
-        <p>Direkt in die Personenansicht mit Fokus auf die Neuanlage wechseln.</p>
+        <p>Direkt in den Erfassungsscreen wechseln und eine neue Person anlegen.</p>
       </RouterLink>
 
       <RouterLink class="action-card" to="/banks/new">

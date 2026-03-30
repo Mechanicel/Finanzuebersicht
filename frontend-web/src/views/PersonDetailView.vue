@@ -8,7 +8,7 @@
           <p class="subline">{{ personEmail }}</p>
         </div>
         <div class="head-actions">
-          <RouterLink class="btn secondary" to="/persons">Zur Personenliste</RouterLink>
+          <RouterLink class="btn secondary" to="/persons/select">Zur Personenliste</RouterLink>
           <RouterLink class="btn secondary" to="/">Zum Start</RouterLink>
         </div>
       </div>
@@ -162,7 +162,7 @@ async function deleteCurrent() {
   submitting.value = true
   try {
     await apiClient.deletePerson(personId)
-    await router.push('/persons')
+    await router.push('/persons/select')
   } catch (e) {
     formError.value = e instanceof Error ? e.message : 'Löschen fehlgeschlagen.'
   } finally {
