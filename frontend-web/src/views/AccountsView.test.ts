@@ -90,6 +90,25 @@ describe('AccountsView form wiring', () => {
     vi.mocked(apiClient.updateAccount).mockResolvedValue(buildAccount('Bearbeitetes Konto'))
   })
 
+  it('mounts without runtime-template compilation warning for account form fields', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    mount(AccountsView, {
+      global: {
+        stubs: { RouterLink: { template: '<a><slot /></a>' } }
+      }
+    })
+    await flushUi()
+
+    expect(
+      warnSpy.mock.calls.some(([message]) =>
+        String(message).includes('runtime compilation is not supported in this build of Vue')
+      )
+    ).toBe(false)
+
+    warnSpy.mockRestore()
+  })
+
   it('submits create form with entered label instead of triggering empty-label validation', async () => {
     const wrapper = mount(AccountsView, {
       global: {
