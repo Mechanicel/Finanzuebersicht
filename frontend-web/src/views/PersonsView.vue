@@ -1,8 +1,11 @@
 <template>
   <section class="card">
     <h2>Personenliste</h2>
+    <p v-if="isCreateIntent" class="create-intent-hint">
+      Neuanlage-Modus: Fülle die Felder aus und lege direkt eine neue Person an.
+    </p>
     <div class="grid" style="grid-template-columns: 1fr 1fr 1fr auto; align-items: end; margin-bottom: 1rem">
-      <div><label>Vorname</label><input class="input" v-model.trim="form.firstName" /></div>
+      <div><label>Vorname</label><input ref="firstNameInput" class="input" v-model.trim="form.firstName" /></div>
       <div><label>Nachname</label><input class="input" v-model.trim="form.lastName" /></div>
       <div><label>E-Mail</label><input class="input" v-model.trim="form.email" type="email" /></div>
       <button class="btn" @click="savePerson" :disabled="submitting">Person anlegen</button>
@@ -27,12 +30,17 @@
 </template>
 <script setup lang="ts">
 import axios from 'axios'
-import { onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { apiClient } from '../api/client'
 import LoadingState from '../components/LoadingState.vue'
 import ErrorState from '../components/ErrorState.vue'
 import EmptyState from '../components/EmptyState.vue'
 import type { PersonListReadModel } from '../types/models'
+
+const route = useRoute()
+const isCreateIntent = computed(() => route.query.intent === 'create')
+const firstNameInput = ref<HTMLInputElement | null>(null)
 
 const loading = ref(false)
 const submitting = ref(false)
@@ -82,5 +90,22 @@ async function savePerson() {
   }
 }
 
-onMounted(load)
+onMounted(async () => {
+  await load()
+  if (isCreateIntent.value) {
+    await nextTick()
+    firstNameInput.value?.focus()
+  }
+})
 </script>
+
+<style scoped>
+.create-intent-hint {
+  margin-top: 0;
+  margin-bottom: 1rem;
+  padding: 0.65rem 0.75rem;
+  border-radius: 8px;
+  background: #eff6ff;
+  color: #1e3a8a;
+}
+</style>
