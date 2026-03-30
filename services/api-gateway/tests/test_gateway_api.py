@@ -130,6 +130,30 @@ class StubGatewayService:
     async def get_analytics_overview(self, person_id: UUID) -> dict:
         return {"labels": ["2026-02-28"], "series": []}
 
+
+    async def list_banks(self) -> dict:
+        return {
+            "items": [
+                {
+                    "bank_id": "30000000-0000-0000-0000-000000000001",
+                    "name": "Musterbank",
+                    "bic": "DEUTDEFFXXX",
+                    "blz": "12345678",
+                    "country_code": "DE",
+                }
+            ],
+            "total": 1,
+        }
+
+    async def create_bank(self, payload) -> dict:
+        return {
+            "bank_id": "30000000-0000-0000-0000-000000000001",
+            "name": payload.name,
+            "bic": payload.bic,
+            "blz": payload.blz,
+            "country_code": payload.country_code,
+        }
+
     async def dependency_health(self, person_id: UUID) -> GatewayHealthReadModel:
         return GatewayHealthReadModel(
             status="up", dependencies=[HealthDependency(service="analytics-service", status="up")]
@@ -154,6 +178,12 @@ def test_app_endpoints_for_vue_pages() -> None:
     assert client.get(f"/api/v1/app/persons/{PERSON_ID}").status_code == 200
     assert client.patch(f"/api/v1/app/persons/{PERSON_ID}", json={"last_name": "Neu"}).status_code == 200
     assert client.delete(f"/api/v1/app/persons/{PERSON_ID}").status_code == 204
+
+    assert client.get("/api/v1/app/banks").status_code == 200
+    assert client.post(
+        "/api/v1/app/banks",
+        json={"name": "Neue Bank", "bic": "DEUTDEFFXXX", "blz": "12345678", "country_code": "DE"},
+    ).status_code == 201
 
     assert client.get(f"/api/v1/app/persons/{PERSON_ID}/dashboard").status_code == 200
     assert client.get(f"/api/v1/app/persons/{PERSON_ID}/accounts").status_code == 200

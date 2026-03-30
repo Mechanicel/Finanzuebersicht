@@ -15,6 +15,8 @@ Das Gateway ist der **einheitliche Einstiegspunkt** für das Vue-Frontend.
 - `GET /api/v1/app/persons/{person_id}`
 - `PATCH /api/v1/app/persons/{person_id}`
 - `DELETE /api/v1/app/persons/{person_id}`
+- `GET /api/v1/app/banks`
+- `POST /api/v1/app/banks`
 - `GET /api/v1/app/persons/{person_id}/dashboard`
 - `GET /api/v1/app/persons/{person_id}/accounts`
 - `GET /api/v1/app/persons/{person_id}/portfolios`

@@ -4,13 +4,13 @@ import MockAdapter from 'axios-mock-adapter'
 import { apiClient } from './client'
 import { http } from './http'
 
+const mock = new MockAdapter(http)
+
+afterEach(() => {
+  mock.reset()
+})
+
 describe('apiClient person CRUD', () => {
-  const mock = new MockAdapter(http)
-
-  afterEach(() => {
-    mock.reset()
-  })
-
   it('calls list endpoint with optional search parameters', async () => {
     mock.onGet('/app/persons').reply(200, { data: { items: [], pagination: { limit: 25, offset: 0, returned: 0, total: 0 } } })
 
@@ -31,5 +31,30 @@ describe('apiClient person CRUD', () => {
     expect((await apiClient.person(id)).person.person_id).toBe(id)
     expect((await apiClient.updatePerson(id, { last_name: 'C' })).last_name).toBe('C')
     await expect(apiClient.deletePerson(id)).resolves.toBeUndefined()
+  })
+})
+
+describe('apiClient bank endpoints', () => {
+  it('calls list/create bank endpoints', async () => {
+    mock.onGet('/app/banks').reply(200, {
+      data: {
+        items: [{ bank_id: 'b1', name: 'Bank', bic: 'DEUTDEFFXXX', blz: '12345678', country_code: 'DE' }],
+        total: 1
+      }
+    })
+    mock.onPost('/app/banks').reply(201, {
+      data: { bank_id: 'b2', name: 'Neue Bank', bic: 'MARKDEF1100', blz: '87654321', country_code: 'DE' }
+    })
+
+    const list = await apiClient.banks()
+    const created = await apiClient.createBank({
+      name: 'Neue Bank',
+      bic: 'MARKDEF1100',
+      blz: '87654321',
+      country_code: 'DE'
+    })
+
+    expect(list.total).toBe(1)
+    expect(created.bank_id).toBe('b2')
   })
 })

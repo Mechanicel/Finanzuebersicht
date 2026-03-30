@@ -16,7 +16,7 @@ if str(SERVICE_ROOT) not in sys.path:
 if str(SHARED_SRC) not in sys.path:
     sys.path.insert(0, str(SHARED_SRC))
 
-from app.models import PersonCreatePayload, PersonUpdatePayload
+from app.models import BankCreatePayload, PersonCreatePayload, PersonUpdatePayload
 from app.service import GatewayService
 
 
@@ -87,6 +87,7 @@ async def test_gateway_person_crud_forwarding(monkeypatch: pytest.MonkeyPatch) -
     service = GatewayService(
         analytics_base_url="http://analytics",
         person_base_url="http://localhost:8002",
+        masterdata_base_url="http://localhost:8005",
         timeout_seconds=1.0,
     )
     person_id = UUID("00000000-0000-0000-0000-000000000101")
@@ -125,6 +126,7 @@ async def test_gateway_person_errors_are_translated(monkeypatch: pytest.MonkeyPa
     service = GatewayService(
         analytics_base_url="http://analytics",
         person_base_url="http://localhost:8002",
+        masterdata_base_url="http://localhost:8005",
         timeout_seconds=1.0,
     )
 
@@ -133,3 +135,72 @@ async def test_gateway_person_errors_are_translated(monkeypatch: pytest.MonkeyPa
 
     assert exc.value.status_code == 409
     assert exc.value.detail == "Person bereits vorhanden"
+
+
+@pytest.mark.anyio
+async def test_gateway_bank_endpoints_forwarding(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[str, str, dict | None, dict | None]] = []
+
+    async def fake_request(
+        self,
+        method: str,
+        url: str,
+        json: dict | None = None,
+        params: dict | None = None,
+    ):
+        calls.append((method, url, json, params))
+
+        class Response:
+            status_code = 200 if method == "GET" else 201
+
+            @staticmethod
+            def json() -> dict:
+                if method == "GET":
+                    return {
+                        "data": {
+                            "items": [
+                                {
+                                    "bank_id": "30000000-0000-0000-0000-000000000001",
+                                    "name": "Musterbank",
+                                    "bic": "DEUTDEFFXXX",
+                                    "blz": "12345678",
+                                    "country_code": "DE",
+                                }
+                            ],
+                            "total": 1,
+                        }
+                    }
+                return {
+                    "data": {
+                        "bank_id": "30000000-0000-0000-0000-000000000001",
+                        "name": "Musterbank",
+                        "bic": "DEUTDEFFXXX",
+                        "blz": "12345678",
+                        "country_code": "DE",
+                    }
+                }
+
+            text = ""
+
+        return Response()
+
+    monkeypatch.setattr("httpx.AsyncClient.request", fake_request)
+
+    service = GatewayService(
+        analytics_base_url="http://analytics",
+        person_base_url="http://localhost:8002",
+        masterdata_base_url="http://localhost:8005",
+        timeout_seconds=1.0,
+    )
+
+    listing = await service.list_banks()
+    created = await service.create_bank(
+        BankCreatePayload(name="Musterbank", bic="DEUTDEFFXXX", blz="12345678", country_code="DE")
+    )
+
+    assert listing.total == 1
+    assert created.name == "Musterbank"
+    assert calls[0][0] == "GET"
+    assert calls[0][1].endswith("/api/v1/banks")
+    assert calls[1][0] == "POST"
+    assert calls[1][1].endswith("/api/v1/banks")

@@ -2,6 +2,9 @@ import { http } from './http'
 import type {
   AccountReadModel,
   ApiEnvelope,
+  BankCreatePayload,
+  BankListReadModel,
+  BankReadModel,
   DashboardReadModel,
   PersonCreatePayload,
   PersonDetailReadModel,
@@ -27,6 +30,13 @@ export const apiClient = {
   },
   async deletePerson(personId: string) {
     await http.delete(`/app/persons/${personId}`)
+  },
+
+  async banks() {
+    return (await http.get<ApiEnvelope<BankListReadModel>>('/app/banks')).data.data
+  },
+  async createBank(payload: BankCreatePayload) {
+    return (await http.post<ApiEnvelope<BankReadModel>>('/app/banks', payload)).data.data
   },
   async dashboard(personId: string) {
     return (await http.get<ApiEnvelope<DashboardReadModel>>(`/app/persons/${personId}/dashboard`)).data.data
