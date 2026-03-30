@@ -1,6 +1,8 @@
 import { http } from './http'
 import type {
   AccountReadModel,
+  AllowanceListReadModel,
+  AllowanceSummaryReadModel,
   AssignmentListReadModel,
   ApiEnvelope,
   BankCreatePayload,
@@ -14,7 +16,8 @@ import type {
   PersonQueryParams,
   PersonReadModel,
   PersonUpdatePayload,
-  PortfolioReadModel
+  PortfolioReadModel,
+  TaxAllowanceReadModel
 } from '../types/models'
 
 export const apiClient = {
@@ -42,6 +45,20 @@ export const apiClient = {
   },
   async unassignBank(personId: string, bankId: string) {
     await http.delete(`/app/persons/${personId}/banks/${bankId}`)
+  },
+  async allowances(personId: string) {
+    return (await http.get<ApiEnvelope<AllowanceListReadModel>>(`/app/persons/${personId}/allowances`)).data.data
+  },
+  async setAllowance(personId: string, bankId: string, amount: number | string) {
+    return (
+      await http.put<ApiEnvelope<TaxAllowanceReadModel>>(`/app/persons/${personId}/allowances/${bankId}`, undefined, {
+        params: { amount }
+      })
+    ).data.data
+  },
+  async allowanceSummary(personId: string) {
+    return (await http.get<ApiEnvelope<AllowanceSummaryReadModel>>(`/app/persons/${personId}/allowances/summary`)).data
+      .data
   },
 
   async banks() {

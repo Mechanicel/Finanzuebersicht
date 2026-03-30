@@ -79,6 +79,32 @@ export interface AssignmentListReadModel {
   total: number
 }
 
+export interface TaxAllowanceReadModel {
+  person_id: string
+  bank_id: string
+  amount: string
+  currency: string
+  updated_at: string
+}
+
+export interface AllowanceListReadModel {
+  items: TaxAllowanceReadModel[]
+  total: number
+  amount_total: string
+}
+
+export interface AllowanceSummaryBankItemReadModel {
+  bank_id: string
+  amount: string
+}
+
+export interface AllowanceSummaryReadModel {
+  person_id: string
+  banks: AllowanceSummaryBankItemReadModel[]
+  total_amount: string
+  currency: string
+}
+
 export interface AccountReadModel { account_id: string; name: string; type: string; balance: number }
 export interface PortfolioReadModel { portfolio_id: string; label: string; total_value: number }
 export interface DashboardReadModel {

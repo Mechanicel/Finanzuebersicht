@@ -276,6 +276,90 @@ async def test_gateway_person_bank_assignment_forwarding(monkeypatch: pytest.Mon
 
 
 @pytest.mark.anyio
+async def test_gateway_allowances_forwarding(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[str, str, dict | None, dict | None]] = []
+    person_id = UUID("00000000-0000-0000-0000-000000000101")
+    bank_id = UUID("30000000-0000-0000-0000-000000000001")
+
+    async def fake_request(
+        self,
+        method: str,
+        url: str,
+        json: dict | None = None,
+        params: dict | None = None,
+    ):
+        calls.append((method, url, json, params))
+
+        class Response:
+            status_code = 200
+
+            @staticmethod
+            def json() -> dict:
+                if method == "GET" and url.endswith("/allowances"):
+                    return {
+                        "data": {
+                            "items": [
+                                {
+                                    "person_id": str(person_id),
+                                    "bank_id": str(bank_id),
+                                    "amount": "200.00",
+                                    "currency": "EUR",
+                                    "updated_at": "2026-03-01T08:00:00+00:00",
+                                }
+                            ],
+                            "total": 1,
+                            "amount_total": "200.00",
+                        }
+                    }
+                if method == "GET" and url.endswith("/allowances/summary"):
+                    return {
+                        "data": {
+                            "person_id": str(person_id),
+                            "banks": [{"bank_id": str(bank_id), "amount": "200.00"}],
+                            "total_amount": "200.00",
+                            "currency": "EUR",
+                        }
+                    }
+                return {
+                    "data": {
+                        "person_id": str(person_id),
+                        "bank_id": str(bank_id),
+                        "amount": "250.00",
+                        "currency": "EUR",
+                        "updated_at": "2026-03-02T08:00:00+00:00",
+                    }
+                }
+
+            text = ""
+
+        return Response()
+
+    monkeypatch.setattr("httpx.AsyncClient.request", fake_request)
+
+    service = GatewayService(
+        analytics_base_url="http://analytics",
+        person_base_url="http://localhost:8002",
+        masterdata_base_url="http://localhost:8001",
+        timeout_seconds=1.0,
+    )
+
+    allowances = await service.list_allowances(person_id)
+    changed = await service.set_allowance(person_id, bank_id, "250.00")
+    summary = await service.allowance_summary(person_id)
+
+    assert allowances.total == 1
+    assert changed.amount == "250.00"
+    assert summary.total_amount == "200.00"
+    assert calls[0][0] == "GET"
+    assert calls[0][1].endswith(f"/api/v1/persons/{person_id}/allowances")
+    assert calls[1][0] == "PUT"
+    assert calls[1][1].endswith(f"/api/v1/persons/{person_id}/allowances/{bank_id}")
+    assert calls[1][3] == {"amount": "250.00"}
+    assert calls[2][0] == "GET"
+    assert calls[2][1].endswith(f"/api/v1/persons/{person_id}/allowances/summary")
+
+
+@pytest.mark.anyio
 async def test_gateway_masterdata_connect_error_is_translated(monkeypatch: pytest.MonkeyPatch) -> None:
     async def fake_request(self, method: str, url: str, json: dict | None = None, params: dict | None = None):
         raise ConnectError("connection failed", request=Request(method, url))

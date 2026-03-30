@@ -123,6 +123,40 @@ class StubGatewayService:
         if str(bank_id).endswith("999"):
             raise HTTPException(status_code=404, detail="Zuordnung nicht gefunden")
 
+    async def list_allowances(self, person_id: UUID) -> dict:
+        return {
+            "items": [
+                {
+                    "person_id": str(person_id),
+                    "bank_id": "30000000-0000-0000-0000-000000000001",
+                    "amount": "100.00",
+                    "currency": "EUR",
+                    "updated_at": "2026-03-01T08:00:00+00:00",
+                }
+            ],
+            "total": 1,
+            "amount_total": "100.00",
+        }
+
+    async def set_allowance(self, person_id: UUID, bank_id: UUID, amount: str) -> dict:
+        if str(bank_id).endswith("999"):
+            raise HTTPException(status_code=409, detail="Nur für zugeordnete Banken zulässig")
+        return {
+            "person_id": str(person_id),
+            "bank_id": str(bank_id),
+            "amount": amount,
+            "currency": "EUR",
+            "updated_at": "2026-03-02T08:00:00+00:00",
+        }
+
+    async def allowance_summary(self, person_id: UUID) -> dict:
+        return {
+            "person_id": str(person_id),
+            "banks": [{"bank_id": "30000000-0000-0000-0000-000000000001", "amount": "100.00"}],
+            "total_amount": "100.00",
+            "currency": "EUR",
+        }
+
     async def get_dashboard(self, person_id: UUID) -> DashboardReadModel:
         return DashboardReadModel(
             person_id=person_id,
@@ -220,6 +254,16 @@ def test_app_endpoints_for_vue_pages() -> None:
         json={"name": "Neue Bank", "bic": "DEUTDEFFXXX", "blz": "12345678", "country_code": "DE"},
     ).status_code == 201
 
+    assert client.get(f"/api/v1/app/persons/{PERSON_ID}/allowances").status_code == 200
+    assert (
+        client.put(
+            f"/api/v1/app/persons/{PERSON_ID}/allowances/30000000-0000-0000-0000-000000000001",
+            params={"amount": "125.00"},
+        ).status_code
+        == 200
+    )
+    assert client.get(f"/api/v1/app/persons/{PERSON_ID}/allowances/summary").status_code == 200
+
     assert client.get(f"/api/v1/app/persons/{PERSON_ID}/dashboard").status_code == 200
     assert client.get(f"/api/v1/app/persons/{PERSON_ID}/accounts").status_code == 200
     assert client.get(f"/api/v1/app/persons/{PERSON_ID}/portfolios").status_code == 200
@@ -256,6 +300,20 @@ def test_person_bank_assignment_errors_are_forwarded() -> None:
 
     assert response.status_code == 409
     assert response.json()["detail"] == "Zuordnung bereits vorhanden"
+    app.dependency_overrides.clear()
+
+
+def test_allowance_errors_are_forwarded() -> None:
+    app.dependency_overrides[get_gateway_service] = lambda: StubGatewayService()
+    client = create_test_client(app)
+
+    response = client.put(
+        f"/api/v1/app/persons/{PERSON_ID}/allowances/30000000-0000-0000-0000-000000000999",
+        params={"amount": "100.00"},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Nur für zugeordnete Banken zulässig"
     app.dependency_overrides.clear()
 
 

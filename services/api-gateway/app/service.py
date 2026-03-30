@@ -7,6 +7,8 @@ from fastapi import HTTPException
 
 from app.models import (
     AccountReadModel,
+    AllowanceListReadModel,
+    AllowanceSummaryReadModel,
     AssignmentListReadModel,
     BankCreatePayload,
     BankListReadModel,
@@ -20,6 +22,7 @@ from app.models import (
     PersonReadModel,
     PersonUpdatePayload,
     PersonBankAssignmentReadModel,
+    TaxAllowanceReadModel,
     PortfolioReadModel,
 )
 
@@ -117,6 +120,22 @@ class GatewayService:
             f"/api/v1/persons/{person_id}/banks/{bank_id}",
             expect_no_content=True,
         )
+
+    async def list_allowances(self, person_id: UUID) -> AllowanceListReadModel:
+        payload = await self._request_person_service("GET", f"/api/v1/persons/{person_id}/allowances")
+        return AllowanceListReadModel.model_validate(payload)
+
+    async def set_allowance(self, person_id: UUID, bank_id: UUID, amount: str) -> TaxAllowanceReadModel:
+        payload = await self._request_person_service(
+            "PUT",
+            f"/api/v1/persons/{person_id}/allowances/{bank_id}",
+            params={"amount": amount},
+        )
+        return TaxAllowanceReadModel.model_validate(payload)
+
+    async def allowance_summary(self, person_id: UUID) -> AllowanceSummaryReadModel:
+        payload = await self._request_person_service("GET", f"/api/v1/persons/{person_id}/allowances/summary")
+        return AllowanceSummaryReadModel.model_validate(payload)
 
 
     async def list_banks(self) -> BankListReadModel:
