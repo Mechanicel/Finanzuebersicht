@@ -7,6 +7,8 @@ from fastapi import HTTPException
 
 from app.models import (
     AccountReadModel,
+    AccountCreatePayload,
+    AccountUpdatePayload,
     AllowanceListReadModel,
     AllowanceUpsertPayload,
     AllowanceSummaryReadModel,
@@ -27,23 +29,6 @@ from app.models import (
     PortfolioReadModel,
 )
 
-PERSON_ACCOUNTS: dict[UUID, list[AccountReadModel]] = {
-    UUID("00000000-0000-0000-0000-000000000101"): [
-        AccountReadModel(
-            account_id=UUID("10000000-0000-0000-0000-000000000001"),
-            name="Depot Anna",
-            type="brokerage",
-            balance=134900,
-        ),
-        AccountReadModel(
-            account_id=UUID("10000000-0000-0000-0000-000000000002"),
-            name="Tagesgeld Anna",
-            type="cash",
-            balance=21000,
-        ),
-    ],
-}
-
 PERSON_PORTFOLIOS: dict[UUID, list[PortfolioReadModel]] = {
     UUID("00000000-0000-0000-0000-000000000101"): [
         PortfolioReadModel(
@@ -61,11 +46,13 @@ class GatewayService:
         analytics_base_url: str,
         person_base_url: str,
         masterdata_base_url: str,
+        account_base_url: str,
         timeout_seconds: float,
     ) -> None:
         self._analytics_base_url = analytics_base_url.rstrip("/")
         self._person_base_url = person_base_url.rstrip("/")
         self._masterdata_base_url = masterdata_base_url.rstrip("/")
+        self._account_base_url = account_base_url.rstrip("/")
         self._timeout = timeout_seconds
 
     async def list_persons(
@@ -158,7 +145,28 @@ class GatewayService:
         return BankReadModel.model_validate(payload)
 
     async def list_accounts(self, person_id: UUID) -> list[AccountReadModel]:
-        return PERSON_ACCOUNTS.get(person_id, [])
+        payload = await self._request_account_service("GET", f"/api/v1/persons/{person_id}/accounts")
+        return [AccountReadModel.model_validate(item) for item in payload]
+
+    async def get_account(self, person_id: UUID, account_id: UUID) -> AccountReadModel:
+        payload = await self._request_account_service("GET", f"/api/v1/persons/{person_id}/accounts/{account_id}")
+        return AccountReadModel.model_validate(payload)
+
+    async def create_account(self, person_id: UUID, payload: AccountCreatePayload) -> AccountReadModel:
+        response_payload = await self._request_account_service(
+            "POST",
+            f"/api/v1/persons/{person_id}/accounts",
+            json=payload.model_dump(exclude_none=True),
+        )
+        return AccountReadModel.model_validate(response_payload)
+
+    async def update_account(self, person_id: UUID, account_id: UUID, payload: AccountUpdatePayload) -> AccountReadModel:
+        response_payload = await self._request_account_service(
+            "PATCH",
+            f"/api/v1/persons/{person_id}/accounts/{account_id}",
+            json=payload.model_dump(exclude_none=True),
+        )
+        return AccountReadModel.model_validate(response_payload)
 
     async def list_portfolios(self, person_id: UUID) -> list[PortfolioReadModel]:
         return PERSON_PORTFOLIOS.get(person_id, [])
@@ -185,13 +193,11 @@ class GatewayService:
         dependencies = [
             await self._health_probe("analytics-service", f"{self._analytics_base_url}/health"),
             await self._health_probe("person-service", f"{self._person_base_url}/health"),
+            await self._health_probe("account-service", f"{self._account_base_url}/health"),
             HealthDependency(
                 service="portfolio-service",
                 status="stubbed",
                 detail="BFF portfolio use-case mapped",
-            ),
-            HealthDependency(
-                service="account-service", status="stubbed", detail="BFF account use-case mapped"
             ),
         ]
         status = "up" if all(dep.status in {"up", "stubbed"} for dep in dependencies) else "degraded"
@@ -250,6 +256,29 @@ class GatewayService:
                 status_code=502,
                 detail="Masterdata-Service ist derzeit nicht erreichbar. Bitte später erneut versuchen.",
             ) from exc
+
+        if response.status_code >= 400:
+            detail = self._error_detail(response)
+            raise HTTPException(status_code=response.status_code, detail=detail)
+
+        if expect_no_content:
+            return {}
+
+        return response.json()["data"]
+
+    async def _request_account_service(
+        self,
+        method: str,
+        path: str,
+        *,
+        json: dict | None = None,
+        params: dict | None = None,
+        expect_no_content: bool = False,
+    ) -> dict | list[dict]:
+        url = f"{self._account_base_url}{path}"
+        query = {key: value for key, value in (params or {}).items() if value is not None}
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            response = await client.request(method, url, json=json, params=query)
 
         if response.status_code >= 400:
             detail = self._error_detail(response)

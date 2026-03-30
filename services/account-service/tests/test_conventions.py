@@ -35,10 +35,9 @@ def test_ready_endpoint() -> None:
 
 def test_api_v1_prefix_and_request_ids() -> None:
     client = create_test_client(app)
-    response = client.get("/api/v1/account_service")
+    response = client.get("/api/v1/persons/00000000-0000-0000-0000-000000000101/accounts")
 
     assert response.status_code == 200
     assert response.headers["X-Request-ID"]
     assert response.headers["X-Correlation-ID"]
-    body = response.json()
-    assert body["data"]["service"] == "account-service"
+    assert response.json()["data"] == []

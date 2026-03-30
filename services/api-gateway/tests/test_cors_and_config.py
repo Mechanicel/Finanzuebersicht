@@ -76,3 +76,4 @@ def test_default_cors_origins_include_local_vite_hosts() -> None:
 def test_api_gateway_default_person_service_port_matches_dev_script() -> None:
     settings = Settings()
     assert settings.person_service_url == "http://localhost:8002"
+    assert settings.account_service_url == "http://localhost:8003"

@@ -181,11 +181,38 @@ class StubGatewayService:
         return [
             {
                 "account_id": "10000000-0000-0000-0000-000000000001",
-                "name": "Depot",
-                "type": "brokerage",
-                "balance": 10,
+                "person_id": str(person_id),
+                "bank_id": "30000000-0000-0000-0000-000000000001",
+                "account_type": "depot",
+                "label": "Depot",
+                "balance": "10.00",
+                "currency": "EUR",
+                "created_at": "2026-03-01T08:00:00+00:00",
+                "updated_at": "2026-03-01T08:00:00+00:00",
             }
         ]
+
+    async def get_account(self, person_id: UUID, account_id: UUID) -> dict:
+        return (await self.list_accounts(person_id))[0]
+
+    async def create_account(self, person_id: UUID, payload) -> dict:
+        return {
+            "account_id": "10000000-0000-0000-0000-000000000009",
+            "person_id": str(person_id),
+            "bank_id": str(payload.bank_id),
+            "account_type": payload.account_type,
+            "label": payload.label,
+            "balance": payload.balance,
+            "currency": payload.currency,
+            "created_at": "2026-03-01T08:00:00+00:00",
+            "updated_at": "2026-03-01T08:00:00+00:00",
+        }
+
+    async def update_account(self, person_id: UUID, account_id: UUID, payload) -> dict:
+        account = await self.get_account(person_id, account_id)
+        account.update(payload.model_dump(exclude_none=True))
+        account["updated_at"] = "2026-03-02T08:00:00+00:00"
+        return account
 
     async def list_portfolios(self, person_id: UUID) -> list[dict]:
         return [
@@ -277,6 +304,29 @@ def test_app_endpoints_for_vue_pages() -> None:
 
     assert client.get(f"/api/v1/app/persons/{PERSON_ID}/dashboard").status_code == 200
     assert client.get(f"/api/v1/app/persons/{PERSON_ID}/accounts").status_code == 200
+    assert (
+        client.get(f"/api/v1/app/persons/{PERSON_ID}/accounts/10000000-0000-0000-0000-000000000001").status_code == 200
+    )
+    assert (
+        client.post(
+            f"/api/v1/app/persons/{PERSON_ID}/accounts",
+            json={
+                "bank_id": "30000000-0000-0000-0000-000000000001",
+                "account_type": "girokonto",
+                "label": "Giro",
+                "balance": "1200.00",
+                "currency": "EUR",
+            },
+        ).status_code
+        == 201
+    )
+    assert (
+        client.patch(
+            f"/api/v1/app/persons/{PERSON_ID}/accounts/10000000-0000-0000-0000-000000000001",
+            json={"label": "Depot aktualisiert"},
+        ).status_code
+        == 200
+    )
     assert client.get(f"/api/v1/app/persons/{PERSON_ID}/portfolios").status_code == 200
     assert client.get(f"/api/v1/app/persons/{PERSON_ID}/analytics/overview").status_code == 200
 

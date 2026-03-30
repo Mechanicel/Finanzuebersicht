@@ -9,7 +9,9 @@ from finanzuebersicht_shared.models import ApiResponse
 
 from app.dependencies import get_gateway_service
 from app.models import (
+    AccountCreatePayload,
     AccountReadModel,
+    AccountUpdatePayload,
     AllowanceListReadModel,
     AllowanceSummaryReadModel,
     AllowanceUpsertPayload,
@@ -177,6 +179,34 @@ async def accounts(
     person_id: UUID, service: Annotated[GatewayService, Depends(get_gateway_service)]
 ) -> ApiResponse[list[AccountReadModel]]:
     return ApiResponse(data=await service.list_accounts(person_id))
+
+
+@router.get("/app/persons/{person_id}/accounts/{account_id}", response_model=ApiResponse[AccountReadModel])
+async def get_account(
+    person_id: UUID,
+    account_id: UUID,
+    service: Annotated[GatewayService, Depends(get_gateway_service)],
+) -> ApiResponse[AccountReadModel]:
+    return ApiResponse(data=await service.get_account(person_id, account_id))
+
+
+@router.post("/app/persons/{person_id}/accounts", response_model=ApiResponse[AccountReadModel], status_code=status.HTTP_201_CREATED)
+async def create_account(
+    person_id: UUID,
+    payload: AccountCreatePayload,
+    service: Annotated[GatewayService, Depends(get_gateway_service)],
+) -> ApiResponse[AccountReadModel]:
+    return ApiResponse(data=await service.create_account(person_id, payload))
+
+
+@router.patch("/app/persons/{person_id}/accounts/{account_id}", response_model=ApiResponse[AccountReadModel])
+async def patch_account(
+    person_id: UUID,
+    account_id: UUID,
+    payload: AccountUpdatePayload,
+    service: Annotated[GatewayService, Depends(get_gateway_service)],
+) -> ApiResponse[AccountReadModel]:
+    return ApiResponse(data=await service.update_account(person_id, account_id, payload))
 
 
 @router.get(
