@@ -42,14 +42,7 @@ class PersonService:
         persons = self.repository.list_persons()
 
         if q:
-            query = q.lower().strip()
-            persons = [
-                person
-                for person in persons
-                if query in person.first_name.lower()
-                or query in person.last_name.lower()
-                or (person.email and query in person.email)
-            ]
+            persons = [person for person in persons if self._matches_person_query(person, q)]
 
         reverse = direction == SortDirection.DESC
         if sort_by == PersonSortField.CREATED_AT:
@@ -198,3 +191,26 @@ class PersonService:
     @staticmethod
     def _now() -> str:
         return datetime.now(UTC).isoformat()
+
+    @staticmethod
+    def _matches_person_query(person: Person, q: str) -> bool:
+        query = q.strip().lower()
+        if not query:
+            return True
+
+        tokens = [token for token in query.split() if token]
+        first_name = person.first_name.lower()
+        last_name = person.last_name.lower()
+        full_name = f"{first_name} {last_name}"
+        email = (person.email or "").lower()
+
+        if query in first_name or query in last_name or (email and query in email) or query in full_name:
+            return True
+
+        if not tokens:
+            return False
+
+        searchable_parts = [first_name, last_name, full_name]
+        if email:
+            searchable_parts.append(email)
+        return all(any(token in part for part in searchable_parts) for token in tokens)

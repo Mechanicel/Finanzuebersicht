@@ -80,6 +80,35 @@ def test_person_crud_and_list_filters() -> None:
     assert missing.status_code == 404
 
 
+def test_person_search_supports_combined_name_tokens_and_email() -> None:
+    client = create_test_client(app)
+    create_a = client.post(
+        "/api/v1/persons",
+        json={"first_name": "Anna", "last_name": "Muster", "email": "anna.muster@example.com"},
+    )
+    create_b = client.post(
+        "/api/v1/persons",
+        json={"first_name": "Anne", "last_name": "Mustermann", "email": "anne@example.com"},
+    )
+    assert create_a.status_code == 201
+    assert create_b.status_code == 201
+
+    by_full_name = client.get("/api/v1/persons", params={"q": "Anna Muster"})
+    assert by_full_name.status_code == 200
+    assert by_full_name.json()["data"]["pagination"]["total"] == 1
+    assert by_full_name.json()["data"]["items"][0]["first_name"] == "Anna"
+
+    by_lowercase_full_name = client.get("/api/v1/persons", params={"q": "anna muster"})
+    assert by_lowercase_full_name.status_code == 200
+    assert by_lowercase_full_name.json()["data"]["pagination"]["total"] == 1
+    assert by_lowercase_full_name.json()["data"]["items"][0]["last_name"] == "Muster"
+
+    by_email = client.get("/api/v1/persons", params={"q": "anna.muster@"})
+    assert by_email.status_code == 200
+    assert by_email.json()["data"]["pagination"]["total"] == 1
+    assert by_email.json()["data"]["items"][0]["email"] == "anna.muster@example.com"
+
+
 def test_person_validation_duplicate_not_allowed() -> None:
     client = create_test_client(app)
 
