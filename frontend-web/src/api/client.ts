@@ -3,6 +3,7 @@ import type {
   AccountReadModel,
   AllowanceListReadModel,
   AllowanceSummaryReadModel,
+  AllowanceUpsertPayload,
   AssignmentListReadModel,
   ApiEnvelope,
   BankCreatePayload,
@@ -46,18 +47,16 @@ export const apiClient = {
   async unassignBank(personId: string, bankId: string) {
     await http.delete(`/app/persons/${personId}/banks/${bankId}`)
   },
-  async allowances(personId: string) {
-    return (await http.get<ApiEnvelope<AllowanceListReadModel>>(`/app/persons/${personId}/allowances`)).data.data
+  async allowances(personId: string, taxYear: number) {
+    return (await http.get<ApiEnvelope<AllowanceListReadModel>>(`/app/persons/${personId}/allowances`, { params: { tax_year: taxYear } })).data.data
   },
-  async setAllowance(personId: string, bankId: string, amount: number | string) {
+  async setAllowance(personId: string, bankId: string, payload: AllowanceUpsertPayload) {
     return (
-      await http.put<ApiEnvelope<TaxAllowanceReadModel>>(`/app/persons/${personId}/allowances/${bankId}`, undefined, {
-        params: { amount }
-      })
+      await http.put<ApiEnvelope<TaxAllowanceReadModel>>(`/app/persons/${personId}/allowances/${bankId}`, payload)
     ).data.data
   },
-  async allowanceSummary(personId: string) {
-    return (await http.get<ApiEnvelope<AllowanceSummaryReadModel>>(`/app/persons/${personId}/allowances/summary`)).data
+  async allowanceSummary(personId: string, taxYear: number) {
+    return (await http.get<ApiEnvelope<AllowanceSummaryReadModel>>(`/app/persons/${personId}/allowances/summary`, { params: { tax_year: taxYear } })).data
       .data
   },
 

@@ -22,9 +22,9 @@ describe('apiClient person CRUD', () => {
 
   it('calls create/update/delete/detail endpoints', async () => {
     const id = '00000000-0000-0000-0000-000000000101'
-    mock.onPost('/app/persons').reply(201, { data: { person_id: id, first_name: 'A', last_name: 'B', email: null, created_at: 'x', updated_at: 'x' } })
-    mock.onGet(`/app/persons/${id}`).reply(200, { data: { person: { person_id: id, first_name: 'A', last_name: 'B', email: null, created_at: 'x', updated_at: 'x' }, stats: { person_id: id, first_name: 'A', last_name: 'B', email: null, bank_count: 0, allowance_total: '0' } } })
-    mock.onPatch(`/app/persons/${id}`).reply(200, { data: { person_id: id, first_name: 'A', last_name: 'C', email: null, created_at: 'x', updated_at: 'y' } })
+    mock.onPost('/app/persons').reply(201, { data: { person_id: id, first_name: 'A', last_name: 'B', email: null, tax_profile: { tax_country: 'DE', filing_status: 'single' }, created_at: 'x', updated_at: 'x' } })
+    mock.onGet(`/app/persons/${id}`).reply(200, { data: { person: { person_id: id, first_name: 'A', last_name: 'B', email: null, tax_profile: { tax_country: 'DE', filing_status: 'single' }, created_at: 'x', updated_at: 'x' }, stats: { person_id: id, first_name: 'A', last_name: 'B', email: null, bank_count: 0, allowance_total: '0' } } })
+    mock.onPatch(`/app/persons/${id}`).reply(200, { data: { person_id: id, first_name: 'A', last_name: 'C', email: null, tax_profile: { tax_country: 'DE', filing_status: 'single' }, created_at: 'x', updated_at: 'y' } })
     mock.onDelete(`/app/persons/${id}`).reply(204)
 
     expect((await apiClient.createPerson({ first_name: 'A', last_name: 'B' })).person_id).toBe(id)
@@ -88,28 +88,40 @@ describe('apiClient allowances', () => {
   it('calls person allowance endpoints', async () => {
     const personId = '00000000-0000-0000-0000-000000000101'
     const bankId = '30000000-0000-0000-0000-000000000001'
+    const taxYear = 2026
 
     mock.onGet(`/app/persons/${personId}/allowances`).reply(200, {
       data: {
-        items: [{ person_id: personId, bank_id: bankId, amount: '75.00', currency: 'EUR', updated_at: '2026-03-01' }],
+        items: [{ person_id: personId, bank_id: bankId, tax_year: taxYear, amount: '75.00', currency: 'EUR', updated_at: '2026-03-01' }],
         total: 1,
         amount_total: '75.00'
       }
     })
     mock.onPut(`/app/persons/${personId}/allowances/${bankId}`).reply(200, {
-      data: { person_id: personId, bank_id: bankId, amount: '125.00', currency: 'EUR', updated_at: '2026-03-02' }
+      data: { person_id: personId, bank_id: bankId, tax_year: taxYear, amount: '125.00', currency: 'EUR', updated_at: '2026-03-02' }
     })
     mock.onGet(`/app/persons/${personId}/allowances/summary`).reply(200, {
-      data: { person_id: personId, banks: [{ bank_id: bankId, amount: '125.00' }], total_amount: '125.00', currency: 'EUR' }
+      data: {
+        person_id: personId,
+        tax_year: taxYear,
+        banks: [{ bank_id: bankId, tax_year: taxYear, amount: '125.00' }],
+        total_amount: '125.00',
+        annual_limit: '1000.00',
+        remaining_amount: '875.00',
+        currency: 'EUR'
+      }
     })
 
-    const list = await apiClient.allowances(personId)
-    const changed = await apiClient.setAllowance(personId, bankId, '125.00')
-    const summary = await apiClient.allowanceSummary(personId)
+    const list = await apiClient.allowances(personId, taxYear)
+    const changed = await apiClient.setAllowance(personId, bankId, { tax_year: taxYear, amount: '125.00', currency: 'EUR' })
+    const summary = await apiClient.allowanceSummary(personId, taxYear)
 
     expect(list.total).toBe(1)
     expect(changed.amount).toBe('125.00')
     expect(summary.total_amount).toBe('125.00')
-    expect(mock.history.put[0]?.params).toEqual({ amount: '125.00' })
+    expect(summary.remaining_amount).toBe('875.00')
+    expect(mock.history.get[0]?.params).toEqual({ tax_year: taxYear })
+    expect(mock.history.get[1]?.params).toEqual({ tax_year: taxYear })
+    expect(mock.history.put[0]?.data).toBe(JSON.stringify({ tax_year: taxYear, amount: '125.00', currency: 'EUR' }))
   })
 })
