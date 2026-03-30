@@ -8,7 +8,7 @@
       <RouterLink class="btn secondary" to="/persons/new">Neue Person anlegen</RouterLink>
     </div>
 
-    <form class="search-row" @submit.prevent="searchPersons">
+    <div class="search-row">
       <div>
         <label for="person-search">Suchbegriff</label>
         <input
@@ -16,59 +16,91 @@
           class="input"
           v-model.trim="searchTerm"
           placeholder="z. B. Anna Muster oder anna@example.com"
+          autocomplete="off"
         />
       </div>
-      <button class="btn" :disabled="loading">Suchen</button>
-    </form>
+      <p class="search-hint" aria-live="polite">
+        <span v-if="isRefreshing">Suche läuft…</span>
+        <span v-else>Live-Suche aktiv · {{ activeTerm ? `Ergebnisse für „${activeTerm}“` : 'Zeige alle Personen' }}</span>
+      </p>
+    </div>
 
-    <LoadingState v-if="loading" />
+    <LoadingState v-if="showInitialLoader" />
     <ErrorState v-else-if="error" :message="error" />
     <EmptyState v-else-if="persons && persons.items.length === 0">
-      Keine Treffer für „{{ submittedTerm || 'alle Personen' }}“.
+      Keine Treffer für „{{ activeTerm || 'alle Personen' }}“.
     </EmptyState>
-    <table v-else-if="persons" class="table">
-      <thead><tr><th>Name</th><th>E-Mail</th><th>ID</th><th></th></tr></thead>
-      <tbody>
-        <tr v-for="p in persons.items" :key="p.person_id">
-          <td>{{ p.first_name }} {{ p.last_name }}</td>
-          <td>{{ p.email || '—' }}</td>
-          <td>{{ p.person_id }}</td>
-          <td><RouterLink :to="`/persons/${p.person_id}`">Öffnen</RouterLink></td>
-        </tr>
-      </tbody>
-    </table>
+    <ul v-else-if="persons" class="person-list" aria-label="Gefundene Personen">
+      <li v-for="p in persons.items" :key="p.person_id" class="person-item">
+        <RouterLink :to="`/persons/${p.person_id}`" class="person-link">
+          <div class="person-main">
+            <strong>{{ p.first_name }} {{ p.last_name }}</strong>
+            <span>{{ p.email || 'Keine E-Mail hinterlegt' }}</span>
+          </div>
+          <span class="person-meta">ID {{ p.person_id }}</span>
+        </RouterLink>
+      </li>
+    </ul>
   </section>
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { apiClient } from '../api/client'
 import type { PersonListReadModel } from '../types/models'
 import EmptyState from '../components/EmptyState.vue'
 import ErrorState from '../components/ErrorState.vue'
 import LoadingState from '../components/LoadingState.vue'
 
-const loading = ref(false)
+const isRefreshing = ref(false)
 const error = ref<string | null>(null)
 const persons = ref<PersonListReadModel | null>(null)
 const searchTerm = ref('')
-const submittedTerm = ref('')
+const activeTerm = ref('')
+const debounceMs = 300
+let debounceHandle: ReturnType<typeof setTimeout> | null = null
 
-async function searchPersons() {
-  loading.value = true
+const showInitialLoader = ref(true)
+
+async function fetchPersons(term: string) {
+  const isFirstLoad = persons.value === null
+  isRefreshing.value = !isFirstLoad
   error.value = null
-  submittedTerm.value = searchTerm.value
+  activeTerm.value = term
 
   try {
-    persons.value = await apiClient.persons({ q: searchTerm.value || undefined, limit: 25, offset: 0 })
+    persons.value = await apiClient.persons({ q: term || undefined, limit: 25, offset: 0 })
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'Fehler beim Laden der Personen.'
   } finally {
-    loading.value = false
+    isRefreshing.value = false
+    showInitialLoader.value = false
   }
 }
 
-onMounted(searchPersons)
+function scheduleSearch(term: string) {
+  if (debounceHandle) {
+    clearTimeout(debounceHandle)
+  }
+
+  debounceHandle = setTimeout(() => {
+    void fetchPersons(term)
+  }, debounceMs)
+}
+
+watch(searchTerm, (value) => {
+  scheduleSearch(value)
+})
+
+onMounted(() => {
+  void fetchPersons('')
+})
+
+onBeforeUnmount(() => {
+  if (debounceHandle) {
+    clearTimeout(debounceHandle)
+  }
+})
 </script>
 
 <style scoped>
@@ -87,9 +119,65 @@ onMounted(searchPersons)
 
 .search-row {
   display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 0.75rem;
-  align-items: end;
+  gap: 0.5rem;
   margin-bottom: 1rem;
+}
+
+.search-hint {
+  margin: 0;
+  color: #475569;
+  font-size: 0.9rem;
+}
+
+.person-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 0.6rem;
+}
+
+.person-item {
+  margin: 0;
+}
+
+.person-link {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: center;
+  border: 1px solid #dbe4ef;
+  border-radius: 0.75rem;
+  padding: 0.85rem 1rem;
+  text-decoration: none;
+  color: inherit;
+  background: #fff;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+
+.person-link:hover {
+  border-color: #1d4ed8;
+  background: #f8fbff;
+}
+
+.person-link:focus-visible {
+  outline: none;
+  border-color: #1d4ed8;
+  box-shadow: 0 0 0 3px rgba(29, 78, 216, 0.2);
+}
+
+.person-main {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.person-main span {
+  color: #475569;
+}
+
+.person-meta {
+  color: #64748b;
+  font-size: 0.85rem;
+  white-space: nowrap;
 }
 </style>
