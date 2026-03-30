@@ -1,9 +1,14 @@
 <template>
   <section class="card">
-    <h2>Freibetragsverwaltung</h2>
+    <div class="view-header">
+      <div class="view-header-copy">
+        <h2>Freibetragsverwaltung</h2>
+        <p>Pflege Freibeträge im Kontext einer ausgewählten Person.</p>
+      </div>
+      <RouterLink class="btn flow-btn" :to="backTarget">{{ backLabel }}</RouterLink>
+    </div>
     <p v-if="!hasPersonContext" class="context-hint">
       Bitte zuerst eine Person auswählen und Freibeträge aus dem Personen-Hub öffnen.
-      <RouterLink to="/persons/select">Zur Personenliste</RouterLink>
     </p>
     <div class="grid" style="grid-template-columns: 1fr 1fr 1fr auto">
       <div><label>Person-ID</label><input class="input" v-model.trim="personId" /></div>
@@ -16,11 +21,15 @@
   </section>
 </template>
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
 const route = useRoute()
 const personId = ref(typeof route.query.personId === 'string' ? route.query.personId : '')
 const hasPersonContext = typeof route.query.personId === 'string' && route.query.personId.length > 0
+const backTarget = computed(() =>
+  hasPersonContext ? `/persons/${route.query.personId as string}` : '/persons/select'
+)
+const backLabel = computed(() => (hasPersonContext ? 'Zurück zum Personen-Hub' : 'Zur Personenliste'))
 const bankId = ref('')
 const amount = ref<number | null>(null)
 const error = ref('')
@@ -47,7 +56,4 @@ function save() {
   padding: 0.65rem 0.75rem;
 }
 
-.context-hint :deep(a) {
-  margin-left: 0.35rem;
-}
 </style>

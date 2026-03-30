@@ -1,18 +1,18 @@
 <template>
   <section class="card">
-    <h2>Bankzuordnung</h2>
+    <div class="view-header">
+      <div class="view-header-copy">
+        <h2>Bankzuordnung</h2>
+        <p>Ordne Banken gezielt der ausgewählten Person zu oder entferne bestehende Zuordnungen.</p>
+      </div>
+      <RouterLink v-if="personId" class="btn flow-btn" :to="`/persons/${personId}`">Zurück zum Personen-Hub</RouterLink>
+      <RouterLink v-else class="btn flow-btn" to="/persons/select">Zur Personenliste</RouterLink>
+    </div>
     <p v-if="!personId" class="context-hint">
       Diese Ansicht ist ein Schritt im Personen-Hub. Bitte wähle zuerst eine Person aus.
     </p>
-    <div v-if="!personId" class="back-links">
-      <RouterLink class="btn secondary" to="/persons/select">Zur Personenliste</RouterLink>
-    </div>
 
     <template v-else>
-      <div class="back-links">
-        <RouterLink class="btn secondary" :to="`/persons/${personId}`">Zurück zum Personen-Hub</RouterLink>
-      </div>
-
       <LoadingState v-if="loading" />
       <ErrorState v-else-if="errorMessage" :message="errorMessage" />
 
@@ -164,14 +164,6 @@ watch(personId, loadData)
   border: 1px solid #fcd34d;
   border-radius: 8px;
   padding: 0.65rem 0.75rem;
-}
-
-.back-links {
-  display: flex;
-  justify-content: flex-end;
-  gap: 0.5rem;
-  margin-bottom: 1rem;
-  flex-wrap: wrap;
 }
 
 .assignment-card {

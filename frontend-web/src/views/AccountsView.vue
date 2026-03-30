@@ -1,9 +1,14 @@
 <template>
   <section class="card">
-    <h2>Kontenverwaltung</h2>
+    <div class="view-header">
+      <div class="view-header-copy">
+        <h2>Kontenverwaltung</h2>
+        <p>Konten im Personenkontext laden und prüfen.</p>
+      </div>
+      <RouterLink class="btn flow-btn" :to="backTarget">{{ backLabel }}</RouterLink>
+    </div>
     <p v-if="!hasPersonContext" class="context-hint">
       Bitte zuerst eine Person auswählen und Konten aus dem Personen-Hub öffnen.
-      <RouterLink to="/persons/select">Zur Personenliste</RouterLink>
     </p>
     <div class="grid" style="grid-template-columns: 1fr auto; margin-bottom: 1rem">
       <div><label>Person-ID</label><input class="input" v-model.trim="personId" /></div>
@@ -19,7 +24,7 @@
   </section>
 </template>
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { apiClient } from '../api/client'
 import type { AccountReadModel } from '../types/models'
@@ -30,6 +35,10 @@ import EmptyState from '../components/EmptyState.vue'
 const route = useRoute()
 const personId = ref(typeof route.query.personId === 'string' ? route.query.personId : '00000000-0000-0000-0000-000000000101')
 const hasPersonContext = typeof route.query.personId === 'string' && route.query.personId.length > 0
+const backTarget = computed(() =>
+  hasPersonContext ? `/persons/${route.query.personId as string}` : '/persons/select'
+)
+const backLabel = computed(() => (hasPersonContext ? 'Zurück zum Personen-Hub' : 'Zur Personenliste'))
 const items = ref<AccountReadModel[]>([])
 const loading = ref(false)
 const error = ref<string | null>(null)
@@ -63,7 +72,4 @@ onMounted(() => {
   padding: 0.65rem 0.75rem;
 }
 
-.context-hint :deep(a) {
-  margin-left: 0.35rem;
-}
 </style>

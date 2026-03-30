@@ -1,12 +1,12 @@
 <template>
   <section class="card">
-    <div class="header-row">
-      <h2>Neue Bank anlegen</h2>
+    <div class="view-header">
+      <div class="view-header-copy">
+        <h2>Neue Bank anlegen</h2>
+        <p>Erfasse die Stammdaten der Bank. Nach dem Speichern steht die Bank sofort im System zur Verfügung.</p>
+      </div>
       <RouterLink class="btn flow-btn" to="/">Zur Startseite</RouterLink>
     </div>
-    <p class="empty">
-      Erfasse die Stammdaten der Bank. Nach dem Speichern steht die Bank sofort im System zur Verfügung.
-    </p>
 
     <form class="grid form-grid" @submit.prevent="submit">
       <div>
@@ -158,15 +158,8 @@ function goHome() {
 </script>
 
 <style scoped>
-.header-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 0.75rem;
-}
-
 .form-grid {
-  margin-top: 1rem;
+  margin-top: 0.25rem;
 }
 
 .actions {
