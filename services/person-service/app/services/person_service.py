@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from dataclasses import dataclass
 from decimal import Decimal
 from uuid import UUID
 
@@ -8,9 +9,11 @@ from fastapi import HTTPException, status
 
 from app.models import (
     AllowanceListResponse,
+    AllowanceUpsertRequest,
     AllowanceSummaryBankItem,
     AllowanceSummaryResponse,
     AssignmentListResponse,
+    FilingStatus,
     PaginationMeta,
     Person,
     PersonBankAssignment,
@@ -22,8 +25,17 @@ from app.models import (
     PersonUpdate,
     SortDirection,
     TaxAllowance,
+    TaxCountry,
+    TaxProfile,
 )
 from app.repositories.person_repository import MongoPersonRepository, PersonRepository
+
+
+@dataclass(frozen=True)
+class AllowancePolicy:
+    annual_limit: Decimal
+    currency: str
+    rule_name: str
 
 
 class PersonService:
@@ -88,7 +100,11 @@ class PersonService:
 
     def update_person(self, person_id: UUID, payload: PersonUpdate) -> Person:
         current = self.get_person(person_id)
-        merged = current.model_copy(update=payload.model_dump(exclude_none=True))
+        update_values = payload.model_dump(exclude_none=True)
+        tax_profile_patch = update_values.pop("tax_profile", None)
+        merged = current.model_copy(update=update_values)
+        if tax_profile_patch is not None:
+            merged.tax_profile = current.tax_profile.model_copy(update=tax_profile_patch)
         merged.updated_at = self._now()
         self._assert_person_uniqueness(
             first_name=merged.first_name,
@@ -127,35 +143,72 @@ class PersonService:
         if not deleted:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Bankzuordnung nicht gefunden")
 
-    def list_allowances(self, person_id: UUID) -> AllowanceListResponse:
+    def list_allowances(self, person_id: UUID, tax_year: int | None = None) -> AllowanceListResponse:
         self.get_person(person_id)
-        items = sorted(self.repository.list_allowances(person_id), key=lambda item: str(item.bank_id))
+        items = sorted(
+            self.repository.list_allowances(person_id, tax_year=tax_year),
+            key=lambda item: (item.tax_year, str(item.bank_id)),
+        )
         amount_total = sum((item.amount for item in items), start=Decimal("0"))
         return AllowanceListResponse(items=items, total=len(items), amount_total=amount_total)
 
-    def upsert_allowance(self, person_id: UUID, bank_id: UUID, amount: Decimal) -> TaxAllowance:
-        self.get_person(person_id)
+    def upsert_allowance(self, person_id: UUID, bank_id: UUID, payload: AllowanceUpsertRequest) -> TaxAllowance:
+        person = self.get_person(person_id)
         assignment = self.repository.get_assignment(person_id, bank_id)
         if assignment is None:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Freibetrag nur für zugeordnete Banken zulässig",
             )
+        policy = self._resolve_allowance_policy(person.tax_profile)
+        if payload.currency != policy.currency:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Für {policy.rule_name} ist aktuell nur {policy.currency} zulässig",
+            )
+
+        current_year_allowances = self.repository.list_allowances(person_id, tax_year=payload.tax_year)
+        total_other_banks = sum(
+            (item.amount for item in current_year_allowances if item.bank_id != bank_id),
+            start=Decimal("0"),
+        )
+        requested_total = total_other_banks + payload.amount
+        if requested_total > policy.annual_limit:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"Sparer-Pauschbetrag überschritten: {requested_total} {policy.currency} > "
+                    f"{policy.annual_limit} {policy.currency} für Steuerjahr {payload.tax_year}"
+                ),
+            )
 
         allowance = TaxAllowance(
             person_id=person_id,
             bank_id=bank_id,
-            amount=amount,
+            tax_year=payload.tax_year,
+            amount=payload.amount,
+            currency=payload.currency,
             updated_at=self._now(),
         )
         return self.repository.upsert_allowance(allowance)
 
-    def allowance_summary(self, person_id: UUID) -> AllowanceSummaryResponse:
-        self.get_person(person_id)
-        items = sorted(self.repository.list_allowances(person_id), key=lambda item: str(item.bank_id))
-        banks = [AllowanceSummaryBankItem(bank_id=item.bank_id, amount=item.amount) for item in items]
+    def allowance_summary(self, person_id: UUID, tax_year: int) -> AllowanceSummaryResponse:
+        person = self.get_person(person_id)
+        policy = self._resolve_allowance_policy(person.tax_profile)
+        items = sorted(self.repository.list_allowances(person_id, tax_year=tax_year), key=lambda item: str(item.bank_id))
+        banks = [AllowanceSummaryBankItem(bank_id=item.bank_id, tax_year=item.tax_year, amount=item.amount) for item in items]
         total_amount = sum((item.amount for item in items), start=Decimal("0"))
-        return AllowanceSummaryResponse(person_id=person_id, banks=banks, total_amount=total_amount, currency="EUR")
+        remaining_amount = max(Decimal("0"), policy.annual_limit - total_amount)
+        return AllowanceSummaryResponse(
+            person_id=person_id,
+            tax_year=tax_year,
+            banks=banks,
+            total_amount=total_amount,
+            annual_limit=policy.annual_limit,
+            remaining_amount=remaining_amount,
+            currency=policy.currency,
+            applied_rule=policy.rule_name,
+        )
 
     def _to_person_list_item(self, person: Person) -> PersonListItem:
         assignments = self.repository.list_assignments(person.person_id)
@@ -214,3 +267,14 @@ class PersonService:
         if email:
             searchable_parts.append(email)
         return all(any(token in part for part in searchable_parts) for token in tokens)
+
+    @staticmethod
+    def _resolve_allowance_policy(tax_profile: TaxProfile) -> AllowancePolicy:
+        if tax_profile.tax_country == TaxCountry.DE and tax_profile.filing_status == FilingStatus.JOINT:
+            return AllowancePolicy(annual_limit=Decimal("2000"), currency="EUR", rule_name="DE/joint")
+        if tax_profile.tax_country == TaxCountry.DE and tax_profile.filing_status == FilingStatus.SINGLE:
+            return AllowancePolicy(annual_limit=Decimal("1000"), currency="EUR", rule_name="DE/single")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Steuerprofil wird für Freibeträge noch nicht unterstützt",
+        )

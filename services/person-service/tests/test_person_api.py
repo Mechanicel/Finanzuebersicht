@@ -54,6 +54,7 @@ def test_person_crud_and_list_filters() -> None:
     create_b = client.post("/api/v1/persons", json={"first_name": "Ben", "last_name": "Zorn", "email": "b@x.de"})
     assert create_a.status_code == 201
     assert create_b.status_code == 201
+    assert create_a.json()["data"]["tax_profile"] == {"tax_country": "DE", "filing_status": "single"}
 
     person_id = create_a.json()["data"]["person_id"]
 
@@ -61,9 +62,13 @@ def test_person_crud_and_list_filters() -> None:
     assert detail.status_code == 200
     assert detail.json()["data"]["person"]["email"] == "a@x.de"
 
-    patched = client.patch(f"/api/v1/persons/{person_id}", json={"last_name": "Meier"})
+    patched = client.patch(
+        f"/api/v1/persons/{person_id}",
+        json={"last_name": "Meier", "tax_profile": {"filing_status": "joint"}},
+    )
     assert patched.status_code == 200
     assert patched.json()["data"]["last_name"] == "Meier"
+    assert patched.json()["data"]["tax_profile"] == {"tax_country": "DE", "filing_status": "joint"}
 
     listed = client.get(
         "/api/v1/persons",
@@ -137,17 +142,23 @@ def test_bank_assignment_and_allowances_flow() -> None:
     assert assignment_list.status_code == 200
     assert assignment_list.json()["data"]["total"] == 1
 
-    allowance = client.put(f"/api/v1/persons/{person_id}/allowances/{bank_id}", params={"amount": "801.25"})
+    allowance = client.put(
+        f"/api/v1/persons/{person_id}/allowances/{bank_id}",
+        json={"tax_year": 2025, "amount": "801.25", "currency": "EUR"},
+    )
     assert allowance.status_code == 200
     assert allowance.json()["data"]["amount"] == "801.25"
+    assert allowance.json()["data"]["tax_year"] == 2025
 
-    allowance_list = client.get(f"/api/v1/persons/{person_id}/allowances")
+    allowance_list = client.get(f"/api/v1/persons/{person_id}/allowances", params={"tax_year": 2025})
     assert allowance_list.status_code == 200
     assert allowance_list.json()["data"]["amount_total"] == "801.25"
 
-    summary = client.get(f"/api/v1/persons/{person_id}/allowances/summary")
+    summary = client.get(f"/api/v1/persons/{person_id}/allowances/summary", params={"tax_year": 2025})
     assert summary.status_code == 200
     assert summary.json()["data"]["total_amount"] == "801.25"
+    assert summary.json()["data"]["annual_limit"] == "1000"
+    assert summary.json()["data"]["remaining_amount"] == "198.75"
 
     delete_assignment = client.delete(f"/api/v1/persons/{person_id}/banks/{bank_id}")
     assert delete_assignment.status_code == 204
@@ -159,8 +170,110 @@ def test_allowance_requires_assignment() -> None:
     person_id = person.json()["data"]["person_id"]
     bank_id = str(uuid4())
 
-    response = client.put(f"/api/v1/persons/{person_id}/allowances/{bank_id}", params={"amount": "100.00"})
+    response = client.put(
+        f"/api/v1/persons/{person_id}/allowances/{bank_id}",
+        json={"tax_year": 2025, "amount": "100.00", "currency": "EUR"},
+    )
     assert response.status_code == 409
+
+
+def test_allowance_single_de_summe_unter_und_genau_limit() -> None:
+    client = create_test_client(app)
+    person = client.post("/api/v1/persons", json={"first_name": "Sara", "last_name": "Kern", "email": "s@example.com"})
+    person_id = person.json()["data"]["person_id"]
+    bank_a = str(uuid4())
+    bank_b = str(uuid4())
+    assert client.post(f"/api/v1/persons/{person_id}/banks/{bank_a}").status_code == 201
+    assert client.post(f"/api/v1/persons/{person_id}/banks/{bank_b}").status_code == 201
+
+    a = client.put(f"/api/v1/persons/{person_id}/allowances/{bank_a}", json={"tax_year": 2025, "amount": "600.00"})
+    b = client.put(f"/api/v1/persons/{person_id}/allowances/{bank_b}", json={"tax_year": 2025, "amount": "400.00"})
+    assert a.status_code == 200
+    assert b.status_code == 200
+
+    summary = client.get(f"/api/v1/persons/{person_id}/allowances/summary", params={"tax_year": 2025})
+    assert summary.status_code == 200
+    assert summary.json()["data"]["total_amount"] == "1000.00"
+    assert summary.json()["data"]["remaining_amount"] == "0"
+
+
+def test_allowance_single_de_summe_ueber_limit_abgelehnt() -> None:
+    client = create_test_client(app)
+    person = client.post("/api/v1/persons", json={"first_name": "Tina", "last_name": "Holm", "email": "t@example.com"})
+    person_id = person.json()["data"]["person_id"]
+    bank_a = str(uuid4())
+    bank_b = str(uuid4())
+    assert client.post(f"/api/v1/persons/{person_id}/banks/{bank_a}").status_code == 201
+    assert client.post(f"/api/v1/persons/{person_id}/banks/{bank_b}").status_code == 201
+
+    assert client.put(
+        f"/api/v1/persons/{person_id}/allowances/{bank_a}",
+        json={"tax_year": 2025, "amount": "900.00"},
+    ).status_code == 200
+    over = client.put(
+        f"/api/v1/persons/{person_id}/allowances/{bank_b}",
+        json={"tax_year": 2025, "amount": "101.00"},
+    )
+    assert over.status_code == 409
+    assert "Sparer-Pauschbetrag überschritten" in over.json()["detail"]
+
+
+def test_allowance_update_same_bank_replaces_value() -> None:
+    client = create_test_client(app)
+    person = client.post("/api/v1/persons", json={"first_name": "Ute", "last_name": "Mair", "email": "u@example.com"})
+    person_id = person.json()["data"]["person_id"]
+    bank = str(uuid4())
+    assert client.post(f"/api/v1/persons/{person_id}/banks/{bank}").status_code == 201
+    assert client.put(f"/api/v1/persons/{person_id}/allowances/{bank}", json={"tax_year": 2025, "amount": "950.00"}).status_code == 200
+    updated = client.put(f"/api/v1/persons/{person_id}/allowances/{bank}", json={"tax_year": 2025, "amount": "200.00"})
+    assert updated.status_code == 200
+
+    summary = client.get(f"/api/v1/persons/{person_id}/allowances/summary", params={"tax_year": 2025})
+    assert summary.json()["data"]["total_amount"] == "200.00"
+
+
+def test_allowance_joint_de_limit_2000() -> None:
+    client = create_test_client(app)
+    person = client.post(
+        "/api/v1/persons",
+        json={
+            "first_name": "Jan",
+            "last_name": "Voss",
+            "email": "j@example.com",
+            "tax_profile": {"filing_status": "joint"},
+        },
+    )
+    person_id = person.json()["data"]["person_id"]
+    bank_a = str(uuid4())
+    bank_b = str(uuid4())
+    assert client.post(f"/api/v1/persons/{person_id}/banks/{bank_a}").status_code == 201
+    assert client.post(f"/api/v1/persons/{person_id}/banks/{bank_b}").status_code == 201
+
+    ok = client.put(f"/api/v1/persons/{person_id}/allowances/{bank_a}", json={"tax_year": 2025, "amount": "1500.00"})
+    still_ok = client.put(
+        f"/api/v1/persons/{person_id}/allowances/{bank_b}",
+        json={"tax_year": 2025, "amount": "500.00"},
+    )
+    over = client.put(f"/api/v1/persons/{person_id}/allowances/{bank_b}", json={"tax_year": 2025, "amount": "501.00"})
+    assert ok.status_code == 200
+    assert still_ok.status_code == 200
+    assert over.status_code == 409
+
+
+def test_allowance_tax_year_isolated() -> None:
+    client = create_test_client(app)
+    person = client.post("/api/v1/persons", json={"first_name": "Mona", "last_name": "Lux", "email": "m@example.com"})
+    person_id = person.json()["data"]["person_id"]
+    bank = str(uuid4())
+    assert client.post(f"/api/v1/persons/{person_id}/banks/{bank}").status_code == 201
+    assert client.put(f"/api/v1/persons/{person_id}/allowances/{bank}", json={"tax_year": 2025, "amount": "1000.00"}).status_code == 200
+    next_year = client.put(f"/api/v1/persons/{person_id}/allowances/{bank}", json={"tax_year": 2026, "amount": "1000.00"})
+    assert next_year.status_code == 200
+
+    list_2025 = client.get(f"/api/v1/persons/{person_id}/allowances", params={"tax_year": 2025})
+    list_2026 = client.get(f"/api/v1/persons/{person_id}/allowances", params={"tax_year": 2026})
+    assert list_2025.json()["data"]["amount_total"] == "1000.00"
+    assert list_2026.json()["data"]["amount_total"] == "1000.00"
 
 
 def test_mongo_persistence_inside_repository() -> None:

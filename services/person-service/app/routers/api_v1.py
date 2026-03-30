@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from decimal import Decimal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Response, status
@@ -9,6 +8,7 @@ from finanzuebersicht_shared.models import ApiResponse
 from app.dependencies import get_person_service
 from app.models import (
     AllowanceListResponse,
+    AllowanceUpsertRequest,
     AllowanceSummaryResponse,
     AssignmentListResponse,
     Person,
@@ -99,24 +99,26 @@ async def delete_person_bank_assignment(
 @router.get("/persons/{person_id}/allowances", response_model=ApiResponse[AllowanceListResponse])
 async def list_allowances(
     person_id: UUID,
+    tax_year: int | None = Query(default=None, ge=1900, le=3000),
     service: PersonService = Depends(get_person_service),
 ) -> ApiResponse[AllowanceListResponse]:
-    return ApiResponse(data=service.list_allowances(person_id))
+    return ApiResponse(data=service.list_allowances(person_id, tax_year=tax_year))
 
 
 @router.put("/persons/{person_id}/allowances/{bank_id}", response_model=ApiResponse[TaxAllowance])
 async def put_allowance(
     person_id: UUID,
     bank_id: UUID,
-    amount: Decimal = Query(ge=Decimal("0"), decimal_places=2),
+    payload: AllowanceUpsertRequest,
     service: PersonService = Depends(get_person_service),
 ) -> ApiResponse[TaxAllowance]:
-    return ApiResponse(data=service.upsert_allowance(person_id, bank_id, amount))
+    return ApiResponse(data=service.upsert_allowance(person_id, bank_id, payload))
 
 
 @router.get("/persons/{person_id}/allowances/summary", response_model=ApiResponse[AllowanceSummaryResponse])
 async def allowance_summary(
     person_id: UUID,
+    tax_year: int = Query(ge=1900, le=3000),
     service: PersonService = Depends(get_person_service),
 ) -> ApiResponse[AllowanceSummaryResponse]:
-    return ApiResponse(data=service.allowance_summary(person_id))
+    return ApiResponse(data=service.allowance_summary(person_id, tax_year=tax_year))
