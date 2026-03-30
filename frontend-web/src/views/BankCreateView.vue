@@ -1,6 +1,9 @@
 <template>
   <section class="card">
-    <h2>Neue Bank anlegen</h2>
+    <div class="header-row">
+      <h2>Neue Bank anlegen</h2>
+      <RouterLink class="btn flow-btn" to="/">Zur Startseite</RouterLink>
+    </div>
     <p class="empty">
       Hier startest du den Bankfluss. Erfasse eine Bank-ID und einen Namen, um die Anlage vorzubereiten.
     </p>
@@ -28,3 +31,12 @@ function prepareBank() {
     : 'Bitte Bank-ID und Bankname ausfüllen.'
 }
 </script>
+
+<style scoped>
+.header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+}
+</style>

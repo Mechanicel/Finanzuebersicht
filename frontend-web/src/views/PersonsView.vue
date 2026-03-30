@@ -5,7 +5,10 @@
         <h2>Person suchen & auswählen</h2>
         <p class="subtitle">Suche serverseitig nach Vorname, Nachname oder E-Mail und öffne danach den Personen-Hub.</p>
       </div>
-      <RouterLink class="btn secondary" to="/persons/new">Neue Person anlegen</RouterLink>
+      <div class="header-actions">
+        <RouterLink class="btn flow-btn" to="/">Zur Startseite</RouterLink>
+        <RouterLink class="btn secondary" to="/persons/new">Neue Person anlegen</RouterLink>
+      </div>
     </div>
 
     <div class="search-row">
@@ -110,6 +113,12 @@ onBeforeUnmount(() => {
   gap: 1rem;
   align-items: start;
   margin-bottom: 1rem;
+}
+
+.header-actions {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
 }
 
 .subtitle {
