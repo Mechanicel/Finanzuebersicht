@@ -63,6 +63,7 @@ import EmptyState from '../components/EmptyState.vue'
 import ErrorState from '../components/ErrorState.vue'
 import LoadingState from '../components/LoadingState.vue'
 import type { BankReadModel, PersonBankAssignmentReadModel, TaxAllowanceReadModel } from '../types/models'
+import { isValidAllowanceAmount, normalizeAllowanceInput } from './allowanceAmount'
 
 const route = useRoute()
 const personId = computed(() => (typeof route.query.personId === 'string' ? route.query.personId : ''))
@@ -79,7 +80,7 @@ const assignments = ref<PersonBankAssignmentReadModel[]>([])
 const banks = ref<BankReadModel[]>([])
 const allowances = ref<TaxAllowanceReadModel[]>([])
 const amountTotal = ref('0.00')
-const formAmounts = ref<Record<string, string>>({})
+const formAmounts = ref<Record<string, string | number | null | undefined>>({})
 
 const assignedBanks = computed(() => {
   const assignedIds = new Set(assignments.value.map((item) => item.bank_id))
@@ -101,10 +102,6 @@ function initializeFormValues() {
     nextValues[bank.bank_id] = currentAmount(bank.bank_id)
   }
   formAmounts.value = nextValues
-}
-
-function isValidAmount(value: string) {
-  return /^\d+(\.\d{1,2})?$/.test(value)
 }
 
 async function loadData() {
@@ -139,8 +136,10 @@ async function saveAllowance(bankId: string) {
   if (!personId.value) {
     return
   }
-  const amount = formAmounts.value[bankId]?.trim() ?? ''
-  if (!isValidAmount(amount)) {
+  const amount = normalizeAllowanceInput(formAmounts.value[bankId])
+  formAmounts.value[bankId] = amount
+
+  if (!isValidAllowanceAmount(amount)) {
     showFeedback('error', 'Bitte einen gültigen Betrag mit maximal zwei Nachkommastellen eingeben.')
     return
   }
