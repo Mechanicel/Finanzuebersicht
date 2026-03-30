@@ -1,6 +1,8 @@
 import { http } from './http'
 import type {
+  AccountCreatePayload,
   AccountReadModel,
+  AccountUpdatePayload,
   AllowanceListReadModel,
   AllowanceSummaryReadModel,
   AllowanceUpsertPayload,
@@ -71,6 +73,12 @@ export const apiClient = {
   },
   async accounts(personId: string) {
     return (await http.get<ApiEnvelope<AccountReadModel[]>>(`/app/persons/${personId}/accounts`)).data.data
+  },
+  async createAccount(personId: string, payload: AccountCreatePayload) {
+    return (await http.post<ApiEnvelope<AccountReadModel>>(`/app/persons/${personId}/accounts`, payload)).data.data
+  },
+  async updateAccount(personId: string, accountId: string, payload: AccountUpdatePayload) {
+    return (await http.patch<ApiEnvelope<AccountReadModel>>(`/app/persons/${personId}/accounts/${accountId}`, payload)).data.data
   },
   async portfolios(personId: string) {
     return (await http.get<ApiEnvelope<PortfolioReadModel[]>>(`/app/persons/${personId}/portfolios`)).data.data
