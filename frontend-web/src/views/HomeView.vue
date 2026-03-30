@@ -18,7 +18,7 @@
 
       <RouterLink class="action-card" to="/banks/new">
         <h3>Neue Bank anlegen</h3>
-        <p>Zum Bank-Startscreen wechseln und eine neue Bankverbindung vorbereiten.</p>
+        <p>Zum Bank-Startscreen wechseln und eine neue Bank direkt im System anlegen.</p>
       </RouterLink>
     </div>
   </section>

@@ -7,6 +7,9 @@ from fastapi import HTTPException
 
 from app.models import (
     AccountReadModel,
+    BankCreatePayload,
+    BankListReadModel,
+    BankReadModel,
     DashboardReadModel,
     GatewayHealthReadModel,
     HealthDependency,
@@ -51,10 +54,12 @@ class GatewayService:
         self,
         analytics_base_url: str,
         person_base_url: str,
+        masterdata_base_url: str,
         timeout_seconds: float,
     ) -> None:
         self._analytics_base_url = analytics_base_url.rstrip("/")
         self._person_base_url = person_base_url.rstrip("/")
+        self._masterdata_base_url = masterdata_base_url.rstrip("/")
         self._timeout = timeout_seconds
 
     async def list_persons(
@@ -95,6 +100,15 @@ class GatewayService:
 
     async def delete_person(self, person_id: UUID) -> None:
         await self._request_person_service("DELETE", f"/api/v1/persons/{person_id}", expect_no_content=True)
+
+
+    async def list_banks(self) -> BankListReadModel:
+        payload = await self._request_masterdata_service("GET", "/api/v1/banks")
+        return BankListReadModel.model_validate(payload)
+
+    async def create_bank(self, bank: BankCreatePayload) -> BankReadModel:
+        payload = await self._request_masterdata_service("POST", "/api/v1/banks", json=bank.model_dump())
+        return BankReadModel.model_validate(payload)
 
     async def list_accounts(self, person_id: UUID) -> list[AccountReadModel]:
         return PERSON_ACCOUNTS.get(person_id, [])
@@ -168,6 +182,30 @@ class GatewayService:
             return data
         except Exception:  # noqa: BLE001
             return response.text
+
+
+    async def _request_masterdata_service(
+        self,
+        method: str,
+        path: str,
+        *,
+        json: dict | None = None,
+        params: dict | None = None,
+        expect_no_content: bool = False,
+    ) -> dict:
+        url = f"{self._masterdata_base_url}{path}"
+        query = {key: value for key, value in (params or {}).items() if value is not None}
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            response = await client.request(method, url, json=json, params=query)
+
+        if response.status_code >= 400:
+            detail = self._error_detail(response)
+            raise HTTPException(status_code=response.status_code, detail=detail)
+
+        if expect_no_content:
+            return {}
+
+        return response.json()["data"]
 
     async def _get_analytics_payload(self, person_id: UUID, endpoint: str) -> dict:
         url = f"{self._analytics_base_url}/api/v1/analytics/persons/{person_id}/{endpoint}"

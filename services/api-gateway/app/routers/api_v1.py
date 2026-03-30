@@ -10,6 +10,9 @@ from finanzuebersicht_shared.models import ApiResponse
 from app.dependencies import get_gateway_service
 from app.models import (
     AccountReadModel,
+    BankCreatePayload,
+    BankListReadModel,
+    BankReadModel,
     DashboardReadModel,
     GatewayHealthReadModel,
     PersonCreatePayload,
@@ -77,6 +80,20 @@ async def delete_person(
     await service.delete_person(person_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
+
+
+
+@router.get("/app/banks", response_model=ApiResponse[BankListReadModel])
+async def list_banks(service: Annotated[GatewayService, Depends(get_gateway_service)]) -> ApiResponse[BankListReadModel]:
+    return ApiResponse(data=await service.list_banks())
+
+
+@router.post("/app/banks", response_model=ApiResponse[BankReadModel], status_code=status.HTTP_201_CREATED)
+async def create_bank(
+    payload: BankCreatePayload,
+    service: Annotated[GatewayService, Depends(get_gateway_service)],
+) -> ApiResponse[BankReadModel]:
+    return ApiResponse(data=await service.create_bank(payload))
 
 @router.get("/app/persons/{person_id}/dashboard", response_model=ApiResponse[DashboardReadModel])
 async def dashboard(

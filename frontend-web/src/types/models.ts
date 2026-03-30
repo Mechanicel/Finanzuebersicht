@@ -47,6 +47,27 @@ export interface PersonUpdatePayload {
   email?: string
 }
 
+
+export interface BankReadModel {
+  bank_id: string
+  name: string
+  bic: string
+  blz: string
+  country_code: string
+}
+
+export interface BankListReadModel {
+  items: BankReadModel[]
+  total: number
+}
+
+export interface BankCreatePayload {
+  name: string
+  bic: string
+  blz: string
+  country_code: string
+}
+
 export interface AccountReadModel { account_id: string; name: string; type: string; balance: number }
 export interface PortfolioReadModel { portfolio_id: string; label: string; total_value: number }
 export interface DashboardReadModel {

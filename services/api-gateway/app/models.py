@@ -52,6 +52,26 @@ class PersonDetailReadModel(BaseModel):
     stats: PersonListItem
 
 
+class BankReadModel(BaseModel):
+    bank_id: UUID
+    name: str
+    bic: str
+    blz: str
+    country_code: str
+
+
+class BankCreatePayload(BaseModel):
+    name: str
+    bic: str
+    blz: str
+    country_code: str = Field(default="DE", min_length=2, max_length=2)
+
+
+class BankListReadModel(BaseModel):
+    items: list[BankReadModel]
+    total: int
+
+
 class AccountReadModel(BaseModel):
     account_id: UUID
     name: str
