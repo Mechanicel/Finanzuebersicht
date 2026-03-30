@@ -195,8 +195,14 @@ class GatewayService:
     ) -> dict:
         url = f"{self._masterdata_base_url}{path}"
         query = {key: value for key, value in (params or {}).items() if value is not None}
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
-            response = await client.request(method, url, json=json, params=query)
+        try:
+            async with httpx.AsyncClient(timeout=self._timeout) as client:
+                response = await client.request(method, url, json=json, params=query)
+        except httpx.RequestError as exc:
+            raise HTTPException(
+                status_code=502,
+                detail="Masterdata-Service ist derzeit nicht erreichbar. Bitte später erneut versuchen.",
+            ) from exc
 
         if response.status_code >= 400:
             detail = self._error_detail(response)
