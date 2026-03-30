@@ -57,8 +57,26 @@ class GatewayService:
         self._person_base_url = person_base_url.rstrip("/")
         self._timeout = timeout_seconds
 
-    async def list_persons(self) -> PersonListReadModel:
-        payload = await self._request_person_service("GET", "/api/v1/persons")
+    async def list_persons(
+        self,
+        *,
+        q: str | None = None,
+        sort_by: str | None = None,
+        direction: str | None = None,
+        limit: int | None = None,
+        offset: int | None = None,
+    ) -> PersonListReadModel:
+        payload = await self._request_person_service(
+            "GET",
+            "/api/v1/persons",
+            params={
+                "q": q,
+                "sort_by": sort_by,
+                "direction": direction,
+                "limit": limit,
+                "offset": offset,
+            },
+        )
         return PersonListReadModel.model_validate(payload)
 
     async def create_person(self, person: PersonCreatePayload) -> PersonReadModel:
@@ -124,11 +142,13 @@ class GatewayService:
         path: str,
         *,
         json: dict | None = None,
+        params: dict | None = None,
         expect_no_content: bool = False,
     ) -> dict:
         url = f"{self._person_base_url}{path}"
+        query = {key: value for key, value in (params or {}).items() if value is not None}
         async with httpx.AsyncClient(timeout=self._timeout) as client:
-            response = await client.request(method, url, json=json)
+            response = await client.request(method, url, json=json, params=query)
 
         if response.status_code >= 400:
             detail = self._error_detail(response)

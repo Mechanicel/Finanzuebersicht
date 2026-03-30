@@ -29,7 +29,15 @@ PERSON_ID = UUID("00000000-0000-0000-0000-000000000101")
 
 
 class StubGatewayService:
-    async def list_persons(self) -> dict:
+    async def list_persons(
+        self,
+        *,
+        q: str | None = None,
+        sort_by: str | None = None,
+        direction: str | None = None,
+        limit: int | None = None,
+        offset: int | None = None,
+    ) -> dict:
         return {
             "items": [
                 {
@@ -141,6 +149,7 @@ def test_app_endpoints_for_vue_pages() -> None:
     client = create_test_client(app)
 
     assert client.get("/api/v1/app/persons").status_code == 200
+    assert client.get("/api/v1/app/persons", params={"q": "Anna", "limit": 10, "offset": 0}).status_code == 200
     assert client.post("/api/v1/app/persons", json={"first_name": "Anna", "last_name": "Muster"}).status_code == 201
     assert client.get(f"/api/v1/app/persons/{PERSON_ID}").status_code == 200
     assert client.patch(f"/api/v1/app/persons/{PERSON_ID}", json={"last_name": "Neu"}).status_code == 200

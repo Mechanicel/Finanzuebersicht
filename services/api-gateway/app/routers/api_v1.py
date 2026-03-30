@@ -4,7 +4,7 @@ from typing import Annotated
 from uuid import UUID
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from finanzuebersicht_shared.models import ApiResponse
 
 from app.dependencies import get_gateway_service
@@ -27,8 +27,21 @@ router = APIRouter(tags=["app"])
 @router.get("/app/persons", response_model=ApiResponse[PersonListReadModel])
 async def list_persons(
     service: Annotated[GatewayService, Depends(get_gateway_service)],
+    q: str | None = Query(default=None),
+    sort_by: str | None = Query(default=None),
+    direction: str | None = Query(default=None),
+    limit: int | None = Query(default=None, ge=1, le=200),
+    offset: int | None = Query(default=None, ge=0),
 ) -> ApiResponse[PersonListReadModel]:
-    return ApiResponse(data=await service.list_persons())
+    return ApiResponse(
+        data=await service.list_persons(
+            q=q,
+            sort_by=sort_by,
+            direction=direction,
+            limit=limit,
+            offset=offset,
+        )
+    )
 
 
 @router.post("/app/persons", response_model=ApiResponse[PersonReadModel], status_code=status.HTTP_201_CREATED)

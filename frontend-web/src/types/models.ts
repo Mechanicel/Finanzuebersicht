@@ -26,6 +26,15 @@ export interface PersonDetailReadModel {
   stats: PersonListItem
 }
 
+
+export interface PersonQueryParams {
+  q?: string
+  sort_by?: string
+  direction?: 'asc' | 'desc'
+  limit?: number
+  offset?: number
+}
+
 export interface PersonCreatePayload {
   first_name: string
   last_name: string

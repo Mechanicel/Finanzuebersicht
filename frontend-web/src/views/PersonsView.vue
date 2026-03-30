@@ -1,20 +1,32 @@
 <template>
   <section class="card">
-    <h2>Personenliste</h2>
-    <p v-if="isCreateIntent" class="create-intent-hint">
-      Neuanlage-Modus: Fülle die Felder aus und lege direkt eine neue Person an.
-    </p>
-    <div class="grid" style="grid-template-columns: 1fr 1fr 1fr auto; align-items: end; margin-bottom: 1rem">
-      <div><label>Vorname</label><input ref="firstNameInput" class="input" v-model.trim="form.firstName" /></div>
-      <div><label>Nachname</label><input class="input" v-model.trim="form.lastName" /></div>
-      <div><label>E-Mail</label><input class="input" v-model.trim="form.email" type="email" /></div>
-      <button class="btn" @click="savePerson" :disabled="submitting">Person anlegen</button>
+    <div class="header-row">
+      <div>
+        <h2>Person suchen & auswählen</h2>
+        <p class="subtitle">Suche serverseitig nach Vorname, Nachname oder E-Mail und öffne danach den Personen-Hub.</p>
+      </div>
+      <RouterLink class="btn secondary" to="/persons/new">Neue Person anlegen</RouterLink>
     </div>
+
+    <form class="search-row" @submit.prevent="searchPersons">
+      <div>
+        <label for="person-search">Suchbegriff</label>
+        <input
+          id="person-search"
+          class="input"
+          v-model.trim="searchTerm"
+          placeholder="z. B. Anna Muster oder anna@example.com"
+        />
+      </div>
+      <button class="btn" :disabled="loading">Suchen</button>
+    </form>
 
     <LoadingState v-if="loading" />
     <ErrorState v-else-if="error" :message="error" />
-    <EmptyState v-else-if="!persons?.items.length">Noch keine Personen im System.</EmptyState>
-    <table v-else class="table">
+    <EmptyState v-else-if="persons && persons.items.length === 0">
+      Keine Treffer für „{{ submittedTerm || 'alle Personen' }}“.
+    </EmptyState>
+    <table v-else-if="persons" class="table">
       <thead><tr><th>Name</th><th>E-Mail</th><th>ID</th><th></th></tr></thead>
       <tbody>
         <tr v-for="p in persons.items" :key="p.person_id">
@@ -25,87 +37,59 @@
         </tr>
       </tbody>
     </table>
-    <p v-if="formError" class="error">{{ formError }}</p>
   </section>
 </template>
-<script setup lang="ts">
-import axios from 'axios'
-import { computed, nextTick, onMounted, reactive, ref } from 'vue'
-import { useRoute } from 'vue-router'
-import { apiClient } from '../api/client'
-import LoadingState from '../components/LoadingState.vue'
-import ErrorState from '../components/ErrorState.vue'
-import EmptyState from '../components/EmptyState.vue'
-import type { PersonListReadModel } from '../types/models'
 
-const route = useRoute()
-const isCreateIntent = computed(() => route.query.intent === 'create')
-const firstNameInput = ref<HTMLInputElement | null>(null)
+<script setup lang="ts">
+import { onMounted, ref } from 'vue'
+import { apiClient } from '../api/client'
+import type { PersonListReadModel } from '../types/models'
+import EmptyState from '../components/EmptyState.vue'
+import ErrorState from '../components/ErrorState.vue'
+import LoadingState from '../components/LoadingState.vue'
 
 const loading = ref(false)
-const submitting = ref(false)
 const error = ref<string | null>(null)
 const persons = ref<PersonListReadModel | null>(null)
-const form = reactive({ firstName: '', lastName: '', email: '' })
-const formError = ref<string | null>(null)
+const searchTerm = ref('')
+const submittedTerm = ref('')
 
-async function load() {
+async function searchPersons() {
   loading.value = true
   error.value = null
+  submittedTerm.value = searchTerm.value
+
   try {
-    persons.value = await apiClient.persons()
+    persons.value = await apiClient.persons({ q: searchTerm.value || undefined, limit: 25, offset: 0 })
   } catch (e) {
-    error.value = e instanceof Error ? e.message : 'Fehler beim Laden'
+    error.value = e instanceof Error ? e.message : 'Fehler beim Laden der Personen.'
   } finally {
     loading.value = false
   }
 }
 
-async function savePerson() {
-  formError.value = null
-  if (!form.firstName || !form.lastName) {
-    formError.value = 'Vorname und Nachname sind Pflichtfelder.'
-    return
-  }
-
-  submitting.value = true
-  try {
-    await apiClient.createPerson({
-      first_name: form.firstName,
-      last_name: form.lastName,
-      email: form.email || undefined
-    })
-    form.firstName = ''
-    form.lastName = ''
-    form.email = ''
-    await load()
-  } catch (e) {
-    if (axios.isAxiosError(e)) {
-      formError.value = e.response?.data?.detail ?? 'Person konnte nicht angelegt werden.'
-      return
-    }
-    formError.value = e instanceof Error ? e.message : 'Person konnte nicht angelegt werden.'
-  } finally {
-    submitting.value = false
-  }
-}
-
-onMounted(async () => {
-  await load()
-  if (isCreateIntent.value) {
-    await nextTick()
-    firstNameInput.value?.focus()
-  }
-})
+onMounted(searchPersons)
 </script>
 
 <style scoped>
-.create-intent-hint {
-  margin-top: 0;
+.header-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: start;
   margin-bottom: 1rem;
-  padding: 0.65rem 0.75rem;
-  border-radius: 8px;
-  background: #eff6ff;
-  color: #1e3a8a;
+}
+
+.subtitle {
+  margin-top: 0.35rem;
+  color: #475569;
+}
+
+.search-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.75rem;
+  align-items: end;
+  margin-bottom: 1rem;
 }
 </style>

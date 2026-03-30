@@ -3,7 +3,7 @@
     <h2>Depot-/Holding-Erfassung</h2>
     <p v-if="!hasPersonContext" class="context-hint">
       Bitte zuerst eine Person auswählen und den Bereich aus dem Personen-Hub öffnen.
-      <RouterLink to="/persons">Zur Personenliste</RouterLink>
+      <RouterLink to="/persons/select">Zur Personenliste</RouterLink>
     </p>
     <div class="grid" style="grid-template-columns: 1fr auto; margin-bottom: 1rem">
       <div><label>Person-ID</label><input class="input" v-model.trim="personId" /></div>

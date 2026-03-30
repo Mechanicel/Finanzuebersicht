@@ -11,10 +11,13 @@ describe('apiClient person CRUD', () => {
     mock.reset()
   })
 
-  it('calls list endpoint', async () => {
+  it('calls list endpoint with optional search parameters', async () => {
     mock.onGet('/app/persons').reply(200, { data: { items: [], pagination: { limit: 25, offset: 0, returned: 0, total: 0 } } })
-    const result = await apiClient.persons()
+
+    const result = await apiClient.persons({ q: 'anna', limit: 10, offset: 5 })
+
     expect(result.pagination.total).toBe(0)
+    expect(mock.history.get[0]?.params).toEqual({ q: 'anna', limit: 10, offset: 5 })
   })
 
   it('calls create/update/delete/detail endpoints', async () => {
