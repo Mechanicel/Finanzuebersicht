@@ -25,6 +25,10 @@ make dev
 - alle FastAPI-Services (inkl. Gateway)
 - `frontend-web` via `npm install && npm run dev`
 
+Dabei nutzt `scripts/dev.py` plattformspezifisch:
+- **Windows/PowerShell**: `cmd /c "npm install && npm run dev"`
+- **macOS/Linux**: `bash -lc "npm install && npm run dev"`
+
 ## Alternativen
 
 ```bash

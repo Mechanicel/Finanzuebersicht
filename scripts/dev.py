@@ -114,11 +114,16 @@ def _frontend_command() -> list[str] | None:
     frontend_dir = ROOT / "frontend-web"
     package_json = frontend_dir / "package.json"
     custom_command = os.getenv("FRONTEND_DEV_CMD")
+    is_windows = os.name == "nt"
 
     if custom_command:
+        if is_windows:
+            return ["cmd", "/c", custom_command]
         return ["bash", "-lc", custom_command]
 
     if package_json.exists():
+        if is_windows:
+            return ["cmd", "/c", "npm install && npm run dev"]
         return ["bash", "-lc", "npm install && npm run dev"]
 
     return None
