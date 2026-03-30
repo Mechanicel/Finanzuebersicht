@@ -25,6 +25,22 @@ make dev
 - alle FastAPI-Services (inkl. Gateway)
 - `frontend-web` via `npm install && npm run dev`
 
+## Frontend/Backend-Integration (lokal)
+
+- Das Vite-Frontend läuft lokal typischerweise auf `http://127.0.0.1:5173` (alternativ `http://localhost:5173`).
+- Das Frontend spricht standardmäßig das API-Gateway unter `http://127.0.0.1:8000/api/v1` an (`frontend-web/src/api/http.ts`).
+- Damit Browser-Requests zwischen Frontend-Origin und Gateway funktionieren, ist CORS zentral im Shared-App-Builder aktiviert.
+- Standardmäßig erlaubte Origins:
+  - `http://127.0.0.1:5173`
+  - `http://localhost:5173`
+- Überschreiben per Umgebungsvariable:
+
+```bash
+export CORS_ALLOW_ORIGINS="http://127.0.0.1:5173,http://localhost:5173,https://example.local"
+```
+
+- Die Service-Ports aus `scripts/dev.py` sind maßgeblich; insbesondere läuft der `person-service` lokal auf Port `8002`.
+
 Dabei nutzt `scripts/dev.py` plattformspezifisch:
 - **Windows/PowerShell**: `cmd /c "npm install && npm run dev"`
 - **macOS/Linux**: `bash -lc "npm install && npm run dev"`

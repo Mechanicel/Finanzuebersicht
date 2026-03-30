@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from finanzuebersicht_shared.config import ServiceSettings
 from finanzuebersicht_shared.errors import register_error_handlers
@@ -13,6 +14,13 @@ def create_app(*, settings: ServiceSettings, api_router: APIRouter | None = None
     configure_logging(settings.log_level)
 
     app = FastAPI(title=settings.app_name, version=settings.app_version)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_allow_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
     app.add_middleware(RequestContextMiddleware)
     register_error_handlers(app)
 
