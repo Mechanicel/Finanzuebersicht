@@ -10,6 +10,8 @@ from finanzuebersicht_shared.models import ApiResponse
 from app.dependencies import get_gateway_service
 from app.models import (
     AccountReadModel,
+    AllowanceListReadModel,
+    AllowanceSummaryReadModel,
     AssignmentListReadModel,
     BankCreatePayload,
     BankListReadModel,
@@ -23,6 +25,7 @@ from app.models import (
     PersonBankAssignmentReadModel,
     PersonUpdatePayload,
     PortfolioReadModel,
+    TaxAllowanceReadModel,
 )
 from app.service import GatewayService
 
@@ -112,6 +115,32 @@ async def unassign_person_bank(
 ) -> Response:
     await service.unassign_bank(person_id, bank_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/app/persons/{person_id}/allowances", response_model=ApiResponse[AllowanceListReadModel])
+async def list_allowances(
+    person_id: UUID,
+    service: Annotated[GatewayService, Depends(get_gateway_service)],
+) -> ApiResponse[AllowanceListReadModel]:
+    return ApiResponse(data=await service.list_allowances(person_id))
+
+
+@router.put("/app/persons/{person_id}/allowances/{bank_id}", response_model=ApiResponse[TaxAllowanceReadModel])
+async def set_allowance(
+    person_id: UUID,
+    bank_id: UUID,
+    service: Annotated[GatewayService, Depends(get_gateway_service)],
+    amount: str = Query(...),
+) -> ApiResponse[TaxAllowanceReadModel]:
+    return ApiResponse(data=await service.set_allowance(person_id, bank_id, amount))
+
+
+@router.get("/app/persons/{person_id}/allowances/summary", response_model=ApiResponse[AllowanceSummaryReadModel])
+async def allowance_summary(
+    person_id: UUID,
+    service: Annotated[GatewayService, Depends(get_gateway_service)],
+) -> ApiResponse[AllowanceSummaryReadModel]:
+    return ApiResponse(data=await service.allowance_summary(person_id))
 
 
 

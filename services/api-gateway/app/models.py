@@ -83,6 +83,32 @@ class AssignmentListReadModel(BaseModel):
     total: int
 
 
+class TaxAllowanceReadModel(BaseModel):
+    person_id: UUID
+    bank_id: UUID
+    amount: str
+    currency: str
+    updated_at: str
+
+
+class AllowanceListReadModel(BaseModel):
+    items: list[TaxAllowanceReadModel]
+    total: int
+    amount_total: str
+
+
+class AllowanceSummaryBankItemReadModel(BaseModel):
+    bank_id: UUID
+    amount: str
+
+
+class AllowanceSummaryReadModel(BaseModel):
+    person_id: UUID
+    banks: list[AllowanceSummaryBankItemReadModel]
+    total_amount: str
+    currency: str
+
+
 class AccountReadModel(BaseModel):
     account_id: UUID
     name: str

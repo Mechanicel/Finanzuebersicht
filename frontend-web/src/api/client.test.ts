@@ -83,3 +83,33 @@ describe('apiClient person bank assignments', () => {
     expect(assigned.bank_id).toBe(bankId)
   })
 })
+
+describe('apiClient allowances', () => {
+  it('calls person allowance endpoints', async () => {
+    const personId = '00000000-0000-0000-0000-000000000101'
+    const bankId = '30000000-0000-0000-0000-000000000001'
+
+    mock.onGet(`/app/persons/${personId}/allowances`).reply(200, {
+      data: {
+        items: [{ person_id: personId, bank_id: bankId, amount: '75.00', currency: 'EUR', updated_at: '2026-03-01' }],
+        total: 1,
+        amount_total: '75.00'
+      }
+    })
+    mock.onPut(`/app/persons/${personId}/allowances/${bankId}`).reply(200, {
+      data: { person_id: personId, bank_id: bankId, amount: '125.00', currency: 'EUR', updated_at: '2026-03-02' }
+    })
+    mock.onGet(`/app/persons/${personId}/allowances/summary`).reply(200, {
+      data: { person_id: personId, banks: [{ bank_id: bankId, amount: '125.00' }], total_amount: '125.00', currency: 'EUR' }
+    })
+
+    const list = await apiClient.allowances(personId)
+    const changed = await apiClient.setAllowance(personId, bankId, '125.00')
+    const summary = await apiClient.allowanceSummary(personId)
+
+    expect(list.total).toBe(1)
+    expect(changed.amount).toBe('125.00')
+    expect(summary.total_amount).toBe('125.00')
+    expect(mock.history.put[0]?.params).toEqual({ amount: '125.00' })
+  })
+})
