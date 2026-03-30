@@ -3,6 +3,10 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from uuid import UUID
+
+import mongomock
+import pytest
 
 ROOT = Path(__file__).resolve().parents[3]
 SHARED_SRC = ROOT / "shared" / "src"
@@ -13,16 +17,18 @@ SERVICE_ROOT = Path(__file__).resolve().parents[1]
 if str(SERVICE_ROOT) not in sys.path:
     sys.path.append(str(SERVICE_ROOT))
 
-import pytest
 from finanzuebersicht_shared.testing import create_test_client
 
-from app.dependencies import get_repository
+from app.dependencies import get_mongo_client, get_mongo_database, get_repository
 from app.main import app
 
 
 @pytest.fixture(autouse=True)
-def reset_repo() -> None:
+def reset_repo(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("app.dependencies.MongoClient", mongomock.MongoClient)
     get_repository.cache_clear()
+    get_mongo_database.cache_clear()
+    get_mongo_client.cache_clear()
 
 
 def test_banks_crud() -> None:
@@ -59,7 +65,7 @@ def test_banks_crud() -> None:
     assert missing_response.status_code == 404
 
 
-def test_banks_validation_duplicate_bic() -> None:
+def test_banks_validation_duplicate_bic_and_blz() -> None:
     client = create_test_client(app)
 
     payload = {
@@ -70,11 +76,44 @@ def test_banks_validation_duplicate_bic() -> None:
     }
     assert client.post("/api/v1/banks", json=payload).status_code == 201
 
-    duplicate_response = client.post(
+    duplicate_bic = client.post(
         "/api/v1/banks",
         json={"name": "B", "bic": "MARKDEF1100", "blz": "33334444", "country_code": "DE"},
     )
-    assert duplicate_response.status_code == 409
+    assert duplicate_bic.status_code == 409
+
+    duplicate_blz = client.post(
+        "/api/v1/banks",
+        json={"name": "C", "bic": "MARKDEF2200", "blz": "11112222", "country_code": "DE"},
+    )
+    assert duplicate_blz.status_code == 409
+
+
+def test_mongo_bank_persistence_over_new_repository_instances() -> None:
+    client = create_test_client(app)
+
+    created = client.post(
+        "/api/v1/banks",
+        json={
+            "name": "Persistenzbank",
+            "bic": "PERSDEFFXXX",
+            "blz": "87654321",
+            "country_code": "DE",
+        },
+    )
+    assert created.status_code == 201
+    bank_id = created.json()["data"]["bank_id"]
+
+    repo_a = get_repository()
+    bank_from_repo_a = repo_a.get_bank(UUID(bank_id))
+    assert bank_from_repo_a is not None
+    assert bank_from_repo_a.name == "Persistenzbank"
+
+    get_repository.cache_clear()
+    repo_b = get_repository()
+    bank_from_repo_b = repo_b.get_bank(UUID(bank_id))
+    assert bank_from_repo_b is not None
+    assert bank_from_repo_b.bic == "PERSDEFFXXX"
 
 
 def test_account_types_crud_and_schema_sorting() -> None:

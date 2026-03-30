@@ -8,6 +8,7 @@ dependencies = [
   "uvicorn[standard]>=0.30,<1",
   "pydantic>=2.7,<3",
   "finanzuebersicht-shared",
+  "pymongo>=4.8,<5",
 ]
 
 [build-system]
