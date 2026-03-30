@@ -85,13 +85,13 @@
 </template>
 
 <script setup lang="ts">
-import axios from 'axios'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { apiClient } from '../api/client'
-import type { PersonListItem } from '../types/models'
+import type { FilingStatus, PersonListItem, TaxCountryCode } from '../types/models'
 import LoadingState from '../components/LoadingState.vue'
 import ErrorState from '../components/ErrorState.vue'
+import { extractApiErrorMessage } from './apiErrorMessage'
 
 const props = defineProps<{ personId: string }>()
 const personId = props.personId
@@ -114,8 +114,8 @@ const form = reactive({
   firstName: '',
   lastName: '',
   email: '',
-  taxCountry: 'DE',
-  filingStatus: 'single' as 'single' | 'joint'
+  taxCountry: 'DE' as TaxCountryCode,
+  filingStatus: 'single' as FilingStatus
 })
 const formError = ref<string | null>(null)
 
@@ -171,11 +171,7 @@ async function save() {
     })
     await load()
   } catch (e) {
-    if (axios.isAxiosError(e)) {
-      formError.value = e.response?.data?.detail ?? 'Speichern fehlgeschlagen.'
-      return
-    }
-    formError.value = e instanceof Error ? e.message : 'Speichern fehlgeschlagen.'
+    formError.value = extractApiErrorMessage(e, 'Speichern fehlgeschlagen.')
   } finally {
     submitting.value = false
   }
