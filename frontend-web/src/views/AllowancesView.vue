@@ -31,9 +31,9 @@
           </div>
 
           <div class="summary-grid">
-            <p class="muted"><strong>Gesamtsumme:</strong> {{ summary.total_amount }} {{ summary.currency }}</p>
-            <p class="muted"><strong>Jahreslimit:</strong> {{ summary.annual_limit }} {{ summary.currency }}</p>
-            <p class="muted"><strong>Restbetrag:</strong> {{ summary.remaining_amount }} {{ summary.currency }}</p>
+            <p class="muted"><strong>Gesamtsumme:</strong> {{ summary.total_amount }} {{ displayCurrency }}</p>
+            <p class="muted"><strong>Jahreslimit:</strong> {{ summary.annual_limit }} {{ displayCurrency }}</p>
+            <p class="muted"><strong>Restbetrag:</strong> {{ summary.remaining_amount }} {{ displayCurrency }}</p>
           </div>
 
           <p class="muted" v-if="person?.tax_profile">
@@ -50,10 +50,10 @@
               <div>
                 <strong>{{ bank.name }}</strong>
                 <p class="muted">{{ bank.bic }}</p>
-                <p class="muted">Aktuell: {{ currentAmount(bank.bank_id) }} EUR</p>
+                <p class="muted">Aktuell: {{ currentAmount(bank.bank_id) }} {{ currentCurrency(bank.bank_id) }}</p>
               </div>
               <div class="allowance-edit">
-                <label :for="`allowance-${bank.bank_id}`">Neuer Freibetrag (EUR)</label>
+                <label :for="`allowance-${bank.bank_id}`">Neuer Freibetrag ({{ displayCurrency }})</label>
                 <input
                   :id="`allowance-${bank.bank_id}`"
                   class="input"
@@ -126,13 +126,23 @@ const assignedBanks = computed(() => {
   return banks.value.filter((bank) => assignedIds.has(bank.bank_id))
 })
 
+const displayCurrency = computed(() => summary.value.currency || allowances.value[0]?.currency || 'EUR')
+
 function showFeedback(type: 'success' | 'error', message: string) {
   feedbackType.value = type
   feedbackMessage.value = message
 }
 
+function allowanceForBank(bankId: string) {
+  return allowances.value.find((item) => item.bank_id === bankId)
+}
+
 function currentAmount(bankId: string) {
-  return allowances.value.find((item) => item.bank_id === bankId)?.amount ?? '0.00'
+  return allowanceForBank(bankId)?.amount ?? '0.00'
+}
+
+function currentCurrency(bankId: string) {
+  return allowanceForBank(bankId)?.currency ?? displayCurrency.value
 }
 
 function initializeFormValues() {
@@ -143,7 +153,7 @@ function initializeFormValues() {
   formAmounts.value = nextValues
 }
 
-async function loadData() {
+async function loadStaticData() {
   if (!personId.value) {
     return
   }
@@ -153,16 +163,35 @@ async function loadData() {
   feedbackMessage.value = ''
 
   try {
-    const [personDetail, personBanks, bankList, allowanceList, allowanceSummary] = await Promise.all([
+    const [personDetail, personBanks, bankList] = await Promise.all([
       apiClient.person(personId.value),
       apiClient.personBanks(personId.value),
-      apiClient.banks(),
-      apiClient.allowances(personId.value, selectedTaxYear.value),
-      apiClient.allowanceSummary(personId.value, selectedTaxYear.value)
+      apiClient.banks()
     ])
     person.value = personDetail.person
     assignments.value = personBanks.items
     banks.value = bankList.items
+  } catch (e) {
+    errorMessage.value = e instanceof Error ? e.message : 'Personendaten konnten nicht geladen werden.'
+  } finally {
+    loading.value = false
+  }
+}
+
+
+async function loadYearlyData() {
+  if (!personId.value) {
+    return
+  }
+
+  loading.value = true
+  errorMessage.value = null
+
+  try {
+    const [allowanceList, allowanceSummary] = await Promise.all([
+      apiClient.allowances(personId.value, selectedTaxYear.value),
+      apiClient.allowanceSummary(personId.value, selectedTaxYear.value)
+    ])
     allowances.value = allowanceList.items
     summary.value = allowanceSummary
     initializeFormValues()
@@ -170,6 +199,14 @@ async function loadData() {
     errorMessage.value = e instanceof Error ? e.message : 'Freibeträge konnten nicht geladen werden.'
   } finally {
     loading.value = false
+  }
+}
+
+async function loadData() {
+  feedbackMessage.value = ''
+  await loadStaticData()
+  if (!errorMessage.value) {
+    await loadYearlyData()
   }
 }
 
@@ -193,7 +230,7 @@ async function saveAllowance(bankId: string) {
       currency: summary.value.currency || 'EUR'
     })
     showFeedback('success', 'Freibetrag wurde gespeichert.')
-    await loadData()
+    await loadYearlyData()
   } catch (e) {
     if (axios.isAxiosError(e)) {
       const detail = e.response?.data?.detail
@@ -224,7 +261,12 @@ async function saveAllowance(bankId: string) {
 
 onMounted(loadData)
 watch(personId, loadData)
-watch(selectedTaxYear, loadData)
+watch(selectedTaxYear, () => {
+  if (!personId.value) {
+    return
+  }
+  loadYearlyData()
+})
 </script>
 
 <style scoped>

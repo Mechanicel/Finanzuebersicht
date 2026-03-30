@@ -2,17 +2,19 @@ from __future__ import annotations
 
 from uuid import UUID
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
 class TaxProfileModel(BaseModel):
-    tax_country: str = "DE"
-    filing_status: str = "single"
+    tax_country: Literal["DE"] = "DE"
+    filing_status: Literal["single", "joint"] = "single"
 
 
 class TaxProfileUpdateModel(BaseModel):
-    tax_country: str | None = None
-    filing_status: str | None = None
+    tax_country: Literal["DE"] | None = None
+    filing_status: Literal["single", "joint"] | None = None
 
 
 class PersonReadModel(BaseModel):

@@ -8,9 +8,12 @@ export interface PersonReadModel {
   updated_at: string
 }
 
+export type TaxCountryCode = 'DE' | (string & {})
+export type FilingStatus = 'single' | 'joint'
+
 export interface TaxProfileModel {
-  tax_country: string
-  filing_status: string
+  tax_country: TaxCountryCode
+  filing_status: FilingStatus
 }
 
 export interface PersonListItem {
@@ -53,7 +56,7 @@ export interface PersonUpdatePayload {
   email?: string
   tax_profile?: {
     tax_country?: string
-    filing_status?: 'single' | 'joint'
+    filing_status?: FilingStatus
   }
 }
 
