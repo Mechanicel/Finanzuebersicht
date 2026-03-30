@@ -12,6 +12,11 @@ Der Service modelliert die Domäne **entkoppelt** in drei Ressourcen:
 
 Es gibt **keine** eingebetteten Legacy-Gesamtdokumente und **keine** implizite Kopplung zum `account-service`.
 
+Zusätzlich hat `Person` ein `tax_profile` (`tax_country`, `filing_status`) mit Default `DE/single`.
+Die aktuelle Übergangsannahme lautet: `filing_status=joint` ist vorerst eine Eigenschaft einer einzelnen Person.
+Eine spätere echte steuerliche Einheit (`tax unit`) würde als eigene Entität oberhalb von Personen ansetzen, und die
+Allowance-Policy würde dann auf dieser Einheit statt auf einer einzelnen Person ausgewertet.
+
 ## Persistenz (MongoDB)
 
 Der Service verwendet standardmäßig MongoDB (kein In-Memory-CRUD-Default mehr).
@@ -57,9 +62,13 @@ Basis-Prefix: `/api/v1`
 
 ### Freibeträge
 
-- `GET /persons/{person_id}/allowances`
-- `PUT /persons/{person_id}/allowances/{bank_id}?amount=801.25`
-- `GET /persons/{person_id}/allowances/summary`
+- `GET /persons/{person_id}/allowances?tax_year=2026` (`tax_year` optional)
+- `PUT /persons/{person_id}/allowances/{bank_id}` mit Body `{ "tax_year": 2026, "amount": "801.25", "currency": "EUR" }`
+- `GET /persons/{person_id}/allowances/summary?tax_year=2026`
+
+Allowances sind fachlich pro `(person_id, bank_id, tax_year)` eindeutig. Der Mongo-Unique-Index folgt diesem Schlüssel.
+Pragmatische Behandlung von Alt-Dokumenten ohne `tax_year`: sie werden beim Lesen als aktuelles UTC-Steuerjahr
+interpretiert, bis sie bei einem regulären Update mit explizitem `tax_year` neu geschrieben werden.
 
 ## Frontend-Flow
 
