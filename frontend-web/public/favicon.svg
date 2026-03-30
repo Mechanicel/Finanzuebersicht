@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Finanzübersicht">
+  <rect width="64" height="64" rx="12" fill="#0f172a" />
+  <path d="M16 46V18h8v20h24v8H16z" fill="#38bdf8" />
+  <circle cx="44" cy="24" r="8" fill="#22c55e" />
+</svg>

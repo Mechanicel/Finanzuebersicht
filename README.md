@@ -47,6 +47,18 @@ uv run python scripts/dev.py run-service api-gateway
 
 Weitere Details: `docs/architecture/local-development.md`.
 
+## Lokale Integrationsdefaults
+
+- Frontend API-Basis: `http://127.0.0.1:8000/api/v1` (`frontend-web/src/api/http.ts`)
+- API-Gateway: Port `8000`
+- Person-Service: Port `8002` (entspricht `scripts/dev.py`)
+- Lokale CORS-Origins: `http://127.0.0.1:5173`, `http://localhost:5173`
+- Überschreibung der erlaubten Origins über `CORS_ALLOW_ORIGINS` (CSV), z. B.:
+
+```bash
+CORS_ALLOW_ORIGINS="http://127.0.0.1:5173,http://localhost:5173"
+```
+
 ## Hinweis für Windows/PowerShell
 
 `scripts/dev.py` startet das Frontend auf Windows automatisch mit:
