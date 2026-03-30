@@ -13,7 +13,9 @@
 </template>
 <script setup lang="ts">
 import { ref } from 'vue'
-const personId = ref('')
+import { useRoute } from 'vue-router'
+const route = useRoute()
+const personId = ref(typeof route.query.personId === 'string' ? route.query.personId : '')
 const bankId = ref('')
 const amount = ref<number | null>(null)
 const error = ref('')

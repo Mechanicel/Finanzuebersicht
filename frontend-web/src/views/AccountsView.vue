@@ -15,14 +15,16 @@
   </section>
 </template>
 <script setup lang="ts">
-import { ref } from 'vue'
+import { onMounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { apiClient } from '../api/client'
 import type { AccountReadModel } from '../types/models'
 import LoadingState from '../components/LoadingState.vue'
 import ErrorState from '../components/ErrorState.vue'
 import EmptyState from '../components/EmptyState.vue'
 
-const personId = ref('00000000-0000-0000-0000-000000000101')
+const route = useRoute()
+const personId = ref(typeof route.query.personId === 'string' ? route.query.personId : '00000000-0000-0000-0000-000000000101')
 const items = ref<AccountReadModel[]>([])
 const loading = ref(false)
 const error = ref<string | null>(null)
@@ -38,4 +40,9 @@ async function load() {
     loading.value = false
   }
 }
+onMounted(() => {
+  if (typeof route.query.personId === 'string') {
+    void load()
+  }
+})
 </script>

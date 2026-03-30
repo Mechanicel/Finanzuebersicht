@@ -21,7 +21,7 @@
           <td>{{ p.first_name }} {{ p.last_name }}</td>
           <td>{{ p.email || '—' }}</td>
           <td>{{ p.person_id }}</td>
-          <td><RouterLink :to="`/persons/${p.person_id}`">Details</RouterLink></td>
+          <td><RouterLink :to="`/persons/${p.person_id}`">Öffnen</RouterLink></td>
         </tr>
       </tbody>
     </table>
