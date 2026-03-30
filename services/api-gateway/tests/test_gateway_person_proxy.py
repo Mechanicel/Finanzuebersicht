@@ -17,7 +17,14 @@ if str(SERVICE_ROOT) not in sys.path:
 if str(SHARED_SRC) not in sys.path:
     sys.path.insert(0, str(SHARED_SRC))
 
-from app.models import AllowanceUpsertPayload, BankCreatePayload, PersonCreatePayload, PersonUpdatePayload
+from app.models import (
+    AccountCreatePayload,
+    AccountUpdatePayload,
+    AllowanceUpsertPayload,
+    BankCreatePayload,
+    PersonCreatePayload,
+    PersonUpdatePayload,
+)
 from app.service import GatewayService
 
 
@@ -90,6 +97,7 @@ async def test_gateway_person_crud_forwarding(monkeypatch: pytest.MonkeyPatch) -
         analytics_base_url="http://analytics",
         person_base_url="http://localhost:8002",
         masterdata_base_url="http://localhost:8001",
+        account_base_url="http://localhost:8003",
         timeout_seconds=1.0,
     )
     person_id = UUID("00000000-0000-0000-0000-000000000101")
@@ -143,6 +151,7 @@ async def test_gateway_person_errors_are_translated(monkeypatch: pytest.MonkeyPa
         analytics_base_url="http://analytics",
         person_base_url="http://localhost:8002",
         masterdata_base_url="http://localhost:8001",
+        account_base_url="http://localhost:8003",
         timeout_seconds=1.0,
     )
 
@@ -206,6 +215,7 @@ async def test_gateway_bank_endpoints_forwarding(monkeypatch: pytest.MonkeyPatch
         analytics_base_url="http://analytics",
         person_base_url="http://localhost:8002",
         masterdata_base_url="http://localhost:8001",
+        account_base_url="http://localhost:8003",
         timeout_seconds=1.0,
     )
 
@@ -273,6 +283,7 @@ async def test_gateway_person_bank_assignment_forwarding(monkeypatch: pytest.Mon
         analytics_base_url="http://analytics",
         person_base_url="http://localhost:8002",
         masterdata_base_url="http://localhost:8001",
+        account_base_url="http://localhost:8003",
         timeout_seconds=1.0,
     )
 
@@ -362,6 +373,7 @@ async def test_gateway_allowances_forwarding(monkeypatch: pytest.MonkeyPatch) ->
         analytics_base_url="http://analytics",
         person_base_url="http://localhost:8002",
         masterdata_base_url="http://localhost:8001",
+        account_base_url="http://localhost:8003",
         timeout_seconds=1.0,
     )
 
@@ -415,6 +427,7 @@ async def test_gateway_allowance_error_details_are_forwarded(monkeypatch: pytest
         analytics_base_url="http://analytics",
         person_base_url="http://localhost:8002",
         masterdata_base_url="http://localhost:8001",
+        account_base_url="http://localhost:8003",
         timeout_seconds=1.0,
     )
 
@@ -434,6 +447,72 @@ async def test_gateway_allowance_error_details_are_forwarded(monkeypatch: pytest
 
 
 @pytest.mark.anyio
+async def test_gateway_accounts_forwarding(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[str, str, dict | None, dict | None]] = []
+    person_id = UUID("00000000-0000-0000-0000-000000000101")
+    account_id = UUID("10000000-0000-0000-0000-000000000001")
+
+    async def fake_request(self, method: str, url: str, json: dict | None = None, params: dict | None = None):
+        calls.append((method, url, json, params))
+
+        class Response:
+            status_code = 201 if method == "POST" else 200
+
+            @staticmethod
+            def json() -> dict:
+                return {
+                    "data": {
+                        "account_id": str(account_id),
+                        "person_id": str(person_id),
+                        "bank_id": "30000000-0000-0000-0000-000000000001",
+                        "account_type": "depot",
+                        "label": "Depot A",
+                        "balance": "1000.00",
+                        "currency": "EUR",
+                        "created_at": "2026-03-01T08:00:00+00:00",
+                        "updated_at": "2026-03-02T08:00:00+00:00",
+                    }
+                }
+
+            text = ""
+
+        return Response()
+
+    monkeypatch.setattr("httpx.AsyncClient.request", fake_request)
+
+    service = GatewayService(
+        analytics_base_url="http://analytics",
+        person_base_url="http://localhost:8002",
+        masterdata_base_url="http://localhost:8001",
+        account_base_url="http://localhost:8003",
+        timeout_seconds=1.0,
+    )
+
+    listed = await service.list_accounts(person_id)
+    got = await service.get_account(person_id, account_id)
+    created = await service.create_account(
+        person_id,
+        AccountCreatePayload(
+            bank_id="30000000-0000-0000-0000-000000000001",
+            account_type="depot",
+            label="Depot A",
+            balance="1000.00",
+            currency="EUR",
+        ),
+    )
+    updated = await service.update_account(person_id, account_id, AccountUpdatePayload(label="Depot B"))
+
+    assert listed[0].label == "Depot A"
+    assert got.account_type == "depot"
+    assert created.person_id == person_id
+    assert updated.label == "Depot A"
+    assert calls[0][1].endswith(f"/api/v1/persons/{person_id}/accounts")
+    assert calls[1][1].endswith(f"/api/v1/persons/{person_id}/accounts/{account_id}")
+    assert calls[2][0] == "POST"
+    assert calls[3][0] == "PATCH"
+
+
+@pytest.mark.anyio
 async def test_gateway_masterdata_connect_error_is_translated(monkeypatch: pytest.MonkeyPatch) -> None:
     async def fake_request(self, method: str, url: str, json: dict | None = None, params: dict | None = None):
         raise ConnectError("connection failed", request=Request(method, url))
@@ -444,6 +523,7 @@ async def test_gateway_masterdata_connect_error_is_translated(monkeypatch: pytes
         analytics_base_url="http://analytics",
         person_base_url="http://localhost:8002",
         masterdata_base_url="http://localhost:8001",
+        account_base_url="http://localhost:8003",
         timeout_seconds=1.0,
     )
 
