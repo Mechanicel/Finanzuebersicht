@@ -7,6 +7,7 @@ from fastapi import HTTPException
 
 from app.models import (
     AccountReadModel,
+    AssignmentListReadModel,
     BankCreatePayload,
     BankListReadModel,
     BankReadModel,
@@ -18,6 +19,7 @@ from app.models import (
     PersonListReadModel,
     PersonReadModel,
     PersonUpdatePayload,
+    PersonBankAssignmentReadModel,
     PortfolioReadModel,
 )
 
@@ -100,6 +102,21 @@ class GatewayService:
 
     async def delete_person(self, person_id: UUID) -> None:
         await self._request_person_service("DELETE", f"/api/v1/persons/{person_id}", expect_no_content=True)
+
+    async def list_person_banks(self, person_id: UUID) -> AssignmentListReadModel:
+        payload = await self._request_person_service("GET", f"/api/v1/persons/{person_id}/banks")
+        return AssignmentListReadModel.model_validate(payload)
+
+    async def assign_bank(self, person_id: UUID, bank_id: UUID) -> PersonBankAssignmentReadModel:
+        payload = await self._request_person_service("POST", f"/api/v1/persons/{person_id}/banks/{bank_id}")
+        return PersonBankAssignmentReadModel.model_validate(payload)
+
+    async def unassign_bank(self, person_id: UUID, bank_id: UUID) -> None:
+        await self._request_person_service(
+            "DELETE",
+            f"/api/v1/persons/{person_id}/banks/{bank_id}",
+            expect_no_content=True,
+        )
 
 
     async def list_banks(self) -> BankListReadModel:

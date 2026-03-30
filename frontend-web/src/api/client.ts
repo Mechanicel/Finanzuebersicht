@@ -1,6 +1,7 @@
 import { http } from './http'
 import type {
   AccountReadModel,
+  AssignmentListReadModel,
   ApiEnvelope,
   BankCreatePayload,
   BankListReadModel,
@@ -8,6 +9,7 @@ import type {
   DashboardReadModel,
   PersonCreatePayload,
   PersonDetailReadModel,
+  PersonBankAssignmentReadModel,
   PersonListReadModel,
   PersonQueryParams,
   PersonReadModel,
@@ -30,6 +32,16 @@ export const apiClient = {
   },
   async deletePerson(personId: string) {
     await http.delete(`/app/persons/${personId}`)
+  },
+  async personBanks(personId: string) {
+    return (await http.get<ApiEnvelope<AssignmentListReadModel>>(`/app/persons/${personId}/banks`)).data.data
+  },
+  async assignBank(personId: string, bankId: string) {
+    return (await http.post<ApiEnvelope<PersonBankAssignmentReadModel>>(`/app/persons/${personId}/banks/${bankId}`))
+      .data.data
+  },
+  async unassignBank(personId: string, bankId: string) {
+    await http.delete(`/app/persons/${personId}/banks/${bankId}`)
   },
 
   async banks() {

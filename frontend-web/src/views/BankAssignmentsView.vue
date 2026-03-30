@@ -1,30 +1,160 @@
 <template>
   <section class="card">
     <h2>Bankzuordnung</h2>
-    <p v-if="!hasPersonContext" class="context-hint">
-      Bitte zuerst eine Person auswählen und Bankzuordnungen aus dem Personen-Hub öffnen.
-      <RouterLink to="/persons/select">Zur Personenliste</RouterLink>
+    <p v-if="!personId" class="context-hint">
+      Diese Ansicht ist ein Schritt im Personen-Hub. Bitte wähle zuerst eine Person aus.
     </p>
-    <p class="empty">Bankzuordnungen werden über das API-Gateway pro Person gepflegt.</p>
-    <div class="grid" style="grid-template-columns: 1fr 1fr auto">
-      <div><label>Person-ID</label><input class="input" v-model.trim="personId" /></div>
-      <div><label>Bank-ID</label><input class="input" v-model.trim="bankId" /></div>
-      <button class="btn" @click="assign" :disabled="!hasPersonContext">Zuordnen</button>
+    <div v-if="!personId" class="back-links">
+      <RouterLink class="btn secondary" to="/persons/select">Zur Personenliste</RouterLink>
+      <RouterLink class="btn secondary" to="/">Zur Startseite</RouterLink>
     </div>
-    <p v-if="message">{{ message }}</p>
+
+    <template v-else>
+      <div class="back-links">
+        <RouterLink class="btn secondary" :to="`/persons/${personId}`">Zurück zum Personen-Hub</RouterLink>
+        <RouterLink class="btn secondary" to="/persons/select">Zur Personenliste</RouterLink>
+      </div>
+
+      <LoadingState v-if="loading" />
+      <ErrorState v-else-if="errorMessage" :message="errorMessage" />
+
+      <template v-else>
+        <p v-if="feedbackMessage" :class="feedbackType">{{ feedbackMessage }}</p>
+
+        <article class="assignment-card">
+          <h3>Neue Bank zuordnen</h3>
+          <p v-if="banks.length === 0" class="empty">Es sind noch keine Banken angelegt.</p>
+          <p v-else-if="availableBanks.length === 0" class="empty">
+            Alle verfügbaren Banken sind dieser Person bereits zugeordnet.
+          </p>
+          <div v-else class="grid assign-grid">
+            <div>
+              <label for="bank-select">Bank auswählen</label>
+              <select id="bank-select" class="input" v-model="selectedBankId">
+                <option value="">Bitte auswählen</option>
+                <option v-for="bank in availableBanks" :key="bank.bank_id" :value="bank.bank_id">
+                  {{ bank.name }} ({{ bank.bic }})
+                </option>
+              </select>
+            </div>
+            <button class="btn" @click="assign" :disabled="submitting || !selectedBankId">Zuordnen</button>
+          </div>
+        </article>
+
+        <article class="assignment-card">
+          <h3>Bereits zugeordnete Banken</h3>
+          <EmptyState v-if="assignments.length === 0">Noch keine Bankzuordnungen vorhanden.</EmptyState>
+          <ul v-else class="assignment-list">
+            <li v-for="assignment in assignments" :key="assignment.bank_id">
+              <div>
+                <strong>{{ bankName(assignment.bank_id) }}</strong>
+                <p class="muted">Bank-ID: {{ assignment.bank_id }}</p>
+              </div>
+              <button class="btn danger" @click="unassign(assignment.bank_id)" :disabled="submitting">
+                Entfernen
+              </button>
+            </li>
+          </ul>
+        </article>
+      </template>
+    </template>
   </section>
 </template>
 <script setup lang="ts">
-import { ref } from 'vue'
+import axios from 'axios'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
+import { apiClient } from '../api/client'
+import type { BankReadModel, PersonBankAssignmentReadModel } from '../types/models'
+import EmptyState from '../components/EmptyState.vue'
+import ErrorState from '../components/ErrorState.vue'
+import LoadingState from '../components/LoadingState.vue'
+
 const route = useRoute()
-const personId = ref(typeof route.query.personId === 'string' ? route.query.personId : '')
-const hasPersonContext = typeof route.query.personId === 'string' && route.query.personId.length > 0
-const bankId = ref('')
-const message = ref('')
-function assign() {
-  message.value = personId.value && bankId.value ? 'Zuordnung validiert und zur Übergabe vorbereitet.' : 'Bitte beide IDs eintragen.'
+const personId = computed(() => (typeof route.query.personId === 'string' ? route.query.personId : ''))
+
+const loading = ref(false)
+const submitting = ref(false)
+const errorMessage = ref<string | null>(null)
+const feedbackMessage = ref('')
+const feedbackType = ref<'success' | 'error'>('success')
+const assignments = ref<PersonBankAssignmentReadModel[]>([])
+const banks = ref<BankReadModel[]>([])
+const selectedBankId = ref('')
+
+const assignedBankIds = computed(() => new Set(assignments.value.map((item) => item.bank_id)))
+const availableBanks = computed(() => banks.value.filter((bank) => !assignedBankIds.value.has(bank.bank_id)))
+
+function showFeedback(type: 'success' | 'error', message: string) {
+  feedbackType.value = type
+  feedbackMessage.value = message
 }
+
+function bankName(bankId: string) {
+  return banks.value.find((bank) => bank.bank_id === bankId)?.name ?? `Unbekannte Bank (${bankId})`
+}
+
+async function loadData() {
+  if (!personId.value) {
+    return
+  }
+  loading.value = true
+  errorMessage.value = null
+  feedbackMessage.value = ''
+  try {
+    const [assignmentResult, bankResult] = await Promise.all([
+      apiClient.personBanks(personId.value),
+      apiClient.banks()
+    ])
+    assignments.value = assignmentResult.items
+    banks.value = bankResult.items
+  } catch (e) {
+    errorMessage.value = e instanceof Error ? e.message : 'Fehler beim Laden der Bankzuordnung.'
+  } finally {
+    loading.value = false
+  }
+}
+
+async function assign() {
+  if (!personId.value || !selectedBankId.value) {
+    return
+  }
+
+  submitting.value = true
+  try {
+    await apiClient.assignBank(personId.value, selectedBankId.value)
+    selectedBankId.value = ''
+    showFeedback('success', 'Bank wurde zugeordnet.')
+    await loadData()
+  } catch (e) {
+    if (axios.isAxiosError(e) && e.response?.status === 409) {
+      showFeedback('error', 'Diese Bank ist bereits zugeordnet.')
+      return
+    }
+    showFeedback('error', e instanceof Error ? e.message : 'Bank konnte nicht zugeordnet werden.')
+  } finally {
+    submitting.value = false
+  }
+}
+
+async function unassign(bankId: string) {
+  if (!personId.value) {
+    return
+  }
+  submitting.value = true
+  try {
+    await apiClient.unassignBank(personId.value, bankId)
+    showFeedback('success', 'Bankzuordnung wurde entfernt.')
+    await loadData()
+  } catch (e) {
+    showFeedback('error', e instanceof Error ? e.message : 'Bankzuordnung konnte nicht entfernt werden.')
+  } finally {
+    submitting.value = false
+  }
+}
+
+onMounted(loadData)
+watch(personId, loadData)
 </script>
 
 <style scoped>
@@ -38,7 +168,57 @@ function assign() {
   padding: 0.65rem 0.75rem;
 }
 
-.context-hint :deep(a) {
-  margin-left: 0.35rem;
+.back-links {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+
+.assignment-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+
+.assign-grid {
+  grid-template-columns: 1fr auto;
+}
+
+.assignment-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.assignment-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 0.75rem;
+}
+
+.muted {
+  margin: 0.25rem 0 0;
+  color: #64748b;
+  font-size: 0.875rem;
+}
+
+.success {
+  color: #166534;
+}
+
+.error {
+  color: #991b1b;
+}
+
+.danger {
+  background: #dc2626;
 }
 </style>

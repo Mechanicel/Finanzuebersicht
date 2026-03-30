@@ -68,6 +68,17 @@ export interface BankCreatePayload {
   country_code: string
 }
 
+export interface PersonBankAssignmentReadModel {
+  person_id: string
+  bank_id: string
+  assigned_at: string
+}
+
+export interface AssignmentListReadModel {
+  items: PersonBankAssignmentReadModel[]
+  total: number
+}
+
 export interface AccountReadModel { account_id: string; name: string; type: string; balance: number }
 export interface PortfolioReadModel { portfolio_id: string; label: string; total_value: number }
 export interface DashboardReadModel {

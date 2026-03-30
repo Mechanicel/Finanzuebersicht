@@ -72,6 +72,17 @@ class BankListReadModel(BaseModel):
     total: int
 
 
+class PersonBankAssignmentReadModel(BaseModel):
+    person_id: UUID
+    bank_id: UUID
+    assigned_at: str
+
+
+class AssignmentListReadModel(BaseModel):
+    items: list[PersonBankAssignmentReadModel]
+    total: int
+
+
 class AccountReadModel(BaseModel):
     account_id: UUID
     name: str
