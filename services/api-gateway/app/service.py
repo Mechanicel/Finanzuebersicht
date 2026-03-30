@@ -3,25 +3,20 @@ from __future__ import annotations
 from uuid import UUID
 
 import httpx
+from fastapi import HTTPException
 
 from app.models import (
     AccountReadModel,
     DashboardReadModel,
     GatewayHealthReadModel,
     HealthDependency,
-    PersonListItem,
+    PersonCreatePayload,
+    PersonDetailReadModel,
     PersonListReadModel,
+    PersonReadModel,
+    PersonUpdatePayload,
     PortfolioReadModel,
 )
-
-PERSONS = [
-    PersonListItem(
-        person_id=UUID("00000000-0000-0000-0000-000000000101"), display_name="Anna Muster"
-    ),
-    PersonListItem(
-        person_id=UUID("00000000-0000-0000-0000-000000000102"), display_name="Max Beispiel"
-    ),
-]
 
 PERSON_ACCOUNTS: dict[UUID, list[AccountReadModel]] = {
     UUID("00000000-0000-0000-0000-000000000101"): [
@@ -38,14 +33,6 @@ PERSON_ACCOUNTS: dict[UUID, list[AccountReadModel]] = {
             balance=21000,
         ),
     ],
-    UUID("00000000-0000-0000-0000-000000000102"): [
-        AccountReadModel(
-            account_id=UUID("10000000-0000-0000-0000-000000000003"),
-            name="Depot Max",
-            type="brokerage",
-            balance=95400,
-        ),
-    ],
 }
 
 PERSON_PORTFOLIOS: dict[UUID, list[PortfolioReadModel]] = {
@@ -56,23 +43,40 @@ PERSON_PORTFOLIOS: dict[UUID, list[PortfolioReadModel]] = {
             total_value=134900,
         )
     ],
-    UUID("00000000-0000-0000-0000-000000000102"): [
-        PortfolioReadModel(
-            portfolio_id=UUID("20000000-0000-0000-0000-000000000002"),
-            label="Growth",
-            total_value=95400,
-        )
-    ],
 }
 
 
 class GatewayService:
-    def __init__(self, analytics_base_url: str, timeout_seconds: float) -> None:
+    def __init__(
+        self,
+        analytics_base_url: str,
+        person_base_url: str,
+        timeout_seconds: float,
+    ) -> None:
         self._analytics_base_url = analytics_base_url.rstrip("/")
+        self._person_base_url = person_base_url.rstrip("/")
         self._timeout = timeout_seconds
 
     async def list_persons(self) -> PersonListReadModel:
-        return PersonListReadModel(items=PERSONS, total=len(PERSONS))
+        payload = await self._request_person_service("GET", "/api/v1/persons")
+        return PersonListReadModel.model_validate(payload)
+
+    async def create_person(self, person: PersonCreatePayload) -> PersonReadModel:
+        payload = await self._request_person_service("POST", "/api/v1/persons", json=person.model_dump())
+        return PersonReadModel.model_validate(payload)
+
+    async def get_person(self, person_id: UUID) -> PersonDetailReadModel:
+        payload = await self._request_person_service("GET", f"/api/v1/persons/{person_id}")
+        return PersonDetailReadModel.model_validate(payload)
+
+    async def update_person(self, person_id: UUID, person: PersonUpdatePayload) -> PersonReadModel:
+        payload = await self._request_person_service(
+            "PATCH", f"/api/v1/persons/{person_id}", json=person.model_dump(exclude_none=True)
+        )
+        return PersonReadModel.model_validate(payload)
+
+    async def delete_person(self, person_id: UUID) -> None:
+        await self._request_person_service("DELETE", f"/api/v1/persons/{person_id}", expect_no_content=True)
 
     async def list_accounts(self, person_id: UUID) -> list[AccountReadModel]:
         return PERSON_ACCOUNTS.get(person_id, [])
@@ -101,9 +105,7 @@ class GatewayService:
     async def dependency_health(self, person_id: UUID) -> GatewayHealthReadModel:
         dependencies = [
             await self._health_probe("analytics-service", f"{self._analytics_base_url}/health"),
-            HealthDependency(
-                service="person-service", status="stubbed", detail="BFF list/person use-case mapped"
-            ),
+            await self._health_probe("person-service", f"{self._person_base_url}/health"),
             HealthDependency(
                 service="portfolio-service",
                 status="stubbed",
@@ -113,8 +115,39 @@ class GatewayService:
                 service="account-service", status="stubbed", detail="BFF account use-case mapped"
             ),
         ]
-        status = "up" if dependencies[0].status == "up" else "degraded"
+        status = "up" if all(dep.status in {"up", "stubbed"} for dep in dependencies) else "degraded"
         return GatewayHealthReadModel(status=status, dependencies=dependencies)
+
+    async def _request_person_service(
+        self,
+        method: str,
+        path: str,
+        *,
+        json: dict | None = None,
+        expect_no_content: bool = False,
+    ) -> dict:
+        url = f"{self._person_base_url}{path}"
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            response = await client.request(method, url, json=json)
+
+        if response.status_code >= 400:
+            detail = self._error_detail(response)
+            raise HTTPException(status_code=response.status_code, detail=detail)
+
+        if expect_no_content:
+            return {}
+
+        return response.json()["data"]
+
+    @staticmethod
+    def _error_detail(response: httpx.Response) -> object:
+        try:
+            data = response.json()
+            if isinstance(data, dict) and "detail" in data:
+                return data["detail"]
+            return data
+        except Exception:  # noqa: BLE001
+            return response.text
 
     async def _get_analytics_payload(self, person_id: UUID, endpoint: str) -> dict:
         url = f"{self._analytics_base_url}/api/v1/analytics/persons/{person_id}/{endpoint}"

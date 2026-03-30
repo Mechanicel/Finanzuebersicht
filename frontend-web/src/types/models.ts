@@ -1,5 +1,43 @@
-export interface PersonListItem { person_id: string; display_name: string }
-export interface PersonListReadModel { items: PersonListItem[]; total: number }
+export interface PersonReadModel {
+  person_id: string
+  first_name: string
+  last_name: string
+  email: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface PersonListItem {
+  person_id: string
+  first_name: string
+  last_name: string
+  email: string | null
+  bank_count: number
+  allowance_total: string
+}
+
+export interface PersonListReadModel {
+  items: PersonListItem[]
+  pagination: { limit: number; offset: number; returned: number; total: number }
+}
+
+export interface PersonDetailReadModel {
+  person: PersonReadModel
+  stats: PersonListItem
+}
+
+export interface PersonCreatePayload {
+  first_name: string
+  last_name: string
+  email?: string
+}
+
+export interface PersonUpdatePayload {
+  first_name?: string
+  last_name?: string
+  email?: string
+}
+
 export interface AccountReadModel { account_id: string; name: string; type: string; balance: number }
 export interface PortfolioReadModel { portfolio_id: string; label: string; total_value: number }
 export interface DashboardReadModel {

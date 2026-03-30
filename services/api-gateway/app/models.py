@@ -5,14 +5,51 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 
+class PersonReadModel(BaseModel):
+    person_id: UUID
+    first_name: str
+    last_name: str
+    email: str | None
+    created_at: str
+    updated_at: str
+
+
+class PersonCreatePayload(BaseModel):
+    first_name: str
+    last_name: str
+    email: str | None = None
+
+
+class PersonUpdatePayload(BaseModel):
+    first_name: str | None = None
+    last_name: str | None = None
+    email: str | None = None
+
+
 class PersonListItem(BaseModel):
     person_id: UUID
-    display_name: str
+    first_name: str
+    last_name: str
+    email: str | None
+    bank_count: int
+    allowance_total: str
+
+
+class PersonListPagination(BaseModel):
+    limit: int
+    offset: int
+    returned: int
+    total: int
 
 
 class PersonListReadModel(BaseModel):
     items: list[PersonListItem]
-    total: int
+    pagination: PersonListPagination
+
+
+class PersonDetailReadModel(BaseModel):
+    person: PersonReadModel
+    stats: PersonListItem
 
 
 class AccountReadModel(BaseModel):

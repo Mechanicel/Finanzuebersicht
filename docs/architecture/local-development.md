@@ -62,3 +62,20 @@ uv run python scripts/dev.py run-service analytics-service
 - Compound `Full Stack Dev`
 
 Diese können direkt im Services-Fenster gestartet werden.
+
+
+## MongoDB für person-service
+
+Für den Personen-CRUD wird lokal eine laufende MongoDB-Instanz benötigt (Standard: `localhost:27017`).
+
+Beispiel-Umgebungsvariablen:
+
+```bash
+export MONGO_DATABASE="finanzuebersicht"
+export MONGO_PERSON_COLLECTION="persons"
+export MONGO_ASSIGNMENT_COLLECTION="person_bank_assignments"
+export MONGO_ALLOWANCE_COLLECTION="tax_allowances"
+```
+
+Alternativ kann `MONGO_URI` direkt gesetzt werden.
+
