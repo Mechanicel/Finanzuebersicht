@@ -98,6 +98,31 @@ class StubGatewayService:
         if str(person_id).endswith("999"):
             raise HTTPException(status_code=404, detail="Person nicht gefunden")
 
+    async def list_person_banks(self, person_id: UUID) -> dict:
+        return {
+            "items": [
+                {
+                    "person_id": str(person_id),
+                    "bank_id": "30000000-0000-0000-0000-000000000001",
+                    "assigned_at": "2026-03-01T08:00:00+00:00",
+                }
+            ],
+            "total": 1,
+        }
+
+    async def assign_bank(self, person_id: UUID, bank_id: UUID) -> dict:
+        if str(bank_id).endswith("999"):
+            raise HTTPException(status_code=409, detail="Zuordnung bereits vorhanden")
+        return {
+            "person_id": str(person_id),
+            "bank_id": str(bank_id),
+            "assigned_at": "2026-03-01T08:00:00+00:00",
+        }
+
+    async def unassign_bank(self, person_id: UUID, bank_id: UUID) -> None:
+        if str(bank_id).endswith("999"):
+            raise HTTPException(status_code=404, detail="Zuordnung nicht gefunden")
+
     async def get_dashboard(self, person_id: UUID) -> DashboardReadModel:
         return DashboardReadModel(
             person_id=person_id,
@@ -179,6 +204,16 @@ def test_app_endpoints_for_vue_pages() -> None:
     assert client.patch(f"/api/v1/app/persons/{PERSON_ID}", json={"last_name": "Neu"}).status_code == 200
     assert client.delete(f"/api/v1/app/persons/{PERSON_ID}").status_code == 204
 
+    assert client.get(f"/api/v1/app/persons/{PERSON_ID}/banks").status_code == 200
+    assert (
+        client.post(f"/api/v1/app/persons/{PERSON_ID}/banks/30000000-0000-0000-0000-000000000001").status_code
+        == 201
+    )
+    assert (
+        client.delete(f"/api/v1/app/persons/{PERSON_ID}/banks/30000000-0000-0000-0000-000000000001").status_code
+        == 204
+    )
+
     assert client.get("/api/v1/app/banks").status_code == 200
     assert client.post(
         "/api/v1/app/banks",
@@ -208,6 +243,19 @@ def test_person_errors_are_forwarded() -> None:
 
     assert response.status_code == 409
     assert response.json()["detail"] == "Person bereits vorhanden"
+    app.dependency_overrides.clear()
+
+
+def test_person_bank_assignment_errors_are_forwarded() -> None:
+    app.dependency_overrides[get_gateway_service] = lambda: StubGatewayService()
+    client = create_test_client(app)
+
+    response = client.post(
+        f"/api/v1/app/persons/{PERSON_ID}/banks/30000000-0000-0000-0000-000000000999",
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Zuordnung bereits vorhanden"
     app.dependency_overrides.clear()
 
 

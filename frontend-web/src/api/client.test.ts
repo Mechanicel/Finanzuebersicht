@@ -58,3 +58,28 @@ describe('apiClient bank endpoints', () => {
     expect(created.bank_id).toBe('b2')
   })
 })
+
+describe('apiClient person bank assignments', () => {
+  it('calls person bank assignment endpoints', async () => {
+    const personId = '00000000-0000-0000-0000-000000000101'
+    const bankId = '30000000-0000-0000-0000-000000000001'
+
+    mock.onGet(`/app/persons/${personId}/banks`).reply(200, {
+      data: {
+        items: [{ person_id: personId, bank_id: bankId, assigned_at: '2026-03-01T08:00:00+00:00' }],
+        total: 1
+      }
+    })
+    mock.onPost(`/app/persons/${personId}/banks/${bankId}`).reply(201, {
+      data: { person_id: personId, bank_id: bankId, assigned_at: '2026-03-01T08:00:00+00:00' }
+    })
+    mock.onDelete(`/app/persons/${personId}/banks/${bankId}`).reply(204)
+
+    const list = await apiClient.personBanks(personId)
+    const assigned = await apiClient.assignBank(personId, bankId)
+    await expect(apiClient.unassignBank(personId, bankId)).resolves.toBeUndefined()
+
+    expect(list.total).toBe(1)
+    expect(assigned.bank_id).toBe(bankId)
+  })
+})

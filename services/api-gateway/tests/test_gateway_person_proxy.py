@@ -208,6 +208,74 @@ async def test_gateway_bank_endpoints_forwarding(monkeypatch: pytest.MonkeyPatch
 
 
 @pytest.mark.anyio
+async def test_gateway_person_bank_assignment_forwarding(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[str, str, dict | None, dict | None]] = []
+    person_id = UUID("00000000-0000-0000-0000-000000000101")
+    bank_id = UUID("30000000-0000-0000-0000-000000000001")
+
+    async def fake_request(
+        self,
+        method: str,
+        url: str,
+        json: dict | None = None,
+        params: dict | None = None,
+    ):
+        calls.append((method, url, json, params))
+
+        class Response:
+            status_code = 204 if method == "DELETE" else (201 if method == "POST" else 200)
+
+            @staticmethod
+            def json() -> dict:
+                if method == "GET":
+                    return {
+                        "data": {
+                            "items": [
+                                {
+                                    "person_id": str(person_id),
+                                    "bank_id": str(bank_id),
+                                    "assigned_at": "2026-03-01T08:00:00+00:00",
+                                }
+                            ],
+                            "total": 1,
+                        }
+                    }
+                return {
+                    "data": {
+                        "person_id": str(person_id),
+                        "bank_id": str(bank_id),
+                        "assigned_at": "2026-03-01T08:00:00+00:00",
+                    }
+                }
+
+            text = ""
+
+        return Response()
+
+    monkeypatch.setattr("httpx.AsyncClient.request", fake_request)
+
+    service = GatewayService(
+        analytics_base_url="http://analytics",
+        person_base_url="http://localhost:8002",
+        masterdata_base_url="http://localhost:8001",
+        timeout_seconds=1.0,
+    )
+
+    listing = await service.list_person_banks(person_id)
+    assigned = await service.assign_bank(person_id, bank_id)
+    await service.unassign_bank(person_id, bank_id)
+
+    assert listing.total == 1
+    assert assigned.bank_id == bank_id
+    assert calls[0][0] == "GET"
+    assert calls[0][1].endswith(f"/api/v1/persons/{person_id}/banks")
+    assert calls[1][0] == "POST"
+    assert calls[1][1].endswith(f"/api/v1/persons/{person_id}/banks/{bank_id}")
+    assert calls[2][0] == "DELETE"
+    assert calls[2][1].endswith(f"/api/v1/persons/{person_id}/banks/{bank_id}")
+
+
+@pytest.mark.anyio
 async def test_gateway_masterdata_connect_error_is_translated(monkeypatch: pytest.MonkeyPatch) -> None:
     async def fake_request(self, method: str, url: str, json: dict | None = None, params: dict | None = None):
         raise ConnectError("connection failed", request=Request(method, url))

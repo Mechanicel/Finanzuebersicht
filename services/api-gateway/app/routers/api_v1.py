@@ -10,6 +10,7 @@ from finanzuebersicht_shared.models import ApiResponse
 from app.dependencies import get_gateway_service
 from app.models import (
     AccountReadModel,
+    AssignmentListReadModel,
     BankCreatePayload,
     BankListReadModel,
     BankReadModel,
@@ -19,6 +20,7 @@ from app.models import (
     PersonDetailReadModel,
     PersonListReadModel,
     PersonReadModel,
+    PersonBankAssignmentReadModel,
     PersonUpdatePayload,
     PortfolioReadModel,
 )
@@ -78,6 +80,37 @@ async def delete_person(
     service: Annotated[GatewayService, Depends(get_gateway_service)],
 ) -> Response:
     await service.delete_person(person_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/app/persons/{person_id}/banks", response_model=ApiResponse[AssignmentListReadModel])
+async def list_person_banks(
+    person_id: UUID,
+    service: Annotated[GatewayService, Depends(get_gateway_service)],
+) -> ApiResponse[AssignmentListReadModel]:
+    return ApiResponse(data=await service.list_person_banks(person_id))
+
+
+@router.post(
+    "/app/persons/{person_id}/banks/{bank_id}",
+    response_model=ApiResponse[PersonBankAssignmentReadModel],
+    status_code=status.HTTP_201_CREATED,
+)
+async def assign_person_bank(
+    person_id: UUID,
+    bank_id: UUID,
+    service: Annotated[GatewayService, Depends(get_gateway_service)],
+) -> ApiResponse[PersonBankAssignmentReadModel]:
+    return ApiResponse(data=await service.assign_bank(person_id, bank_id))
+
+
+@router.delete("/app/persons/{person_id}/banks/{bank_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def unassign_person_bank(
+    person_id: UUID,
+    bank_id: UUID,
+    service: Annotated[GatewayService, Depends(get_gateway_service)],
+) -> Response:
+    await service.unassign_bank(person_id, bank_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
