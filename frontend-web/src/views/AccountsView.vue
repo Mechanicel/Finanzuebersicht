@@ -1,9 +1,13 @@
 <template>
   <section class="card">
     <h2>Kontenverwaltung</h2>
+    <p v-if="!hasPersonContext" class="context-hint">
+      Bitte zuerst eine Person auswählen und Konten aus dem Personen-Hub öffnen.
+      <RouterLink to="/persons">Zur Personenliste</RouterLink>
+    </p>
     <div class="grid" style="grid-template-columns: 1fr auto; margin-bottom: 1rem">
       <div><label>Person-ID</label><input class="input" v-model.trim="personId" /></div>
-      <button class="btn" @click="load">Konten laden</button>
+      <button class="btn" @click="load" :disabled="!hasPersonContext">Konten laden</button>
     </div>
     <LoadingState v-if="loading" />
     <ErrorState v-else-if="error" :message="error" />
@@ -25,6 +29,7 @@ import EmptyState from '../components/EmptyState.vue'
 
 const route = useRoute()
 const personId = ref(typeof route.query.personId === 'string' ? route.query.personId : '00000000-0000-0000-0000-000000000101')
+const hasPersonContext = typeof route.query.personId === 'string' && route.query.personId.length > 0
 const items = ref<AccountReadModel[]>([])
 const loading = ref(false)
 const error = ref<string | null>(null)
@@ -46,3 +51,19 @@ onMounted(() => {
   }
 })
 </script>
+
+<style scoped>
+.context-hint {
+  margin-top: 0;
+  margin-bottom: 0.75rem;
+  color: #92400e;
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  border-radius: 8px;
+  padding: 0.65rem 0.75rem;
+}
+
+.context-hint :deep(a) {
+  margin-left: 0.35rem;
+}
+</style>
