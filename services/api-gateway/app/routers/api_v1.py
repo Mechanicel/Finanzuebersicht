@@ -12,6 +12,7 @@ from app.models import (
     AccountReadModel,
     AllowanceListReadModel,
     AllowanceSummaryReadModel,
+    AllowanceUpsertPayload,
     AssignmentListReadModel,
     BankCreatePayload,
     BankListReadModel,
@@ -38,8 +39,8 @@ async def list_persons(
     q: str | None = Query(default=None),
     sort_by: str | None = Query(default=None),
     direction: str | None = Query(default=None),
-    limit: int | None = Query(default=None, ge=1, le=200),
-    offset: int | None = Query(default=None, ge=0),
+    limit: int | None = Query(default=None),
+    offset: int | None = Query(default=None),
 ) -> ApiResponse[PersonListReadModel]:
     return ApiResponse(
         data=await service.list_persons(
@@ -121,26 +122,28 @@ async def unassign_person_bank(
 async def list_allowances(
     person_id: UUID,
     service: Annotated[GatewayService, Depends(get_gateway_service)],
+    tax_year: int | None = Query(default=None),
 ) -> ApiResponse[AllowanceListReadModel]:
-    return ApiResponse(data=await service.list_allowances(person_id))
+    return ApiResponse(data=await service.list_allowances(person_id, tax_year=tax_year))
 
 
 @router.put("/app/persons/{person_id}/allowances/{bank_id}", response_model=ApiResponse[TaxAllowanceReadModel])
 async def set_allowance(
     person_id: UUID,
     bank_id: UUID,
+    payload: AllowanceUpsertPayload,
     service: Annotated[GatewayService, Depends(get_gateway_service)],
-    amount: str = Query(...),
 ) -> ApiResponse[TaxAllowanceReadModel]:
-    return ApiResponse(data=await service.set_allowance(person_id, bank_id, amount))
+    return ApiResponse(data=await service.set_allowance(person_id, bank_id, payload))
 
 
 @router.get("/app/persons/{person_id}/allowances/summary", response_model=ApiResponse[AllowanceSummaryReadModel])
 async def allowance_summary(
     person_id: UUID,
     service: Annotated[GatewayService, Depends(get_gateway_service)],
+    tax_year: int = Query(...),
 ) -> ApiResponse[AllowanceSummaryReadModel]:
-    return ApiResponse(data=await service.allowance_summary(person_id))
+    return ApiResponse(data=await service.allowance_summary(person_id, tax_year=tax_year))
 
 
 
