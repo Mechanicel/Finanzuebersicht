@@ -57,6 +57,21 @@
               <div><label>Nachname</label><input class="input" v-model.trim="form.lastName" /></div>
               <div><label>E-Mail</label><input class="input" v-model.trim="form.email" type="email" /></div>
             </div>
+            <div class="grid tax-profile-grid">
+              <div>
+                <label>Steuerland</label>
+                <select class="input" v-model="form.taxCountry">
+                  <option value="DE">Deutschland (DE)</option>
+                </select>
+              </div>
+              <div>
+                <label>Veranlagungsstatus</label>
+                <select class="input" v-model="form.filingStatus">
+                  <option value="single">single</option>
+                  <option value="joint">joint</option>
+                </select>
+              </div>
+            </div>
             <p v-if="formError" class="error">{{ formError }}</p>
             <div class="form-actions">
               <button class="btn" @click="save" :disabled="submitting">Änderungen speichern</button>
@@ -70,13 +85,13 @@
 </template>
 
 <script setup lang="ts">
-import axios from 'axios'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { apiClient } from '../api/client'
-import type { PersonListItem } from '../types/models'
+import type { FilingStatus, PersonListItem, TaxCountryCode } from '../types/models'
 import LoadingState from '../components/LoadingState.vue'
 import ErrorState from '../components/ErrorState.vue'
+import { extractApiErrorMessage } from './apiErrorMessage'
 
 const props = defineProps<{ personId: string }>()
 const personId = props.personId
@@ -95,7 +110,13 @@ const personStats = ref<PersonListItem>({
   allowance_total: '0.00'
 })
 
-const form = reactive({ firstName: '', lastName: '', email: '' })
+const form = reactive({
+  firstName: '',
+  lastName: '',
+  email: '',
+  taxCountry: 'DE' as TaxCountryCode,
+  filingStatus: 'single' as FilingStatus
+})
 const formError = ref<string | null>(null)
 
 const fullName = computed(() => {
@@ -119,6 +140,8 @@ async function load() {
     form.firstName = personDetail.person.first_name
     form.lastName = personDetail.person.last_name
     form.email = personDetail.person.email ?? ''
+    form.taxCountry = personDetail.person.tax_profile?.tax_country ?? 'DE'
+    form.filingStatus = personDetail.person.tax_profile?.filing_status === 'joint' ? 'joint' : 'single'
     personStats.value = personDetail.stats
     accountCount.value = accountList.length
   } catch (e) {
@@ -140,15 +163,15 @@ async function save() {
     await apiClient.updatePerson(personId, {
       first_name: form.firstName,
       last_name: form.lastName,
-      email: form.email || undefined
+      email: form.email || undefined,
+      tax_profile: {
+        tax_country: form.taxCountry,
+        filing_status: form.filingStatus
+      }
     })
     await load()
   } catch (e) {
-    if (axios.isAxiosError(e)) {
-      formError.value = e.response?.data?.detail ?? 'Speichern fehlgeschlagen.'
-      return
-    }
-    formError.value = e instanceof Error ? e.message : 'Speichern fehlgeschlagen.'
+    formError.value = extractApiErrorMessage(e, 'Speichern fehlgeschlagen.')
   } finally {
     submitting.value = false
   }
@@ -254,5 +277,10 @@ onMounted(load)
   display: flex;
   gap: 0.5rem;
   margin-top: 1rem;
+}
+
+.tax-profile-grid {
+  grid-template-columns: 1fr 1fr;
+  margin-top: 0.75rem;
 }
 </style>

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import UUID
 
@@ -41,10 +42,10 @@ class PersonRepository(ABC):
     def delete_assignment(self, person_id: UUID, bank_id: UUID) -> bool: ...
 
     @abstractmethod
-    def list_allowances(self, person_id: UUID) -> list[TaxAllowance]: ...
+    def list_allowances(self, person_id: UUID, tax_year: int | None = None) -> list[TaxAllowance]: ...
 
     @abstractmethod
-    def get_allowance(self, person_id: UUID, bank_id: UUID) -> TaxAllowance | None: ...
+    def get_allowance(self, person_id: UUID, bank_id: UUID, tax_year: int) -> TaxAllowance | None: ...
 
     @abstractmethod
     def upsert_allowance(self, allowance: TaxAllowance) -> TaxAllowance: ...
@@ -68,7 +69,7 @@ class MongoPersonRepository(PersonRepository):
         self._persons.create_index([("person_id", ASCENDING)], unique=True)
         self._persons.create_index([("dedupe_key", ASCENDING)], unique=True)
         self._assignments.create_index([("person_id", ASCENDING), ("bank_id", ASCENDING)], unique=True)
-        self._allowances.create_index([("person_id", ASCENDING), ("bank_id", ASCENDING)], unique=True)
+        self._allowances.create_index([("person_id", ASCENDING), ("bank_id", ASCENDING), ("tax_year", ASCENDING)], unique=True)
 
     def list_persons(self) -> list[Person]:
         return [self._person_from_doc(doc) for doc in self._persons.find({}, {"_id": 0})]
@@ -114,22 +115,34 @@ class MongoPersonRepository(PersonRepository):
             self._assignments.delete_one({"person_id": str(person_id), "bank_id": str(bank_id)}).deleted_count > 0
         )
         if deleted:
-            self._allowances.delete_one({"person_id": str(person_id), "bank_id": str(bank_id)})
+            self._allowances.delete_many({"person_id": str(person_id), "bank_id": str(bank_id)})
         return deleted
 
-    def list_allowances(self, person_id: UUID) -> list[TaxAllowance]:
-        docs = self._allowances.find({"person_id": str(person_id)}, {"_id": 0})
+    def list_allowances(self, person_id: UUID, tax_year: int | None = None) -> list[TaxAllowance]:
+        query: dict[str, object] = {"person_id": str(person_id)}
+        if tax_year is not None:
+            query["$or"] = [{"tax_year": tax_year}]
+            if tax_year == self._legacy_default_tax_year():
+                query["$or"].append({"tax_year": {"$exists": False}})
+        docs = self._allowances.find(query, {"_id": 0})
         return [self._allowance_from_doc(doc) for doc in docs]
 
-    def get_allowance(self, person_id: UUID, bank_id: UUID) -> TaxAllowance | None:
-        doc = self._allowances.find_one({"person_id": str(person_id), "bank_id": str(bank_id)}, {"_id": 0})
+    def get_allowance(self, person_id: UUID, bank_id: UUID, tax_year: int) -> TaxAllowance | None:
+        query: dict[str, object] = {"person_id": str(person_id), "bank_id": str(bank_id), "tax_year": tax_year}
+        if tax_year == self._legacy_default_tax_year():
+            query = {
+                "person_id": str(person_id),
+                "bank_id": str(bank_id),
+                "$or": [{"tax_year": tax_year}, {"tax_year": {"$exists": False}}],
+            }
+        doc = self._allowances.find_one(query, {"_id": 0})
         if doc is None:
             return None
         return self._allowance_from_doc(doc)
 
     def upsert_allowance(self, allowance: TaxAllowance) -> TaxAllowance:
         self._allowances.replace_one(
-            {"person_id": str(allowance.person_id), "bank_id": str(allowance.bank_id)},
+            {"person_id": str(allowance.person_id), "bank_id": str(allowance.bank_id), "tax_year": allowance.tax_year},
             self._allowance_to_doc(allowance),
             upsert=True,
         )
@@ -146,6 +159,7 @@ class MongoPersonRepository(PersonRepository):
             "first_name": person.first_name,
             "last_name": person.last_name,
             "email": person.email,
+            "tax_profile": person.tax_profile.model_dump(),
             "dedupe_key": MongoPersonRepository._dedupe_key(person.first_name, person.last_name, person.email),
             "created_at": person.created_at,
             "updated_at": person.updated_at,
@@ -153,7 +167,9 @@ class MongoPersonRepository(PersonRepository):
 
     @staticmethod
     def _person_from_doc(doc: dict) -> Person:
-        return Person.model_validate(doc)
+        person_doc = dict(doc)
+        person_doc.setdefault("tax_profile", {"tax_country": "DE", "filing_status": "single"})
+        return Person.model_validate(person_doc)
 
     @staticmethod
     def _dedupe_key(first_name: str, last_name: str, email: str | None) -> str:
@@ -176,6 +192,7 @@ class MongoPersonRepository(PersonRepository):
         return {
             "person_id": str(allowance.person_id),
             "bank_id": str(allowance.bank_id),
+            "tax_year": allowance.tax_year,
             "amount": str(allowance.amount),
             "currency": allowance.currency,
             "updated_at": allowance.updated_at,
@@ -184,5 +201,10 @@ class MongoPersonRepository(PersonRepository):
     @staticmethod
     def _allowance_from_doc(doc: dict) -> TaxAllowance:
         allowance_doc = dict(doc)
+        allowance_doc["tax_year"] = allowance_doc.get("tax_year", MongoPersonRepository._legacy_default_tax_year())
         allowance_doc["amount"] = Decimal(allowance_doc["amount"])
         return TaxAllowance.model_validate(allowance_doc)
+
+    @staticmethod
+    def _legacy_default_tax_year() -> int:
+        return datetime.now(UTC).year

@@ -3,8 +3,17 @@ export interface PersonReadModel {
   first_name: string
   last_name: string
   email: string | null
+  tax_profile: TaxProfileModel
   created_at: string
   updated_at: string
+}
+
+export type TaxCountryCode = 'DE' | (string & {})
+export type FilingStatus = 'single' | 'joint'
+
+export interface TaxProfileModel {
+  tax_country: TaxCountryCode
+  filing_status: FilingStatus
 }
 
 export interface PersonListItem {
@@ -45,6 +54,10 @@ export interface PersonUpdatePayload {
   first_name?: string
   last_name?: string
   email?: string
+  tax_profile?: {
+    tax_country?: string
+    filing_status?: FilingStatus
+  }
 }
 
 
@@ -82,6 +95,7 @@ export interface AssignmentListReadModel {
 export interface TaxAllowanceReadModel {
   person_id: string
   bank_id: string
+  tax_year: number
   amount: string
   currency: string
   updated_at: string
@@ -95,14 +109,25 @@ export interface AllowanceListReadModel {
 
 export interface AllowanceSummaryBankItemReadModel {
   bank_id: string
+  tax_year: number
   amount: string
 }
 
 export interface AllowanceSummaryReadModel {
   person_id: string
+  tax_year: number
   banks: AllowanceSummaryBankItemReadModel[]
   total_amount: string
+  annual_limit: string
+  remaining_amount: string
   currency: string
+  tax_profile?: TaxProfileModel | null
+}
+
+export interface AllowanceUpsertPayload {
+  tax_year: number
+  amount: string
+  currency?: string
 }
 
 export interface AccountReadModel { account_id: string; name: string; type: string; balance: number }

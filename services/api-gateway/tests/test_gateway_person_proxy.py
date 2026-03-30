@@ -17,7 +17,7 @@ if str(SERVICE_ROOT) not in sys.path:
 if str(SHARED_SRC) not in sys.path:
     sys.path.insert(0, str(SHARED_SRC))
 
-from app.models import BankCreatePayload, PersonCreatePayload, PersonUpdatePayload
+from app.models import AllowanceUpsertPayload, BankCreatePayload, PersonCreatePayload, PersonUpdatePayload
 from app.service import GatewayService
 
 
@@ -44,6 +44,7 @@ async def test_gateway_person_crud_forwarding(monkeypatch: pytest.MonkeyPatch) -
                     "first_name": "Anna",
                     "last_name": "Muster",
                     "email": "anna@example.com",
+                    "tax_profile": {"tax_country": "DE", "filing_status": "single"},
                     "created_at": "2026-01-01T00:00:00+00:00",
                     "updated_at": "2026-01-01T00:00:00+00:00",
                 }
@@ -94,17 +95,31 @@ async def test_gateway_person_crud_forwarding(monkeypatch: pytest.MonkeyPatch) -
     person_id = UUID("00000000-0000-0000-0000-000000000101")
 
     await service.list_persons(q="anna", limit=10, offset=0)
-    await service.create_person(PersonCreatePayload(first_name="Anna", last_name="Muster", email="anna@example.com"))
+    await service.create_person(
+        PersonCreatePayload(
+            first_name="Anna",
+            last_name="Muster",
+            email="anna@example.com",
+            tax_profile={"tax_country": "DE", "filing_status": "joint"},
+        )
+    )
     await service.get_person(person_id)
-    await service.update_person(person_id, PersonUpdatePayload(last_name="Neu"))
+    await service.update_person(person_id, PersonUpdatePayload(last_name="Neu", tax_profile={"filing_status": "single"}))
     await service.delete_person(person_id)
 
     assert calls[0][0] == "GET"
     assert calls[0][1].endswith("/api/v1/persons")
     assert calls[0][3] == {"q": "anna", "limit": 10, "offset": 0}
     assert calls[1][0] == "POST"
+    assert calls[1][2] == {
+        "first_name": "Anna",
+        "last_name": "Muster",
+        "email": "anna@example.com",
+        "tax_profile": {"tax_country": "DE", "filing_status": "joint"},
+    }
     assert calls[2][1].endswith(f"/api/v1/persons/{person_id}")
     assert calls[3][0] == "PATCH"
+    assert calls[3][2] == {"last_name": "Neu", "tax_profile": {"filing_status": "single"}}
     assert calls[4][0] == "DELETE"
 
 
@@ -302,6 +317,7 @@ async def test_gateway_allowances_forwarding(monkeypatch: pytest.MonkeyPatch) ->
                                 {
                                     "person_id": str(person_id),
                                     "bank_id": str(bank_id),
+                                    "tax_year": 2025,
                                     "amount": "200.00",
                                     "currency": "EUR",
                                     "updated_at": "2026-03-01T08:00:00+00:00",
@@ -315,15 +331,21 @@ async def test_gateway_allowances_forwarding(monkeypatch: pytest.MonkeyPatch) ->
                     return {
                         "data": {
                             "person_id": str(person_id),
-                            "banks": [{"bank_id": str(bank_id), "amount": "200.00"}],
+                            "tax_year": 2025,
+                            "banks": [{"bank_id": str(bank_id), "tax_year": 2025, "amount": "200.00"}],
                             "total_amount": "200.00",
+                            "annual_limit": "1000.00",
+                            "remaining_amount": "800.00",
                             "currency": "EUR",
+                            "applied_rule": "DE/single",
+                            "tax_profile": {"tax_country": "DE", "filing_status": "single"},
                         }
                     }
                 return {
                     "data": {
                         "person_id": str(person_id),
                         "bank_id": str(bank_id),
+                        "tax_year": 2025,
                         "amount": "250.00",
                         "currency": "EUR",
                         "updated_at": "2026-03-02T08:00:00+00:00",
@@ -343,20 +365,72 @@ async def test_gateway_allowances_forwarding(monkeypatch: pytest.MonkeyPatch) ->
         timeout_seconds=1.0,
     )
 
-    allowances = await service.list_allowances(person_id)
-    changed = await service.set_allowance(person_id, bank_id, "250.00")
-    summary = await service.allowance_summary(person_id)
+    allowances = await service.list_allowances(person_id, tax_year=2025)
+    changed = await service.set_allowance(
+        person_id, bank_id, AllowanceUpsertPayload(tax_year=2025, amount="250.00", currency="EUR")
+    )
+    summary = await service.allowance_summary(person_id, tax_year=2025)
 
     assert allowances.total == 1
     assert changed.amount == "250.00"
+    assert changed.tax_year == 2025
     assert summary.total_amount == "200.00"
+    assert summary.annual_limit == "1000.00"
+    assert summary.remaining_amount == "800.00"
+    assert summary.tax_profile is not None
     assert calls[0][0] == "GET"
     assert calls[0][1].endswith(f"/api/v1/persons/{person_id}/allowances")
+    assert calls[0][3] == {"tax_year": 2025}
     assert calls[1][0] == "PUT"
     assert calls[1][1].endswith(f"/api/v1/persons/{person_id}/allowances/{bank_id}")
-    assert calls[1][3] == {"amount": "250.00"}
+    assert calls[1][2] == {"tax_year": 2025, "amount": "250.00", "currency": "EUR"}
     assert calls[2][0] == "GET"
     assert calls[2][1].endswith(f"/api/v1/persons/{person_id}/allowances/summary")
+    assert calls[2][3] == {"tax_year": 2025}
+
+
+@pytest.mark.anyio
+async def test_gateway_allowance_error_details_are_forwarded(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def fake_request(self, method: str, url: str, json: dict | None = None, params: dict | None = None):
+        class Response:
+            status_code = 422
+
+            @staticmethod
+            def json() -> dict:
+                return {
+                    "detail": {
+                        "error": "allowance_limit_exceeded",
+                        "message": "Limit überschritten",
+                        "context": {"tax_year": 2025},
+                    }
+                }
+
+            text = "Limit überschritten"
+
+        return Response()
+
+    monkeypatch.setattr("httpx.AsyncClient.request", fake_request)
+
+    service = GatewayService(
+        analytics_base_url="http://analytics",
+        person_base_url="http://localhost:8002",
+        masterdata_base_url="http://localhost:8001",
+        timeout_seconds=1.0,
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        await service.set_allowance(
+            UUID("00000000-0000-0000-0000-000000000101"),
+            UUID("30000000-0000-0000-0000-000000000001"),
+            AllowanceUpsertPayload(tax_year=2025, amount="1200.00"),
+        )
+
+    assert exc.value.status_code == 422
+    assert exc.value.detail == {
+        "error": "allowance_limit_exceeded",
+        "message": "Limit überschritten",
+        "context": {"tax_year": 2025},
+    }
 
 
 @pytest.mark.anyio

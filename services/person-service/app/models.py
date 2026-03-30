@@ -18,10 +18,36 @@ class SortDirection(StrEnum):
     DESC = "desc"
 
 
+class TaxCountry(StrEnum):
+    DE = "DE"
+
+
+class FilingStatus(StrEnum):
+    SINGLE = "single"
+    JOINT = "joint"
+
+
+class TaxProfile(BaseModel):
+    tax_country: TaxCountry = TaxCountry.DE
+    filing_status: FilingStatus = FilingStatus.SINGLE
+
+
+class TaxProfileUpdate(BaseModel):
+    tax_country: TaxCountry | None = None
+    filing_status: FilingStatus | None = None
+
+    @model_validator(mode="after")
+    def require_any_field(self) -> TaxProfileUpdate:
+        if self.model_dump(exclude_none=True) == {}:
+            raise ValueError("Mindestens ein Feld muss gesetzt sein")
+        return self
+
+
 class PersonBase(BaseModel):
     first_name: str = Field(min_length=1, max_length=100)
     last_name: str = Field(min_length=1, max_length=100)
     email: str | None = Field(default=None, max_length=254)
+    tax_profile: TaxProfile = Field(default_factory=TaxProfile)
 
     @field_validator("email")
     @classmethod
@@ -39,6 +65,7 @@ class PersonUpdate(BaseModel):
     first_name: str | None = Field(default=None, min_length=1, max_length=100)
     last_name: str | None = Field(default=None, min_length=1, max_length=100)
     email: str | None = Field(default=None, max_length=254)
+    tax_profile: TaxProfileUpdate | None = None
 
     @field_validator("email")
     @classmethod
@@ -69,9 +96,16 @@ class PersonBankAssignment(BaseModel):
 class TaxAllowance(BaseModel):
     person_id: UUID
     bank_id: UUID
+    tax_year: int = Field(ge=1900, le=3000)
     amount: Decimal = Field(ge=Decimal("0"), max_digits=12, decimal_places=2)
     currency: str = Field(default="EUR", min_length=3, max_length=3, pattern=r"^[A-Z]{3}$")
     updated_at: str
+
+
+class AllowanceUpsertRequest(BaseModel):
+    tax_year: int = Field(ge=1900, le=3000)
+    amount: Decimal = Field(ge=Decimal("0"), max_digits=12, decimal_places=2)
+    currency: str = Field(default="EUR", min_length=3, max_length=3, pattern=r"^[A-Z]{3}$")
 
 
 class PaginationMeta(BaseModel):
@@ -113,11 +147,16 @@ class AllowanceListResponse(BaseModel):
 
 class AllowanceSummaryBankItem(BaseModel):
     bank_id: UUID
+    tax_year: int = Field(ge=1900, le=3000)
     amount: Decimal = Field(ge=Decimal("0"), max_digits=12, decimal_places=2)
 
 
 class AllowanceSummaryResponse(BaseModel):
     person_id: UUID
+    tax_year: int = Field(ge=1900, le=3000)
     banks: list[AllowanceSummaryBankItem]
     total_amount: Decimal = Field(ge=Decimal("0"), max_digits=12, decimal_places=2)
+    annual_limit: Decimal = Field(ge=Decimal("0"), max_digits=12, decimal_places=2)
+    remaining_amount: Decimal = Field(ge=Decimal("0"), max_digits=12, decimal_places=2)
     currency: str
+    applied_rule: str | None = None

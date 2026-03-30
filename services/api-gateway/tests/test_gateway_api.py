@@ -60,6 +60,7 @@ class StubGatewayService:
             "first_name": person.first_name,
             "last_name": person.last_name,
             "email": person.email,
+            "tax_profile": {"tax_country": "DE", "filing_status": "single"},
             "created_at": "2026-01-01T00:00:00+00:00",
             "updated_at": "2026-01-01T00:00:00+00:00",
         }
@@ -71,6 +72,7 @@ class StubGatewayService:
                 "first_name": "Anna",
                 "last_name": "Muster",
                 "email": "anna@example.com",
+                "tax_profile": {"tax_country": "DE", "filing_status": "single"},
                 "created_at": "2026-01-01T00:00:00+00:00",
                 "updated_at": "2026-01-01T00:00:00+00:00",
             },
@@ -90,6 +92,7 @@ class StubGatewayService:
             "first_name": person.first_name or "Anna",
             "last_name": person.last_name or "Muster",
             "email": person.email or "anna@example.com",
+            "tax_profile": {"tax_country": "DE", "filing_status": "single"},
             "created_at": "2026-01-01T00:00:00+00:00",
             "updated_at": "2026-01-02T00:00:00+00:00",
         }
@@ -123,12 +126,13 @@ class StubGatewayService:
         if str(bank_id).endswith("999"):
             raise HTTPException(status_code=404, detail="Zuordnung nicht gefunden")
 
-    async def list_allowances(self, person_id: UUID) -> dict:
+    async def list_allowances(self, person_id: UUID, tax_year: int | None = None) -> dict:
         return {
             "items": [
                 {
                     "person_id": str(person_id),
                     "bank_id": "30000000-0000-0000-0000-000000000001",
+                    "tax_year": tax_year or 2025,
                     "amount": "100.00",
                     "currency": "EUR",
                     "updated_at": "2026-03-01T08:00:00+00:00",
@@ -138,23 +142,29 @@ class StubGatewayService:
             "amount_total": "100.00",
         }
 
-    async def set_allowance(self, person_id: UUID, bank_id: UUID, amount: str) -> dict:
+    async def set_allowance(self, person_id: UUID, bank_id: UUID, payload) -> dict:
         if str(bank_id).endswith("999"):
             raise HTTPException(status_code=409, detail="Nur für zugeordnete Banken zulässig")
         return {
             "person_id": str(person_id),
             "bank_id": str(bank_id),
-            "amount": amount,
+            "tax_year": payload.tax_year,
+            "amount": payload.amount,
             "currency": "EUR",
             "updated_at": "2026-03-02T08:00:00+00:00",
         }
 
-    async def allowance_summary(self, person_id: UUID) -> dict:
+    async def allowance_summary(self, person_id: UUID, tax_year: int) -> dict:
         return {
             "person_id": str(person_id),
-            "banks": [{"bank_id": "30000000-0000-0000-0000-000000000001", "amount": "100.00"}],
+            "tax_year": tax_year,
+            "banks": [{"bank_id": "30000000-0000-0000-0000-000000000001", "tax_year": tax_year, "amount": "100.00"}],
             "total_amount": "100.00",
+            "annual_limit": "1000.00",
+            "remaining_amount": "900.00",
             "currency": "EUR",
+            "applied_rule": "DE/single",
+            "tax_profile": {"tax_country": "DE", "filing_status": "single"},
         }
 
     async def get_dashboard(self, person_id: UUID) -> DashboardReadModel:
@@ -255,14 +265,15 @@ def test_app_endpoints_for_vue_pages() -> None:
     ).status_code == 201
 
     assert client.get(f"/api/v1/app/persons/{PERSON_ID}/allowances").status_code == 200
+    assert client.get(f"/api/v1/app/persons/{PERSON_ID}/allowances", params={"tax_year": 2025}).status_code == 200
     assert (
         client.put(
             f"/api/v1/app/persons/{PERSON_ID}/allowances/30000000-0000-0000-0000-000000000001",
-            params={"amount": "125.00"},
+            json={"tax_year": 2025, "amount": "125.00", "currency": "EUR"},
         ).status_code
         == 200
     )
-    assert client.get(f"/api/v1/app/persons/{PERSON_ID}/allowances/summary").status_code == 200
+    assert client.get(f"/api/v1/app/persons/{PERSON_ID}/allowances/summary", params={"tax_year": 2025}).status_code == 200
 
     assert client.get(f"/api/v1/app/persons/{PERSON_ID}/dashboard").status_code == 200
     assert client.get(f"/api/v1/app/persons/{PERSON_ID}/accounts").status_code == 200
@@ -309,7 +320,7 @@ def test_allowance_errors_are_forwarded() -> None:
 
     response = client.put(
         f"/api/v1/app/persons/{PERSON_ID}/allowances/30000000-0000-0000-0000-000000000999",
-        params={"amount": "100.00"},
+        json={"tax_year": 2025, "amount": "100.00"},
     )
 
     assert response.status_code == 409

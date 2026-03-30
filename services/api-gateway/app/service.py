@@ -8,6 +8,7 @@ from fastapi import HTTPException
 from app.models import (
     AccountReadModel,
     AllowanceListReadModel,
+    AllowanceUpsertPayload,
     AllowanceSummaryReadModel,
     AssignmentListReadModel,
     BankCreatePayload,
@@ -121,20 +122,30 @@ class GatewayService:
             expect_no_content=True,
         )
 
-    async def list_allowances(self, person_id: UUID) -> AllowanceListReadModel:
-        payload = await self._request_person_service("GET", f"/api/v1/persons/{person_id}/allowances")
+    async def list_allowances(self, person_id: UUID, tax_year: int | None = None) -> AllowanceListReadModel:
+        payload = await self._request_person_service(
+            "GET",
+            f"/api/v1/persons/{person_id}/allowances",
+            params={"tax_year": tax_year},
+        )
         return AllowanceListReadModel.model_validate(payload)
 
-    async def set_allowance(self, person_id: UUID, bank_id: UUID, amount: str) -> TaxAllowanceReadModel:
+    async def set_allowance(
+        self, person_id: UUID, bank_id: UUID, payload: AllowanceUpsertPayload
+    ) -> TaxAllowanceReadModel:
         payload = await self._request_person_service(
             "PUT",
             f"/api/v1/persons/{person_id}/allowances/{bank_id}",
-            params={"amount": amount},
+            json=payload.model_dump(),
         )
         return TaxAllowanceReadModel.model_validate(payload)
 
-    async def allowance_summary(self, person_id: UUID) -> AllowanceSummaryReadModel:
-        payload = await self._request_person_service("GET", f"/api/v1/persons/{person_id}/allowances/summary")
+    async def allowance_summary(self, person_id: UUID, tax_year: int) -> AllowanceSummaryReadModel:
+        payload = await self._request_person_service(
+            "GET",
+            f"/api/v1/persons/{person_id}/allowances/summary",
+            params={"tax_year": tax_year},
+        )
         return AllowanceSummaryReadModel.model_validate(payload)
 
 

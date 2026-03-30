@@ -2,7 +2,19 @@ from __future__ import annotations
 
 from uuid import UUID
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
+
+
+class TaxProfileModel(BaseModel):
+    tax_country: Literal["DE"] = "DE"
+    filing_status: Literal["single", "joint"] = "single"
+
+
+class TaxProfileUpdateModel(BaseModel):
+    tax_country: Literal["DE"] | None = None
+    filing_status: Literal["single", "joint"] | None = None
 
 
 class PersonReadModel(BaseModel):
@@ -10,6 +22,7 @@ class PersonReadModel(BaseModel):
     first_name: str
     last_name: str
     email: str | None
+    tax_profile: TaxProfileModel
     created_at: str
     updated_at: str
 
@@ -18,12 +31,14 @@ class PersonCreatePayload(BaseModel):
     first_name: str
     last_name: str
     email: str | None = None
+    tax_profile: TaxProfileModel = Field(default_factory=TaxProfileModel)
 
 
 class PersonUpdatePayload(BaseModel):
     first_name: str | None = None
     last_name: str | None = None
     email: str | None = None
+    tax_profile: TaxProfileUpdateModel | None = None
 
 
 class PersonListItem(BaseModel):
@@ -86,9 +101,16 @@ class AssignmentListReadModel(BaseModel):
 class TaxAllowanceReadModel(BaseModel):
     person_id: UUID
     bank_id: UUID
+    tax_year: int
     amount: str
     currency: str
     updated_at: str
+
+
+class AllowanceUpsertPayload(BaseModel):
+    tax_year: int
+    amount: str
+    currency: str = "EUR"
 
 
 class AllowanceListReadModel(BaseModel):
@@ -99,14 +121,20 @@ class AllowanceListReadModel(BaseModel):
 
 class AllowanceSummaryBankItemReadModel(BaseModel):
     bank_id: UUID
+    tax_year: int
     amount: str
 
 
 class AllowanceSummaryReadModel(BaseModel):
     person_id: UUID
+    tax_year: int
     banks: list[AllowanceSummaryBankItemReadModel]
     total_amount: str
+    annual_limit: str
+    remaining_amount: str
     currency: str
+    applied_rule: str | None = None
+    tax_profile: TaxProfileModel | None = None
 
 
 class AccountReadModel(BaseModel):
