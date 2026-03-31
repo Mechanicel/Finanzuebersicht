@@ -27,7 +27,13 @@ from app.models import (
     PersonReadModel,
     PersonBankAssignmentReadModel,
     PersonUpdatePayload,
+    PortfolioCreatePayload,
+    PortfolioDetailReadModel,
+    PortfolioListReadModel,
     PortfolioReadModel,
+    HoldingCreatePayload,
+    HoldingReadModel,
+    HoldingUpdatePayload,
     TaxAllowanceReadModel,
 )
 from app.service import GatewayService
@@ -209,13 +215,57 @@ async def patch_account(
     return ApiResponse(data=await service.update_account(person_id, account_id, payload))
 
 
-@router.get(
-    "/app/persons/{person_id}/portfolios", response_model=ApiResponse[list[PortfolioReadModel]]
-)
+@router.get("/app/persons/{person_id}/portfolios", response_model=ApiResponse[PortfolioListReadModel])
 async def portfolios(
     person_id: UUID, service: Annotated[GatewayService, Depends(get_gateway_service)]
-) -> ApiResponse[list[PortfolioReadModel]]:
+) -> ApiResponse[PortfolioListReadModel]:
     return ApiResponse(data=await service.list_portfolios(person_id))
+
+
+@router.post("/app/persons/{person_id}/portfolios", response_model=ApiResponse[PortfolioReadModel], status_code=status.HTTP_201_CREATED)
+async def create_portfolio(
+    person_id: UUID,
+    payload: PortfolioCreatePayload,
+    service: Annotated[GatewayService, Depends(get_gateway_service)],
+) -> ApiResponse[PortfolioReadModel]:
+    return ApiResponse(data=await service.create_portfolio(person_id, payload))
+
+
+@router.get("/app/portfolios/{portfolio_id}", response_model=ApiResponse[PortfolioDetailReadModel])
+async def portfolio_detail(
+    portfolio_id: UUID,
+    service: Annotated[GatewayService, Depends(get_gateway_service)],
+) -> ApiResponse[PortfolioDetailReadModel]:
+    return ApiResponse(data=await service.get_portfolio(portfolio_id))
+
+
+@router.post("/app/portfolios/{portfolio_id}/holdings", response_model=ApiResponse[HoldingReadModel], status_code=status.HTTP_201_CREATED)
+async def add_holding(
+    portfolio_id: UUID,
+    payload: HoldingCreatePayload,
+    service: Annotated[GatewayService, Depends(get_gateway_service)],
+) -> ApiResponse[HoldingReadModel]:
+    return ApiResponse(data=await service.create_holding(portfolio_id, payload))
+
+
+@router.patch("/app/portfolios/{portfolio_id}/holdings/{holding_id}", response_model=ApiResponse[HoldingReadModel])
+async def patch_holding(
+    portfolio_id: UUID,
+    holding_id: UUID,
+    payload: HoldingUpdatePayload,
+    service: Annotated[GatewayService, Depends(get_gateway_service)],
+) -> ApiResponse[HoldingReadModel]:
+    return ApiResponse(data=await service.update_holding(portfolio_id, holding_id, payload))
+
+
+@router.delete("/app/portfolios/{portfolio_id}/holdings/{holding_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_holding(
+    portfolio_id: UUID,
+    holding_id: UUID,
+    service: Annotated[GatewayService, Depends(get_gateway_service)],
+) -> Response:
+    await service.delete_holding(portfolio_id, holding_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/app/persons/{person_id}/analytics/overview", response_model=ApiResponse[dict])

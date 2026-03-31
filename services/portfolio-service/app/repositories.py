@@ -1,82 +1,195 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from datetime import datetime, timezone
+from collections import defaultdict
+from datetime import date
 from uuid import UUID
 
-from app.models import Holding, HoldingSnapshot, Portfolio
+from pymongo import ASCENDING
+from pymongo.collection import Collection
+from pymongo.database import Database
+from pymongo.errors import PyMongoError
+
+from app.models import Holding, Portfolio
+
+
+class PortfolioRepositoryError(Exception):
+    pass
 
 
 class PortfolioRepository(ABC):
     @abstractmethod
-    def get_by_portfolio_id(self, portfolio_id: UUID) -> Portfolio | None: ...
+    def create_portfolio(self, portfolio: Portfolio) -> Portfolio: ...
 
     @abstractmethod
-    def get_by_account_id(self, account_id: UUID) -> Portfolio: ...
+    def list_person_portfolios(self, person_id: UUID) -> list[Portfolio]: ...
 
     @abstractmethod
-    def put_holdings(self, account_id: UUID, holdings: list[Holding]) -> list[Holding]: ...
+    def get_portfolio(self, portfolio_id: UUID) -> Portfolio | None: ...
 
     @abstractmethod
-    def list_holdings(self, account_id: UUID) -> list[Holding]: ...
+    def create_holding(self, holding: Holding) -> Holding: ...
 
     @abstractmethod
-    def create_snapshot(self, account_id: UUID, snapshot: HoldingSnapshot) -> HoldingSnapshot: ...
+    def list_holdings(self, portfolio_id: UUID) -> list[Holding]: ...
 
     @abstractmethod
-    def list_snapshots(self, account_id: UUID) -> list[HoldingSnapshot]: ...
+    def get_holding(self, portfolio_id: UUID, holding_id: UUID) -> Holding | None: ...
+
+    @abstractmethod
+    def update_holding(self, holding: Holding) -> Holding: ...
+
+    @abstractmethod
+    def delete_holding(self, portfolio_id: UUID, holding_id: UUID) -> bool: ...
 
 
 class InMemoryPortfolioRepository(PortfolioRepository):
     def __init__(self) -> None:
-        self._portfolios_by_account: dict[UUID, Portfolio] = {}
-        self._portfolio_to_account: dict[UUID, UUID] = {}
-        self._holdings_by_account: dict[UUID, dict[str, Holding]] = {}
-        self._snapshots_by_account: dict[UUID, list[HoldingSnapshot]] = {}
+        self._portfolios: dict[UUID, Portfolio] = {}
+        self._person_portfolios: dict[UUID, list[UUID]] = defaultdict(list)
+        self._holdings_by_portfolio: dict[UUID, dict[UUID, Holding]] = defaultdict(dict)
 
-    def get_by_portfolio_id(self, portfolio_id: UUID) -> Portfolio | None:
-        account_id = self._portfolio_to_account.get(portfolio_id)
-        if account_id is None:
-            return None
-        return self._portfolios_by_account.get(account_id)
+    def create_portfolio(self, portfolio: Portfolio) -> Portfolio:
+        self._portfolios[portfolio.portfolio_id] = portfolio
+        self._person_portfolios[portfolio.person_id].append(portfolio.portfolio_id)
+        return portfolio
 
-    def get_by_account_id(self, account_id: UUID) -> Portfolio:
-        portfolio = self._portfolios_by_account.get(account_id)
-        if portfolio is not None:
+    def list_person_portfolios(self, person_id: UUID) -> list[Portfolio]:
+        portfolio_ids = self._person_portfolios.get(person_id, [])
+        return [self._portfolios[item] for item in portfolio_ids]
+
+    def get_portfolio(self, portfolio_id: UUID) -> Portfolio | None:
+        return self._portfolios.get(portfolio_id)
+
+    def create_holding(self, holding: Holding) -> Holding:
+        self._holdings_by_portfolio[holding.portfolio_id][holding.holding_id] = holding
+        return holding
+
+    def list_holdings(self, portfolio_id: UUID) -> list[Holding]:
+        return list(self._holdings_by_portfolio.get(portfolio_id, {}).values())
+
+    def get_holding(self, portfolio_id: UUID, holding_id: UUID) -> Holding | None:
+        return self._holdings_by_portfolio.get(portfolio_id, {}).get(holding_id)
+
+    def update_holding(self, holding: Holding) -> Holding:
+        self._holdings_by_portfolio[holding.portfolio_id][holding.holding_id] = holding
+        return holding
+
+    def delete_holding(self, portfolio_id: UUID, holding_id: UUID) -> bool:
+        deleted = self._holdings_by_portfolio.get(portfolio_id, {}).pop(holding_id, None)
+        return deleted is not None
+
+
+class MongoPortfolioRepository(PortfolioRepository):
+    def __init__(self, database: Database, *, portfolio_collection: str, holding_collection: str) -> None:
+        self._portfolios: Collection = database[portfolio_collection]
+        self._holdings: Collection = database[holding_collection]
+        self._ensure_indexes()
+
+    def _ensure_indexes(self) -> None:
+        self._portfolios.create_index([("portfolio_id", ASCENDING)], unique=True)
+        self._portfolios.create_index([("person_id", ASCENDING), ("created_at", ASCENDING)])
+        self._holdings.create_index([("portfolio_id", ASCENDING), ("holding_id", ASCENDING)], unique=True)
+        self._holdings.create_index([("portfolio_id", ASCENDING), ("created_at", ASCENDING)])
+
+    def create_portfolio(self, portfolio: Portfolio) -> Portfolio:
+        try:
+            self._portfolios.insert_one(self._portfolio_to_doc(portfolio))
             return portfolio
+        except PyMongoError as exc:
+            raise PortfolioRepositoryError("Failed to create portfolio") from exc
 
-        created = Portfolio(
-            account_id=account_id,
-            display_name=f"Depot {str(account_id)[:8]}",
-            account_summary={"account_id": account_id, "holdings_count": 0, "total_quantity_summary": 0},
-            holdings_count=0,
-            total_quantity_summary=0,
-        )
-        self._portfolios_by_account[account_id] = created
-        self._portfolio_to_account[created.portfolio_id] = account_id
-        self._holdings_by_account.setdefault(account_id, {})
-        self._snapshots_by_account.setdefault(account_id, [])
-        return created
+    def list_person_portfolios(self, person_id: UUID) -> list[Portfolio]:
+        try:
+            docs = self._portfolios.find({"person_id": str(person_id)}, {"_id": 0}).sort("created_at", ASCENDING)
+            return [Portfolio.model_validate(doc) for doc in docs]
+        except PyMongoError as exc:
+            raise PortfolioRepositoryError("Failed to list portfolios") from exc
 
-    def put_holdings(self, account_id: UUID, holdings: list[Holding]) -> list[Holding]:
-        self._holdings_by_account[account_id] = {item.isin: item for item in holdings}
-        portfolio = self.get_by_account_id(account_id)
-        updated_portfolio = portfolio.model_copy(
-            update={
-                "updated_at": datetime.now(timezone.utc),
-            }
-        )
-        self._portfolios_by_account[account_id] = updated_portfolio
-        return list(self._holdings_by_account[account_id].values())
+    def get_portfolio(self, portfolio_id: UUID) -> Portfolio | None:
+        try:
+            doc = self._portfolios.find_one({"portfolio_id": str(portfolio_id)}, {"_id": 0})
+        except PyMongoError as exc:
+            raise PortfolioRepositoryError("Failed to load portfolio") from exc
+        if doc is None:
+            return None
+        return Portfolio.model_validate(doc)
 
-    def list_holdings(self, account_id: UUID) -> list[Holding]:
-        return list(self._holdings_by_account.get(account_id, {}).values())
+    def create_holding(self, holding: Holding) -> Holding:
+        try:
+            self._holdings.insert_one(self._holding_to_doc(holding))
+            return holding
+        except PyMongoError as exc:
+            raise PortfolioRepositoryError("Failed to create holding") from exc
 
-    def create_snapshot(self, account_id: UUID, snapshot: HoldingSnapshot) -> HoldingSnapshot:
-        snapshots = self._snapshots_by_account.setdefault(account_id, [])
-        snapshots.append(snapshot)
-        snapshots.sort(key=lambda item: (item.snapshot_date, item.created_at))
-        return snapshot
+    def list_holdings(self, portfolio_id: UUID) -> list[Holding]:
+        try:
+            docs = self._holdings.find({"portfolio_id": str(portfolio_id)}, {"_id": 0}).sort("created_at", ASCENDING)
+            return [self._holding_from_doc(doc) for doc in docs]
+        except PyMongoError as exc:
+            raise PortfolioRepositoryError("Failed to list holdings") from exc
 
-    def list_snapshots(self, account_id: UUID) -> list[HoldingSnapshot]:
-        return list(self._snapshots_by_account.get(account_id, []))
+    def get_holding(self, portfolio_id: UUID, holding_id: UUID) -> Holding | None:
+        try:
+            doc = self._holdings.find_one(
+                {"portfolio_id": str(portfolio_id), "holding_id": str(holding_id)},
+                {"_id": 0},
+            )
+        except PyMongoError as exc:
+            raise PortfolioRepositoryError("Failed to load holding") from exc
+        if doc is None:
+            return None
+        return self._holding_from_doc(doc)
+
+    def update_holding(self, holding: Holding) -> Holding:
+        try:
+            self._holdings.replace_one(
+                {"portfolio_id": str(holding.portfolio_id), "holding_id": str(holding.holding_id)},
+                self._holding_to_doc(holding),
+                upsert=False,
+            )
+            return holding
+        except PyMongoError as exc:
+            raise PortfolioRepositoryError("Failed to update holding") from exc
+
+    def delete_holding(self, portfolio_id: UUID, holding_id: UUID) -> bool:
+        try:
+            result = self._holdings.delete_one({"portfolio_id": str(portfolio_id), "holding_id": str(holding_id)})
+            return result.deleted_count > 0
+        except PyMongoError as exc:
+            raise PortfolioRepositoryError("Failed to delete holding") from exc
+
+    @staticmethod
+    def _portfolio_to_doc(portfolio: Portfolio) -> dict[str, object]:
+        return {
+            "portfolio_id": str(portfolio.portfolio_id),
+            "person_id": str(portfolio.person_id),
+            "display_name": portfolio.display_name,
+            "created_at": portfolio.created_at,
+            "updated_at": portfolio.updated_at,
+        }
+
+    @staticmethod
+    def _holding_to_doc(holding: Holding) -> dict[str, object]:
+        return {
+            "holding_id": str(holding.holding_id),
+            "portfolio_id": str(holding.portfolio_id),
+            "symbol": holding.symbol,
+            "isin": holding.isin,
+            "wkn": holding.wkn,
+            "company_name": holding.company_name,
+            "display_name": holding.display_name,
+            "quantity": holding.quantity,
+            "acquisition_price": holding.acquisition_price,
+            "currency": holding.currency,
+            "buy_date": holding.buy_date.isoformat(),
+            "notes": holding.notes,
+            "created_at": holding.created_at,
+            "updated_at": holding.updated_at,
+        }
+
+    @staticmethod
+    def _holding_from_doc(doc: dict[str, object]) -> Holding:
+        normalized = dict(doc)
+        normalized["buy_date"] = date.fromisoformat(str(normalized["buy_date"]))
+        return Holding.model_validate(normalized)

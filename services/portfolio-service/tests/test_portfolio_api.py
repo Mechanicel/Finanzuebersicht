@@ -38,133 +38,84 @@ def test_health_and_ready_endpoints() -> None:
     assert_standard_health_payload(ready.json(), "portfolio-service")
 
 
-def test_holdings_and_portfolio_endpoints() -> None:
+def test_portfolio_and_holding_crud_flow() -> None:
     client = create_test_client(app)
-    account_id = str(uuid4())
+    person_id = str(uuid4())
 
-    put_payload = {
-        "holdings": [
-            {"isin": "DE0005557508", "quantity": 12.5, "instrument_name": "Deutsche Telekom"},
-            {"isin": "US0378331005", "quantity": 3, "instrument_name": "Apple"},
-        ]
-    }
-    put_result = client.put(f"/api/v1/accounts/{account_id}/portfolio/holdings", json=put_payload)
-    assert put_result.status_code == 200
-    assert put_result.json()["data"]["holdings_count"] == 2
+    created = client.post("/api/v1/portfolios", json={"person_id": person_id, "display_name": "Langfrist Depot"})
+    assert created.status_code == 201
+    portfolio_id = created.json()["data"]["portfolio_id"]
 
-    get_holdings = client.get(f"/api/v1/accounts/{account_id}/portfolio/holdings")
-    assert get_holdings.status_code == 200
-    assert get_holdings.json()["data"]["total_quantity_summary"] == 15.5
+    listed = client.get(f"/api/v1/persons/{person_id}/portfolios")
+    assert listed.status_code == 200
+    assert listed.json()["data"]["total"] == 1
 
-    compact = client.get(
-        f"/api/v1/accounts/{account_id}/portfolio/holdings",
-        params={"response_mode": "compact"},
-    )
-    assert compact.status_code == 200
-    assert compact.json()["data"]["holdings"] == []
-
-    account_portfolio = client.get(f"/api/v1/accounts/{account_id}/portfolio")
-    assert account_portfolio.status_code == 200
-    portfolio_id = account_portfolio.json()["data"]["portfolio_id"]
-    assert account_portfolio.json()["data"]["display_name"].startswith("Depot")
-
-    by_portfolio_id = client.get(f"/api/v1/portfolios/{portfolio_id}")
-    assert by_portfolio_id.status_code == 200
-    assert by_portfolio_id.json()["data"]["account_id"] == account_id
-
-
-def test_snapshot_flow_and_query_parameters() -> None:
-    client = create_test_client(app)
-    account_id = str(uuid4())
-
-    snapshot_a = {
-        "snapshot_date": "2026-01-15",
-        "note": "Monatsanfang",
-        "holdings": [
-            {"isin": "DE0005557508", "quantity": 10},
-            {"isin": "US0378331005", "quantity": 5},
-        ],
-    }
-    snapshot_b = {
-        "snapshot_date": "2026-03-10",
-        "holdings": [
-            {"isin": "DE0005557508", "quantity": 11},
-        ],
-    }
-
-    created_a = client.post(f"/api/v1/accounts/{account_id}/portfolio/snapshots", json=snapshot_a)
-    created_b = client.post(f"/api/v1/accounts/{account_id}/portfolio/snapshots", json=snapshot_b)
-    assert created_a.status_code == 201
-    assert created_b.status_code == 201
-
-    all_snaps = client.get(f"/api/v1/accounts/{account_id}/portfolio/snapshots")
-    assert all_snaps.status_code == 200
-    assert len(all_snaps.json()["data"]["snapshots"]) == 2
-
-    latest_only = client.get(
-        f"/api/v1/accounts/{account_id}/portfolio/snapshots",
-        params={"include_history": False},
-    )
-    assert latest_only.status_code == 200
-    assert len(latest_only.json()["data"]["snapshots"]) == 1
-
-    as_of = client.get(
-        f"/api/v1/accounts/{account_id}/portfolio/snapshots",
-        params={"as_of": "2026-02-01"},
-    )
-    assert as_of.status_code == 200
-    assert len(as_of.json()["data"]["snapshots"]) == 1
-
-    compact = client.get(
-        f"/api/v1/accounts/{account_id}/portfolio/snapshots",
-        params={"response_mode": "compact"},
-    )
-    assert compact.status_code == 200
-    assert compact.json()["data"]["snapshots"] == []
-    assert compact.json()["data"]["latest_snapshot_summary"]["holdings_count"] == 1
-
-
-def test_validation_isin_quantity_duplicates_and_empty_holdings() -> None:
-    client = create_test_client(app)
-    account_id = str(uuid4())
-
-    invalid_isin = client.put(
-        f"/api/v1/accounts/{account_id}/portfolio/holdings",
-        json={"holdings": [{"isin": "INVALID", "quantity": 2}]},
-    )
-    assert invalid_isin.status_code == 422
-
-    invalid_quantity = client.put(
-        f"/api/v1/accounts/{account_id}/portfolio/holdings",
-        json={"holdings": [{"isin": "DE0005557508", "quantity": 0}]},
-    )
-    assert invalid_quantity.status_code == 422
-
-    duplicate = client.put(
-        f"/api/v1/accounts/{account_id}/portfolio/holdings",
+    add_holding = client.post(
+        f"/api/v1/portfolios/{portfolio_id}/holdings",
         json={
-            "holdings": [
-                {"isin": "DE0005557508", "quantity": 2},
-                {"isin": "DE0005557508", "quantity": 3},
-            ]
+            "symbol": "AAPL",
+            "isin": "US0378331005",
+            "wkn": "865985",
+            "company_name": "Apple Inc.",
+            "display_name": "Apple",
+            "quantity": 3,
+            "acquisition_price": 145.5,
+            "currency": "usd",
+            "buy_date": "2026-03-12",
+            "notes": "Sparplan",
         },
     )
-    assert duplicate.status_code == 422
+    assert add_holding.status_code == 201
+    holding_id = add_holding.json()["data"]["holding_id"]
+    assert add_holding.json()["data"]["currency"] == "USD"
 
-    empty_holdings = client.put(
-        f"/api/v1/accounts/{account_id}/portfolio/holdings",
-        json={"holdings": []},
+    detail = client.get(f"/api/v1/portfolios/{portfolio_id}")
+    assert detail.status_code == 200
+    assert len(detail.json()["data"]["holdings"]) == 1
+
+    patch = client.patch(
+        f"/api/v1/portfolios/{portfolio_id}/holdings/{holding_id}",
+        json={"quantity": 4, "notes": "Aufgestockt"},
     )
-    assert empty_holdings.status_code == 422
+    assert patch.status_code == 200
+    assert patch.json()["data"]["quantity"] == 4
 
-    duplicate_snapshot = client.post(
-        f"/api/v1/accounts/{account_id}/portfolio/snapshots",
+    delete = client.delete(f"/api/v1/portfolios/{portfolio_id}/holdings/{holding_id}")
+    assert delete.status_code == 204
+
+    detail_after = client.get(f"/api/v1/portfolios/{portfolio_id}")
+    assert detail_after.status_code == 200
+    assert detail_after.json()["data"]["holdings"] == []
+
+
+def test_not_found_and_validation() -> None:
+    client = create_test_client(app)
+    unknown_portfolio = str(uuid4())
+    unknown_holding = str(uuid4())
+
+    missing_portfolio = client.get(f"/api/v1/portfolios/{unknown_portfolio}")
+    assert missing_portfolio.status_code == 404
+
+    patch_missing = client.patch(
+        f"/api/v1/portfolios/{unknown_portfolio}/holdings/{unknown_holding}",
+        json={"quantity": 10},
+    )
+    assert patch_missing.status_code == 404
+
+    invalid_create = client.post(
+        "/api/v1/portfolios",
+        json={"person_id": str(uuid4()), "display_name": "   "},
+    )
+    assert invalid_create.status_code == 422
+
+    invalid_holding = client.post(
+        f"/api/v1/portfolios/{unknown_portfolio}/holdings",
         json={
-            "snapshot_date": "2026-02-02",
-            "holdings": [
-                {"isin": "DE0005557508", "quantity": 1},
-                {"isin": "DE0005557508", "quantity": 5},
-            ],
+            "symbol": "AAPL",
+            "quantity": 0,
+            "acquisition_price": 10,
+            "currency": "EUR",
+            "buy_date": "2026-03-31",
         },
     )
-    assert duplicate_snapshot.status_code == 422
+    assert invalid_holding.status_code in {404, 422}

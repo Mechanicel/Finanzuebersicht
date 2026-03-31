@@ -14,6 +14,7 @@ def get_gateway_service() -> GatewayService:
         person_base_url=settings.person_service_url,
         masterdata_base_url=settings.masterdata_service_url,
         account_base_url=settings.account_service_url,
+        portfolio_base_url=settings.portfolio_service_url,
         marketdata_base_url=settings.marketdata_service_url,
         timeout_seconds=settings.request_timeout_seconds,
     )

@@ -214,14 +214,61 @@ class StubGatewayService:
         account["updated_at"] = "2026-03-02T08:00:00+00:00"
         return account
 
-    async def list_portfolios(self, person_id: UUID) -> list[dict]:
-        return [
-            {
+    async def list_portfolios(self, person_id: UUID) -> dict:
+        return {
+            "items": [{
                 "portfolio_id": "20000000-0000-0000-0000-000000000001",
-                "label": "Core",
-                "total_value": 10,
-            }
-        ]
+                "person_id": str(person_id),
+                "display_name": "Core",
+                "created_at": "2026-03-01T00:00:00+00:00",
+                "updated_at": "2026-03-01T00:00:00+00:00",
+            }],
+            "total": 1,
+        }
+
+    async def create_portfolio(self, person_id: UUID, payload) -> dict:
+        return {
+            "portfolio_id": "20000000-0000-0000-0000-000000000009",
+            "person_id": str(person_id),
+            "display_name": payload.display_name,
+            "created_at": "2026-03-01T00:00:00+00:00",
+            "updated_at": "2026-03-01T00:00:00+00:00",
+        }
+
+    async def get_portfolio(self, portfolio_id: UUID) -> dict:
+        return {
+            "portfolio_id": str(portfolio_id),
+            "person_id": str(PERSON_ID),
+            "display_name": "Core",
+            "created_at": "2026-03-01T00:00:00+00:00",
+            "updated_at": "2026-03-01T00:00:00+00:00",
+            "holdings": [],
+        }
+
+    async def create_holding(self, portfolio_id: UUID, payload) -> dict:
+        return {
+            "holding_id": "30000000-0000-0000-0000-000000000001",
+            "portfolio_id": str(portfolio_id),
+            **payload.model_dump(),
+            "created_at": "2026-03-01T00:00:00+00:00",
+            "updated_at": "2026-03-01T00:00:00+00:00",
+        }
+
+    async def update_holding(self, portfolio_id: UUID, holding_id: UUID, payload) -> dict:
+        return {
+            "holding_id": str(holding_id),
+            "portfolio_id": str(portfolio_id),
+            "symbol": "AAPL",
+            "quantity": payload.quantity or 1,
+            "acquisition_price": payload.acquisition_price or 10,
+            "currency": payload.currency or "EUR",
+            "buy_date": payload.buy_date or "2026-03-01",
+            "created_at": "2026-03-01T00:00:00+00:00",
+            "updated_at": "2026-03-02T00:00:00+00:00",
+        }
+
+    async def delete_holding(self, portfolio_id: UUID, holding_id: UUID) -> None:
+        return None
 
     async def get_analytics_overview(self, person_id: UUID) -> dict:
         return {"labels": ["2026-02-28"], "series": []}
