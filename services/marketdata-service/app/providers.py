@@ -5,19 +5,32 @@ from typing import Protocol
 
 from app.models import (
     BenchmarkOption,
+    DataInterval,
     DataRange,
-    PricePoint,
-    ProviderInstrumentData,
     FundamentalsBlock,
+    InstrumentDataBlocksResponse,
+    InstrumentFullResponse,
+    InstrumentSearchItem,
     InstrumentSummary,
     MetricsBlock,
+    PricePoint,
     RiskBlock,
     SnapshotBlock,
 )
 
 
 class MarketDataProvider(Protocol):
-    def get_instrument_data(self, symbol: str, data_range: DataRange) -> ProviderInstrumentData | None: ...
+    def get_instrument_summary(self, symbol: str) -> InstrumentSummary | None: ...
+
+    def get_price_series(
+        self, symbol: str, data_range: DataRange, interval: DataInterval
+    ) -> list[PricePoint] | None: ...
+
+    def get_instrument_blocks(self, symbol: str) -> InstrumentDataBlocksResponse | None: ...
+
+    def get_instrument_full(self, symbol: str) -> InstrumentFullResponse | None: ...
+
+    def search_instruments(self, query: str, limit: int) -> list[InstrumentSearchItem]: ...
 
     def list_benchmark_options(self) -> list[BenchmarkOption]: ...
 
@@ -54,8 +67,12 @@ class InMemoryMarketDataProvider:
                     symbol="AAPL",
                     isin="US0378331005",
                     company_name="Apple Inc.",
+                    display_name="Apple",
+                    wkn="865985",
                     exchange="NASDAQ",
                     currency="USD",
+                    quote_type="equity",
+                    asset_type="stock",
                     country="US",
                     sector="Technology",
                     industry="Consumer Electronics",
@@ -76,8 +93,12 @@ class InMemoryMarketDataProvider:
                     symbol="MSFT",
                     isin="US5949181045",
                     company_name="Microsoft Corp.",
+                    display_name="Microsoft",
+                    wkn="870747",
                     exchange="NASDAQ",
                     currency="USD",
+                    quote_type="equity",
+                    asset_type="stock",
                     country="US",
                     sector="Technology",
                     industry="Software",
@@ -98,8 +119,12 @@ class InMemoryMarketDataProvider:
                     symbol="URTH",
                     isin="US4642863926",
                     company_name="iShares MSCI World ETF",
+                    display_name="MSCI World ETF",
+                    wkn="A1C22M",
                     exchange="NYSEARCA",
                     currency="USD",
+                    quote_type="etf",
+                    asset_type="fund",
                     country="Global",
                     sector="ETF",
                     industry="World Equity",
@@ -117,27 +142,87 @@ class InMemoryMarketDataProvider:
             },
         }
 
-    def get_instrument_data(self, symbol: str, data_range: DataRange) -> ProviderInstrumentData | None:
+        self._search_index: list[InstrumentSearchItem] = [
+            InstrumentSearchItem(
+                symbol=instrument["summary"].symbol,
+                company_name=instrument["summary"].company_name,
+                display_name=instrument["summary"].display_name,
+                isin=instrument["summary"].isin,
+                wkn=instrument["summary"].wkn,
+                exchange=instrument["summary"].exchange,
+                currency=instrument["summary"].currency,
+                quote_type=instrument["summary"].quote_type,
+                asset_type=instrument["summary"].asset_type,
+                last_price=instrument["snapshot"].last_price,
+                country=instrument["summary"].country,
+                sector=instrument["summary"].sector,
+            )
+            for instrument in self._instruments.values()
+        ]
+
+    def get_instrument_summary(self, symbol: str) -> InstrumentSummary | None:
         key = symbol.upper()
         instrument = self._instruments.get(key)
         if instrument is None:
             return None
+        return instrument["summary"]
 
-        return ProviderInstrumentData(
-            summary=instrument["summary"],
-            prices=self._build_prices(base=instrument["base_price"], data_range=data_range),
+    def get_price_series(
+        self, symbol: str, data_range: DataRange, interval: DataInterval
+    ) -> list[PricePoint] | None:
+        key = symbol.upper()
+        instrument = self._instruments.get(key)
+        if instrument is None:
+            return None
+        return self._build_prices(base=instrument["base_price"], data_range=data_range, interval=interval)
+
+    def get_instrument_blocks(self, symbol: str) -> InstrumentDataBlocksResponse | None:
+        key = symbol.upper()
+        instrument = self._instruments.get(key)
+        if instrument is None:
+            return None
+        return InstrumentDataBlocksResponse(
+            symbol=instrument["summary"].symbol,
             snapshot=instrument["snapshot"],
             fundamentals=instrument["fundamentals"],
             metrics=instrument["metrics"],
             risk=instrument["risk"],
         )
 
+    def get_instrument_full(self, symbol: str) -> InstrumentFullResponse | None:
+        key = symbol.upper()
+        instrument = self._instruments.get(key)
+        if instrument is None:
+            return None
+        return InstrumentFullResponse(
+            summary=instrument["summary"],
+            snapshot=instrument["snapshot"],
+            fundamentals=instrument["fundamentals"],
+            metrics=instrument["metrics"],
+            risk=instrument["risk"],
+        )
+
+    def search_instruments(self, query: str, limit: int) -> list[InstrumentSearchItem]:
+        normalized = query.strip().lower()
+        if not normalized:
+            return []
+        matches = [
+            item
+            for item in self._search_index
+            if normalized in item.symbol.lower()
+            or normalized in item.company_name.lower()
+            or (item.display_name and normalized in item.display_name.lower())
+            or (item.isin and normalized in item.isin.lower())
+            or (item.wkn and normalized in item.wkn.lower())
+        ]
+        return matches[:limit]
+
     def list_benchmark_options(self) -> list[BenchmarkOption]:
         return list(self._benchmarks)
 
     @staticmethod
-    def _build_prices(*, base: float, data_range: DataRange) -> list[PricePoint]:
-        points = {
+    def _build_prices(*, base: float, data_range: DataRange, interval: DataInterval) -> list[PricePoint]:
+        trading_days = {
             DataRange.ONE_MONTH: 21,
             DataRange.THREE_MONTHS: 63,
             DataRange.SIX_MONTHS: 126,
@@ -145,6 +230,12 @@ class InMemoryMarketDataProvider:
             DataRange.THREE_YEARS: 252 * 3,
             DataRange.FIVE_YEARS: 252 * 5,
         }[data_range]
+        step_days = {
+            DataInterval.ONE_DAY: 1,
+            DataInterval.ONE_WEEK: 7,
+            DataInterval.ONE_MONTH: 30,
+        }[interval]
+        points = max(1, trading_days // step_days)
 
         today = date.today()
         series: list[PricePoint] = []
@@ -153,5 +244,5 @@ class InMemoryMarketDataProvider:
             wave = (distance % 11) * 0.35
             trend = idx * 0.03
             close = round(base + trend - wave, 2)
-            series.append(PricePoint(date=today - timedelta(days=distance), close=close))
+            series.append(PricePoint(date=today - timedelta(days=distance * step_days), close=close))
         return series
