@@ -62,6 +62,7 @@ export const apiClient = {
   async accounts(personId: string) { return (await http.get<ApiEnvelope<AccountReadModel[]>>(`/app/persons/${personId}/accounts`)).data.data },
   async createAccount(personId: string, payload: AccountCreatePayload) { return (await http.post<ApiEnvelope<AccountReadModel>>(`/app/persons/${personId}/accounts`, payload)).data.data },
   async updateAccount(personId: string, accountId: string, payload: AccountUpdatePayload) { return (await http.patch<ApiEnvelope<AccountReadModel>>(`/app/persons/${personId}/accounts/${accountId}`, payload)).data.data },
+  async deleteAccount(personId: string, accountId: string) { await http.delete(`/app/persons/${personId}/accounts/${accountId}`) },
 
   async portfolios(personId: string) {
     return (await http.get<ApiEnvelope<PortfolioListReadModel>>(`/app/persons/${personId}/portfolios`)).data.data

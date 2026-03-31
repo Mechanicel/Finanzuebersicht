@@ -63,6 +63,12 @@ def test_account_endpoints_crud_flow() -> None:
     assert patch_response.json()["data"]["account_type"] == "girokonto"
     assert patch_response.json()["data"]["balance"] == "15000.00"
 
+    delete_response = client.delete(f"/api/v1/persons/{person_id}/accounts/{account_id}")
+    assert delete_response.status_code == 204
+
+    missing_after_delete = client.get(f"/api/v1/persons/{person_id}/accounts/{account_id}")
+    assert missing_after_delete.status_code == 404
+
 
 def test_account_patch_missing_payload_and_unknown_account() -> None:
     client = create_test_client(app)
@@ -78,3 +84,8 @@ def test_account_patch_missing_payload_and_unknown_account() -> None:
         f"/api/v1/persons/{person_id}/accounts/10000000-0000-0000-0000-000000000001"
     )
     assert missing_account.status_code == 404
+
+    missing_delete = client.delete(
+        f"/api/v1/persons/{person_id}/accounts/10000000-0000-0000-0000-000000000001"
+    )
+    assert missing_delete.status_code == 404

@@ -117,6 +117,9 @@ class GatewayService:
         data = await self._request_account_service("PATCH", f"/api/v1/persons/{person_id}/accounts/{account_id}", json=payload.model_dump(mode="json", exclude_none=True))
         return AccountReadModel.model_validate(data)
 
+    async def delete_account(self, person_id: UUID, account_id: UUID) -> None:
+        await self._request_account_service("DELETE", f"/api/v1/persons/{person_id}/accounts/{account_id}", expect_no_content=True)
+
     async def list_portfolios(self, person_id: UUID) -> PortfolioListReadModel:
         data = await self._request_portfolio_service("GET", f"/api/v1/persons/{person_id}/portfolios")
         return PortfolioListReadModel.model_validate(data)

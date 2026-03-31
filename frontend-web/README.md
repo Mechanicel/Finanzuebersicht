@@ -38,4 +38,4 @@ Die Depot-Add/Edit-Flows nutzen über den Gateway folgende Endpunkte:
 
 Die Instrumentsuche läuft interaktiv beim Tippen (debounced, ohne separaten Such-Button) und unterstützt ein gemeinsames Suchfeld für Name, Symbol, ISIN und WKN.
 
-Hinweis: Depot-Positionen werden direkt im Add/Edit-Kontext des Kontos gepflegt. Holdings speichern nur Kauf-/Bestandsdaten (symbol, optionale IDs, quantity, acquisition_price, currency, buy_date, notes). Laufende Marktpreise und Instrumentsuche bleiben im marketdata-service.
+Hinweis: Depot-Positionen laufen jetzt in einem separaten Screen (`/accounts/depot-holdings`) statt inline unter dem Kontoformular. Im Schritt „Konten ansehen & bearbeiten“ gibt es zusätzlich eine Suche über Label/Typ/IBAN/Kontonummer/Depotnummer sowie einen Lösch-Button mit Bestätigungsdialog. Holdings speichern nur Kauf-/Bestandsdaten (symbol, optionale IDs, quantity, acquisition_price, currency, buy_date, notes). Laufende Marktpreise und Instrumentsuche bleiben im marketdata-service.

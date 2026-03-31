@@ -55,6 +55,13 @@ class AccountService:
             lambda: self.repository.update_person_account(merged)
         )
 
+    def delete_person_account(self, person_id: UUID, account_id: UUID) -> None:
+        deleted = self._with_repository_error_handling(
+            lambda: self.repository.delete_person_account(person_id, account_id)
+        )
+        if not deleted:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Konto nicht gefunden")
+
     @staticmethod
     def _now() -> str:
         return datetime.now(UTC).isoformat()

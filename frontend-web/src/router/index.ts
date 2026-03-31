@@ -9,6 +9,7 @@ import AllowancesView from '../views/AllowancesView.vue'
 import AccountsView from '../views/AccountsView.vue'
 import AccountsCreateView from '../views/AccountsCreateView.vue'
 import BankCreateView from '../views/BankCreateView.vue'
+import DepotHoldingsFlowView from '../views/DepotHoldingsFlowView.vue'
 
 export const router = createRouter({
   history: createWebHistory(),
@@ -24,6 +25,7 @@ export const router = createRouter({
     { path: '/allowances', component: AllowancesView },
     { path: '/accounts', redirect: '/accounts/manage' },
     { path: '/accounts/new', component: AccountsCreateView },
-    { path: '/accounts/manage', component: AccountsView }
+    { path: '/accounts/manage', component: AccountsView },
+    { path: '/accounts/depot-holdings', component: DepotHoldingsFlowView }
   ]
 })

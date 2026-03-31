@@ -139,3 +139,18 @@ def test_repository_backend_selection(
 
     repository = get_repository()
     assert isinstance(repository, expected_type)
+
+
+def test_repository_delete_account() -> None:
+    repository = InMemoryAccountRepository()
+    person_id = UUID("00000000-0000-0000-0000-000000000101")
+    account = _account(
+        account_id="10000000-0000-0000-0000-000000000005",
+        person_id=str(person_id),
+        label="Delete Me",
+        created_at="2026-01-01T00:00:00+00:00",
+    )
+
+    repository.create_person_account(account)
+    assert repository.delete_person_account(person_id, account.account_id) is True
+    assert repository.get_person_account(person_id, account.account_id) is None

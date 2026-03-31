@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Response, status
 from finanzuebersicht_shared.models import ApiResponse
 
 from app.dependencies import get_account_service
@@ -46,3 +46,13 @@ async def patch_person_account(
     service: AccountService = Depends(get_account_service),
 ) -> ApiResponse[PersonAccount]:
     return ApiResponse(data=service.update_person_account(person_id, account_id, payload))
+
+
+@router.delete("/persons/{person_id}/accounts/{account_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_person_account(
+    person_id: UUID,
+    account_id: UUID,
+    service: AccountService = Depends(get_account_service),
+) -> Response:
+    service.delete_person_account(person_id, account_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
