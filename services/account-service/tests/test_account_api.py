@@ -4,8 +4,6 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-import pytest
-
 ROOT = Path(__file__).resolve().parents[3]
 SHARED_SRC = ROOT / "shared" / "src"
 if str(SHARED_SRC) not in sys.path:
@@ -19,15 +17,8 @@ if "app" in sys.modules:
 if str(SERVICE_ROOT) not in sys.path:
     sys.path.insert(0, str(SERVICE_ROOT))
 
-from app.dependencies import get_account_service, get_repository
 from app.main import app
 from finanzuebersicht_shared.testing import create_test_client
-
-
-@pytest.fixture(autouse=True)
-def reset_dependencies() -> None:
-    get_account_service.cache_clear()
-    get_repository.cache_clear()
 
 
 def test_account_endpoints_crud_flow() -> None:
@@ -61,7 +52,11 @@ def test_account_endpoints_crud_flow() -> None:
 
     patch_response = client.patch(
         f"/api/v1/persons/{person_id}/accounts/{account_id}",
-        json={"label": "Depot Nord aktualisiert", "balance": "15000.00", "account_type": "girokonto"},
+        json={
+            "label": "Depot Nord aktualisiert",
+            "balance": "15000.00",
+            "account_type": "girokonto",
+        },
     )
     assert patch_response.status_code == 200
     assert patch_response.json()["data"]["label"] == "Depot Nord aktualisiert"

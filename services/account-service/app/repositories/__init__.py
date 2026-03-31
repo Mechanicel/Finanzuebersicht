@@ -1,3 +1,13 @@
-from app.repositories.account_repository import AccountRepository, InMemoryAccountRepository
+from app.repositories.account_repository import (
+    AccountRepository,
+    AccountRepositoryError,
+    InMemoryAccountRepository,
+    MongoAccountRepository,
+)
 
-__all__ = ["AccountRepository", "InMemoryAccountRepository"]
+__all__ = [
+    "AccountRepository",
+    "AccountRepositoryError",
+    "InMemoryAccountRepository",
+    "MongoAccountRepository",
+]
