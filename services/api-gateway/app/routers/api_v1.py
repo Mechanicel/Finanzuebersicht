@@ -342,3 +342,11 @@ async def marketdata_full(
     service: Annotated[GatewayService, Depends(get_gateway_service)],
 ) -> ApiResponse[dict]:
     return ApiResponse(data=await service.get_marketdata_full(symbol))
+
+
+@router.get("/app/marketdata/instruments/{symbol}/selection", response_model=ApiResponse[dict])
+async def marketdata_selection(
+    symbol: str,
+    service: Annotated[GatewayService, Depends(get_gateway_service)],
+) -> ApiResponse[dict]:
+    return ApiResponse(data=await service.get_marketdata_selection(symbol))
