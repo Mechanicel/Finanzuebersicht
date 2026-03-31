@@ -602,10 +602,10 @@ async def test_gateway_marketdata_forwarding_success(monkeypatch: pytest.MonkeyP
     assert search["total"] == 1
     assert summary["symbol"] == "AAPL"
     assert prices["symbol"] == "AAPL"
-    assert calls[0][1].endswith("/api/v1/instruments/search")
+    assert calls[0][1].endswith("/api/v1/marketdata/instruments/search")
     assert calls[0][3] == {"q": "apple", "limit": 5}
-    assert calls[1][1].endswith("/api/v1/instruments/AAPL/summary")
-    assert calls[2][1].endswith("/api/v1/instruments/AAPL/prices")
+    assert calls[1][1].endswith("/api/v1/marketdata/instruments/AAPL/summary")
+    assert calls[2][1].endswith("/api/v1/marketdata/instruments/AAPL/prices")
     assert calls[2][3] == {"range": "1mo", "interval": "1d"}
 
 

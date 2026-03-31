@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
 
@@ -21,12 +21,13 @@ vi.mock('../api/client', () => ({
 async function flushUi() {
   await Promise.resolve()
   await nextTick()
-  await new Promise((resolve) => setTimeout(resolve, 0))
+  await Promise.resolve()
   await nextTick()
 }
 
 describe('DepotHoldingsManager', () => {
   beforeEach(() => {
+    vi.useFakeTimers()
     vi.clearAllMocks()
     vi.mocked(apiClient.portfolios).mockResolvedValue({
       items: [{ portfolio_id: 'p1', person_id: 'person-1', display_name: 'Depot Core', created_at: 'x', updated_at: 'x' }],
@@ -43,12 +44,18 @@ describe('DepotHoldingsManager', () => {
     vi.mocked(apiClient.createPortfolio).mockResolvedValue({ portfolio_id: 'p2', person_id: 'person-1', display_name: 'Depot Core', created_at: 'x', updated_at: 'x' })
   })
 
-  it('adds a holding in same context', async () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('runs search while typing (debounced), no explicit search button, then adds holding', async () => {
     const wrapper = mount(DepotHoldingsManager, { props: { personId: 'person-1', depotLabel: 'Depot Core' } })
     await flushUi()
-    await wrapper.find('input[placeholder="Name / Symbol / ISIN / WKN"]').setValue('AAPL')
-    await wrapper.findAll('button').find((b) => b.text() === 'Suchen')!.trigger('click')
+    expect(wrapper.findAll('button').some((b) => b.text() === 'Suchen')).toBe(false)
+    await wrapper.find('input[placeholder*="Name / Symbol / ISIN / WKN"]').setValue('AAPL')
+    await vi.advanceTimersByTimeAsync(350)
     await flushUi()
+    expect(apiClient.searchInstruments).toHaveBeenCalledWith('AAPL')
     await wrapper.find('ul.search-list button').trigger('click')
     await flushUi()
     await wrapper.find('form.holding-form').trigger('submit.prevent')
@@ -57,8 +64,27 @@ describe('DepotHoldingsManager', () => {
     expect(apiClient.addHolding).toHaveBeenCalledWith('p1', expect.objectContaining({ symbol: 'AAPL' }))
   })
 
+  it('refreshes results while typing and handles empty search state', async () => {
+    vi.mocked(apiClient.searchInstruments)
+      .mockResolvedValueOnce({ query: 'AAP', total: 1, items: [{ symbol: 'AAPL', company_name: 'Apple', display_name: 'Apple' }] })
+      .mockResolvedValueOnce({ query: 'ZZZ', total: 0, items: [] })
+    const wrapper = mount(DepotHoldingsManager, { props: { personId: 'person-1', depotLabel: 'Depot Core' } })
+    await flushUi()
+    const input = wrapper.find('input[placeholder*="Name / Symbol / ISIN / WKN"]')
+    await input.setValue('AAP')
+    await vi.advanceTimersByTimeAsync(350)
+    await flushUi()
+    expect(wrapper.text()).toContain('Apple')
+
+    await input.setValue('ZZZ')
+    await vi.advanceTimersByTimeAsync(350)
+    await flushUi()
+    expect(wrapper.text()).toContain('Keine Treffer gefunden.')
+  })
+
   it('updates and deletes an existing holding', async () => {
     const wrapper = mount(DepotHoldingsManager, { props: { personId: 'person-1', depotLabel: 'Depot Core' } })
+    await vi.runAllTimersAsync()
     await flushUi()
 
     expect(wrapper.text()).toContain('Bearbeiten')
