@@ -247,8 +247,11 @@ export interface InstrumentSearchItem {
   display_name?: string | null
   isin?: string | null
   wkn?: string | null
+  exchange?: string | null
   last_price?: number | null
   currency?: string | null
+  quote_type?: string | null
+  asset_type?: string | null
 }
 
 export interface InstrumentSearchResult {

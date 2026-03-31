@@ -51,6 +51,8 @@ describe('DepotHoldingsManager', () => {
   it('runs search while typing (debounced), no explicit search button, then adds holding', async () => {
     const wrapper = mount(DepotHoldingsManager, { props: { personId: 'person-1', depotLabel: 'Depot Core' } })
     await flushUi()
+    expect(wrapper.text()).toContain('Portfolio-Kontext')
+    expect(wrapper.find('select').exists()).toBe(false)
     expect(wrapper.findAll('button').some((b) => b.text() === 'Suchen')).toBe(false)
     await wrapper.find('input[placeholder*="Name / Symbol / ISIN / WKN"]').setValue('AAPL')
     await vi.advanceTimersByTimeAsync(350)
@@ -80,6 +82,43 @@ describe('DepotHoldingsManager', () => {
     await vi.advanceTimersByTimeAsync(350)
     await flushUi()
     expect(wrapper.text()).toContain('Keine Treffer gefunden.')
+  })
+
+  it('prefills all available market-data fields after instrument selection', async () => {
+    vi.mocked(apiClient.searchInstruments).mockResolvedValue({
+      query: 'AAPL',
+      total: 1,
+      items: [{
+        symbol: 'AAPL',
+        company_name: 'Apple Inc.',
+        display_name: 'Apple',
+        isin: 'US0378331005',
+        wkn: '865985',
+        currency: 'USD',
+        exchange: 'NMS',
+        quote_type: 'EQUITY',
+        asset_type: 'stock',
+        last_price: 170
+      }]
+    })
+    const wrapper = mount(DepotHoldingsManager, { props: { personId: 'person-1', depotLabel: 'Depot Core' } })
+    await flushUi()
+    await wrapper.find('input[placeholder*="Name / Symbol / ISIN / WKN"]').setValue('AAPL')
+    await vi.advanceTimersByTimeAsync(350)
+    await flushUi()
+    await wrapper.find('ul.search-list button').trigger('click')
+    await flushUi()
+
+    expect((wrapper.find('[data-testid=\"holding-symbol\"]').element as HTMLInputElement).value).toBe('AAPL')
+    expect((wrapper.find('[data-testid=\"holding-isin\"]').element as HTMLInputElement).value).toBe('US0378331005')
+    expect((wrapper.find('[data-testid=\"holding-wkn\"]').element as HTMLInputElement).value).toBe('865985')
+    expect((wrapper.find('[data-testid=\"holding-company-name\"]').element as HTMLInputElement).value).toBe('Apple Inc.')
+    expect((wrapper.find('[data-testid=\"holding-display-name\"]').element as HTMLInputElement).value).toBe('Apple')
+    expect((wrapper.find('[data-testid=\"holding-currency\"]').element as HTMLInputElement).value).toBe('USD')
+    expect((wrapper.find('[data-testid=\"holding-exchange\"]').element as HTMLInputElement).value).toBe('NMS')
+    expect((wrapper.find('[data-testid=\"holding-quote-type\"]').element as HTMLInputElement).value).toBe('EQUITY')
+    expect((wrapper.find('[data-testid=\"holding-asset-type\"]').element as HTMLInputElement).value).toBe('stock')
+    expect((wrapper.find('[data-testid=\"holding-acquisition-price\"]').element as HTMLInputElement).value).toBe('170')
   })
 
   it('updates and deletes an existing holding', async () => {
