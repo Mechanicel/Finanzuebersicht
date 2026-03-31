@@ -7,6 +7,7 @@ from finanzuebersicht_shared.models import ErrorDetail, ErrorResponse
 
 from app.config import get_settings
 from app.models import BadRequestError, NotFoundError, UpstreamServiceError
+from app.warning_filters import suppress_known_yfinance_pandas4_warnings
 from app.routers import api_v1_router
 
 
@@ -46,6 +47,7 @@ def _register_marketdata_error_handlers(app: FastAPI) -> None:
 
 
 def create_application() -> FastAPI:
+    suppress_known_yfinance_pandas4_warnings()
     settings = get_settings()
     app = create_app(settings=settings, api_router=build_api_router())
     _register_marketdata_error_handlers(app)
