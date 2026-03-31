@@ -6,7 +6,10 @@
         <h2>Depotpositionen verwalten</h2>
         <p v-if="personId && depotLabel">Depot: {{ depotLabel }}</p>
       </div>
-      <RouterLink class="btn flow-btn" :to="backTarget">{{ backLabel }}</RouterLink>
+      <div class="flow-actions">
+        <button class="btn secondary" type="button" @click="cancelFlow">Abbrechen</button>
+        <button class="btn flow-btn" type="button" @click="completeFlow">Speichern</button>
+      </div>
     </div>
 
     <p v-if="!personId || !depotLabel" class="context-hint">
@@ -15,21 +18,18 @@
     </p>
 
     <template v-else>
-      <p class="muted">Dieser Schritt ist bewusst getrennt vom Kontoformular, um die Depotpflege übersichtlich zu halten.</p>
       <DepotHoldingsManager :person-id="personId" :depot-label="depotLabel" title="Depot-Positionen" />
-      <div class="actions">
-        <RouterLink class="btn" :to="backTarget">Depot-Flow abschließen</RouterLink>
-      </div>
     </template>
   </section>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import DepotHoldingsManager from '@/modules/accounts/components/DepotHoldingsManager.vue'
 
 const route = useRoute()
+const router = useRouter()
 
 const personId = computed(() => (typeof route.query.personId === 'string' ? route.query.personId : ''))
 const depotLabel = computed(() => (typeof route.query.depotLabel === 'string' ? route.query.depotLabel : ''))
@@ -45,7 +45,13 @@ const backTarget = computed(() => {
   return `/persons/${personId.value}`
 })
 
-const backLabel = computed(() => (origin.value === 'manage' ? 'Zurück zu Konten bearbeiten' : 'Zurück zum Personen-Hub'))
+function cancelFlow() {
+  void router.push(backTarget.value)
+}
+
+function completeFlow() {
+  void router.push(backTarget.value)
+}
 </script>
 
 <style scoped>
@@ -64,7 +70,8 @@ const backLabel = computed(() => (origin.value === 'manage' ? 'Zurück zu Konten
   padding: 0.65rem 0.75rem;
 }
 
-.actions {
-  margin-top: 1rem;
+.flow-actions {
+  display: flex;
+  gap: 0.5rem;
 }
 </style>

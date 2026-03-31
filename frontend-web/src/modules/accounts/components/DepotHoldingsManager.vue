@@ -10,11 +10,10 @@
 
     <div class="context-panel">
       <p class="muted">Portfolio-Kontext: <strong>{{ portfolioDetail?.display_name || depotLabel }}</strong></p>
-      <button class="btn secondary" type="button" @click="refreshPortfolio" :disabled="!selectedPortfolioId || loading">Holdings aktualisieren</button>
     </div>
 
     <div v-if="selectedPortfolioId" class="manager-grid">
-      <section>
+      <section v-if="showAddSection">
         <h4>Position hinzufügen</h4>
         <div>
           <label>Instrument-Suche</label>
@@ -56,7 +55,7 @@
         </form>
       </section>
 
-      <section>
+      <section v-if="showHoldingsSection">
         <h4>Vorhandene Positionen</h4>
         <LoadingState v-if="loading" />
         <EmptyState v-else-if="!portfolioDetail?.holdings.length">Keine Positionen vorhanden.</EmptyState>
@@ -99,9 +98,14 @@ import ErrorState from '@/shared/ui/ErrorState.vue'
 import LoadingState from '@/shared/ui/LoadingState.vue'
 import EmptyState from '@/shared/ui/EmptyState.vue'
 
-const props = defineProps<{ personId: string; depotLabel: string; title?: string }>()
+const props = withDefaults(
+  defineProps<{ personId: string; depotLabel: string; title?: string; viewMode?: 'all' | 'holdings' | 'add' }>(),
+  { viewMode: 'all' }
+)
 
 const title = computed(() => props.title ?? 'Depot-Positionen')
+const showAddSection = computed(() => props.viewMode === 'all' || props.viewMode === 'add')
+const showHoldingsSection = computed(() => props.viewMode === 'all' || props.viewMode === 'holdings')
 const portfolios = ref<PortfolioReadModel[]>([])
 const selectedPortfolioId = ref('')
 const portfolioDetail = ref<PortfolioDetailReadModel | null>(null)
