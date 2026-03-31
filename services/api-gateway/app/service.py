@@ -157,6 +157,9 @@ class GatewayService:
     async def get_marketdata_full(self, symbol: str) -> dict:
         return await self._request_marketdata_service("GET", f"/api/v1/marketdata/instruments/{symbol}/full")
 
+    async def get_marketdata_selection(self, symbol: str) -> dict:
+        return await self._request_marketdata_service("GET", f"/api/v1/marketdata/instruments/{symbol}/selection")
+
     async def get_analytics_overview(self, person_id: UUID) -> dict:
         return await self._get_analytics_payload(person_id, "overview")
 
