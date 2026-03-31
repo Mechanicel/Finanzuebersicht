@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import sys
-from datetime import date
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -26,6 +26,7 @@ from app.models import (
     InstrumentDataBlocksResponse,
     InstrumentFullResponse,
     InstrumentSearchItem,
+    InstrumentSelectionDetailsResponse,
     InstrumentSummary,
     MetricsBlock,
     NotFoundError,
@@ -37,11 +38,27 @@ from app.models import (
 from app.service import MarketDataService
 
 
+class InMemorySelectionCacheRepository:
+    def __init__(self) -> None:
+        self.items: dict[str, tuple[InstrumentSelectionDetailsResponse, datetime]] = {}
+        self.upsert_calls = 0
+
+    def get(self, symbol: str) -> tuple[InstrumentSelectionDetailsResponse, datetime] | None:
+        return self.items.get(symbol)
+
+    def upsert(self, symbol: str, payload: InstrumentSelectionDetailsResponse) -> datetime:
+        self.upsert_calls += 1
+        fetched_at = datetime.now(UTC)
+        self.items[symbol] = (payload, fetched_at)
+        return fetched_at
+
+
 class FakeProvider:
     def __init__(self) -> None:
         self.summary_calls = 0
         self.series_calls = 0
         self.search_calls = 0
+        self.selection_calls = 0
         self.last_interval: DataInterval | None = None
 
     def get_instrument_summary(self, symbol: str) -> InstrumentSummary | None:
@@ -84,6 +101,26 @@ class FakeProvider:
             risk=RiskBlock(),
         )
 
+    def get_instrument_selection_details(self, symbol: str) -> InstrumentSelectionDetailsResponse | None:
+        self.selection_calls += 1
+        if symbol == "NONE":
+            return None
+        return InstrumentSelectionDetailsResponse(
+            symbol=symbol,
+            isin="US0000000001",
+            wkn="ABC123",
+            company_name="Demo Corp",
+            display_name="Demo",
+            exchange="XETRA",
+            currency="EUR",
+            quote_type="equity",
+            asset_type="stock",
+            last_price=123.45,
+            change_1d_pct=0.7,
+            volume=15000,
+            as_of=datetime.now(UTC),
+        )
+
     def search_instruments(self, query: str, limit: int) -> list[InstrumentSearchItem]:
         self.search_calls += 1
         if query == "empty":
@@ -102,15 +139,23 @@ class FakeProvider:
         return []
 
 
-def build_service(provider: FakeProvider) -> MarketDataService:
+def build_service(
+    provider: FakeProvider,
+    repository: InMemorySelectionCacheRepository | None = None,
+    *,
+    cache_enabled: bool = True,
+    selection_ttl_seconds: int = 60,
+) -> MarketDataService:
     return MarketDataService(
         provider=provider,
-        cache_enabled=True,
+        cache_enabled=cache_enabled,
         cache_search_ttl_seconds=60,
         cache_summary_ttl_seconds=60,
         cache_price_ttl_seconds=60,
         cache_series_ttl_seconds=60,
         cache_benchmark_ttl_seconds=60,
+        selection_cache_repository=repository or InMemorySelectionCacheRepository(),
+        selection_cache_ttl_seconds=selection_ttl_seconds,
     )
 
 
@@ -158,13 +203,75 @@ def test_search_cache_hit_avoids_second_provider_call() -> None:
     assert provider.search_calls == 1
 
 
-@pytest.mark.parametrize("method", ["get_instrument_summary", "get_instrument_blocks", "get_instrument_full"])
-def test_not_found_paths_raise_not_found(method: str) -> None:
+def test_selection_cache_hit_for_fresh_db_record() -> None:
+    provider = FakeProvider()
+    repository = InMemorySelectionCacheRepository()
+    fresh = InstrumentSelectionDetailsResponse(
+        symbol="DUM",
+        isin="US0000000001",
+        wkn="ABC123",
+        company_name="Demo Cached",
+        display_name="Demo Cached",
+        exchange="XETRA",
+        currency="EUR",
+        quote_type="equity",
+        asset_type="stock",
+        last_price=99.0,
+    )
+    repository.items["DUM"] = (fresh, datetime.now(UTC) - timedelta(seconds=10))
+    service = build_service(provider, repository, cache_enabled=False, selection_ttl_seconds=60)
+
+    response = service.get_instrument_selection_details("dum")
+
+    assert response.company_name == "Demo Cached"
+    assert provider.selection_calls == 0
+
+
+def test_selection_stale_cache_refreshes_provider_and_updates_db() -> None:
+    provider = FakeProvider()
+    repository = InMemorySelectionCacheRepository()
+    stale = InstrumentSelectionDetailsResponse(
+        symbol="DUM",
+        company_name="Stale",
+        exchange="XETRA",
+        currency="EUR",
+        last_price=10.0,
+    )
+    repository.items["DUM"] = (stale, datetime.now(UTC) - timedelta(seconds=120))
+    service = build_service(provider, repository, cache_enabled=False, selection_ttl_seconds=30)
+
+    response = service.get_instrument_selection_details("DUM")
+
+    assert response.last_price > 0
+    assert provider.selection_calls == 1
+    assert repository.upsert_calls == 1
+    assert repository.items["DUM"][0].company_name == "Demo Corp"
+
+
+def test_selection_response_contains_positive_last_price() -> None:
+    provider = FakeProvider()
+    service = build_service(provider)
+
+    response = service.get_instrument_selection_details("DUM")
+
+    assert response.last_price > 0
+
+
+@pytest.mark.parametrize(
+    "method,argument",
+    [
+        ("get_instrument_summary", "NONE"),
+        ("get_instrument_blocks", "NONE"),
+        ("get_instrument_full", "NONE"),
+        ("get_instrument_selection_details", "NONE"),
+    ],
+)
+def test_not_found_paths_raise_not_found(method: str, argument: str) -> None:
     provider = FakeProvider()
     service = build_service(provider)
 
     with pytest.raises(NotFoundError):
-        getattr(service, method)("NONE")
+        getattr(service, method)(argument)
 
 
 def test_upstream_service_error_is_mapped_to_structured_503() -> None:

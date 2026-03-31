@@ -17,6 +17,8 @@ class Settings(ServiceSettings):
     marketdata_cache_price_ttl_seconds: int = 45
     marketdata_cache_series_ttl_seconds: int = 30
     marketdata_cache_benchmark_ttl_seconds: int = 900
+    marketdata_cache_selection_ttl_seconds: int = 60
+    marketdata_selection_cache_db_path: str = ".cache/marketdata_selection_cache.sqlite3"
 
 
 @lru_cache(maxsize=1)

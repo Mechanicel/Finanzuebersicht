@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from app.cache import TTLMemoryCache
+from datetime import UTC, datetime, timedelta
+
 from app.models import (
     BadRequestError,
     BenchmarkOptionsResponse,
@@ -12,6 +14,7 @@ from app.models import (
     DataRange,
     InstrumentDataBlocksResponse,
     InstrumentFullResponse,
+    InstrumentSelectionDetailsResponse,
     InstrumentSearchResponse,
     InstrumentSummary,
     NotFoundError,
@@ -19,6 +22,7 @@ from app.models import (
     SeriesPoint,
 )
 from app.providers import MarketDataProvider
+from app.repositories import InstrumentSelectionCacheRepository
 
 
 class MarketDataService:
@@ -32,6 +36,8 @@ class MarketDataService:
         cache_price_ttl_seconds: int,
         cache_series_ttl_seconds: int,
         cache_benchmark_ttl_seconds: int,
+        selection_cache_repository: InstrumentSelectionCacheRepository,
+        selection_cache_ttl_seconds: int,
     ) -> None:
         self.provider = provider
         self.cache_enabled = cache_enabled
@@ -49,6 +55,11 @@ class MarketDataService:
         )
         self.benchmark_cache: TTLMemoryCache[object] | None = (
             TTLMemoryCache(ttl_seconds=cache_benchmark_ttl_seconds) if cache_enabled else None
+        )
+        self.selection_cache_repository = selection_cache_repository
+        self.selection_cache_ttl_seconds = selection_cache_ttl_seconds
+        self.selection_memory_cache: TTLMemoryCache[object] | None = (
+            TTLMemoryCache(ttl_seconds=selection_cache_ttl_seconds) if cache_enabled else None
         )
 
     def get_instrument_summary(self, symbol: str) -> InstrumentSummary:
@@ -114,6 +125,31 @@ class MarketDataService:
             raise NotFoundError(f"Instrument '{normalized}' not found")
         self._cache_set(self.price_cache, cache_key, full)
         return full
+
+    def get_instrument_selection_details(self, symbol: str) -> InstrumentSelectionDetailsResponse:
+        normalized = self._normalize_symbol(symbol)
+        cache_key = f"selection:{normalized}"
+
+        cached = self._cache_get(self.selection_memory_cache, cache_key)
+        if cached is not None:
+            return cached
+
+        db_cached = self.selection_cache_repository.get(normalized)
+        if db_cached is not None:
+            payload, fetched_at = db_cached
+            if self._is_selection_cache_fresh(fetched_at):
+                self._cache_set(self.selection_memory_cache, cache_key, payload)
+                return payload
+
+        selection = self.provider.get_instrument_selection_details(normalized)
+        if selection is None:
+            raise NotFoundError(f"Instrument '{normalized}' not found")
+
+        persisted_at = self.selection_cache_repository.upsert(normalized, selection)
+        if selection.as_of is None:
+            selection = selection.model_copy(update={"as_of": persisted_at})
+        self._cache_set(self.selection_memory_cache, cache_key, selection)
+        return selection
 
     def list_benchmark_options(self) -> BenchmarkOptionsResponse:
         cache_key = "benchmarks:options"
@@ -197,6 +233,11 @@ class MarketDataService:
             )
 
         return ComparisonSeriesResponse(range=payload.range, interval=payload.interval, series=series)
+
+    def _is_selection_cache_fresh(self, fetched_at: datetime) -> bool:
+        if fetched_at.tzinfo is None:
+            fetched_at = fetched_at.replace(tzinfo=UTC)
+        return datetime.now(UTC) - fetched_at < timedelta(seconds=self.selection_cache_ttl_seconds)
 
     @staticmethod
     def _normalize_symbol(symbol: str) -> str:

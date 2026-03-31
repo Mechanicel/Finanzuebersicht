@@ -4,6 +4,7 @@ from functools import lru_cache
 
 from app.config import get_settings
 from app.providers import InMemoryMarketDataProvider, MarketDataProvider, YFinanceMarketDataProvider
+from app.repositories import InstrumentSelectionCacheRepository
 from app.service import MarketDataService
 
 
@@ -23,6 +24,12 @@ def get_provider() -> MarketDataProvider:
 
 
 @lru_cache
+def get_selection_cache_repository() -> InstrumentSelectionCacheRepository:
+    settings = get_settings()
+    return InstrumentSelectionCacheRepository(db_path=settings.marketdata_selection_cache_db_path)
+
+
+@lru_cache
 def get_marketdata_service() -> MarketDataService:
     settings = get_settings()
     return MarketDataService(
@@ -33,4 +40,6 @@ def get_marketdata_service() -> MarketDataService:
         cache_price_ttl_seconds=settings.marketdata_cache_price_ttl_seconds,
         cache_series_ttl_seconds=settings.marketdata_cache_series_ttl_seconds,
         cache_benchmark_ttl_seconds=settings.marketdata_cache_benchmark_ttl_seconds,
+        selection_cache_repository=get_selection_cache_repository(),
+        selection_cache_ttl_seconds=settings.marketdata_cache_selection_ttl_seconds,
     )

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from statistics import pstdev
 from typing import Any, Protocol
 
@@ -18,6 +18,7 @@ from app.models import (
     InstrumentDataBlocksResponse,
     InstrumentFullResponse,
     InstrumentSearchItem,
+    InstrumentSelectionDetailsResponse,
     InstrumentSummary,
     MetricsBlock,
     PricePoint,
@@ -37,6 +38,8 @@ class MarketDataProvider(Protocol):
     def get_instrument_blocks(self, symbol: str) -> InstrumentDataBlocksResponse | None: ...
 
     def get_instrument_full(self, symbol: str) -> InstrumentFullResponse | None: ...
+
+    def get_instrument_selection_details(self, symbol: str) -> InstrumentSelectionDetailsResponse | None: ...
 
     def search_instruments(self, query: str, limit: int) -> list[InstrumentSearchItem]: ...
 
@@ -144,6 +147,31 @@ class YFinanceMarketDataProvider:
             fundamentals=self._build_fundamentals(info),
             metrics=self._build_metrics(history_1y),
             risk=self._build_risk(info=info, history_1y=history_1y),
+        )
+
+    def get_instrument_selection_details(self, symbol: str) -> InstrumentSelectionDetailsResponse | None:
+        ticker = self._get_ticker(symbol)
+        info = self._safe_info(ticker)
+        if not self._seems_known_instrument(symbol, info):
+            return None
+
+        history_1y = self._safe_history(ticker, period="1y", interval="1d")
+        snapshot = self._build_snapshot(ticker=ticker, info=info, history_1y=history_1y)
+        summary = self._map_summary(symbol=symbol, info=info)
+        return InstrumentSelectionDetailsResponse(
+            symbol=summary.symbol,
+            isin=summary.isin,
+            wkn=summary.wkn,
+            company_name=summary.company_name,
+            display_name=summary.display_name,
+            exchange=summary.exchange,
+            currency=summary.currency,
+            quote_type=summary.quote_type,
+            asset_type=summary.asset_type,
+            last_price=snapshot.last_price,
+            change_1d_pct=snapshot.change_1d_pct,
+            volume=snapshot.volume,
+            as_of=datetime.now(UTC),
         )
 
     def search_instruments(self, query: str, limit: int) -> list[InstrumentSearchItem]:
@@ -685,6 +713,29 @@ class InMemoryMarketDataProvider:
             fundamentals=instrument["fundamentals"],
             metrics=instrument["metrics"],
             risk=instrument["risk"],
+        )
+
+    def get_instrument_selection_details(self, symbol: str) -> InstrumentSelectionDetailsResponse | None:
+        key = symbol.upper()
+        instrument = self._instruments.get(key)
+        if instrument is None:
+            return None
+        summary = instrument["summary"]
+        snapshot = instrument["snapshot"]
+        return InstrumentSelectionDetailsResponse(
+            symbol=summary.symbol,
+            isin=summary.isin,
+            wkn=summary.wkn,
+            company_name=summary.company_name,
+            display_name=summary.display_name,
+            exchange=summary.exchange,
+            currency=summary.currency,
+            quote_type=summary.quote_type,
+            asset_type=summary.asset_type,
+            last_price=snapshot.last_price,
+            change_1d_pct=snapshot.change_1d_pct,
+            volume=snapshot.volume,
+            as_of=datetime.now(UTC),
         )
 
     def search_instruments(self, query: str, limit: int) -> list[InstrumentSearchItem]:
