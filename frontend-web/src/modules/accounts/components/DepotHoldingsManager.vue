@@ -5,7 +5,7 @@
       <p class="muted">Positionen bleiben als Kauf-/Bestandsdaten im Portfolio-Service gespeichert.</p>
     </div>
 
-    <p v-if="feedbackMessage" class="success">{{ feedbackMessage }}</p>
+    <p v-if="feedbackMessage" ref="feedbackBannerRef" class="feedback-banner success" role="status">{{ feedbackMessage }}</p>
     <ErrorState v-if="errorMessage" :message="errorMessage" />
 
     <div class="context-panel">
@@ -91,7 +91,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { apiClient } from '@/shared/api/client'
 import type { HoldingCreatePayload, HoldingReadModel, InstrumentSearchItem, PortfolioDetailReadModel, PortfolioReadModel } from '@/shared/model/types'
 import ErrorState from '@/shared/ui/ErrorState.vue'
@@ -119,6 +119,7 @@ const searchError = ref<string | null>(null)
 const searched = ref(false)
 const errorMessage = ref<string | null>(null)
 const feedbackMessage = ref('')
+const feedbackBannerRef = ref<HTMLElement | null>(null)
 const editHoldingId = ref('')
 
 type HoldingDraftState = HoldingCreatePayload & {
@@ -127,7 +128,7 @@ type HoldingDraftState = HoldingCreatePayload & {
   asset_type?: string | null
 }
 
-const draftHolding = ref<HoldingDraftState>({ symbol: '', quantity: 1, acquisition_price: 0, currency: 'EUR', buy_date: new Date().toISOString().slice(0, 10), notes: null, exchange: null, quote_type: null, asset_type: null })
+const draftHolding = ref<HoldingDraftState>(createDefaultDraftHolding())
 const editHolding = ref({ quantity: 1, acquisition_price: 0, currency: 'EUR', buy_date: new Date().toISOString().slice(0, 10), notes: '' })
 const MIN_SEARCH_LENGTH = 2
 const SEARCH_DEBOUNCE_MS = 350
@@ -143,6 +144,37 @@ const searchHint = computed(() => {
 function cleanOptional(value?: string | null) {
   const trimmed = (value ?? '').trim()
   return trimmed.length > 0 ? trimmed : null
+}
+
+function createDefaultDraftHolding(): HoldingDraftState {
+  return {
+    symbol: '',
+    quantity: 1,
+    acquisition_price: 0,
+    currency: 'EUR',
+    buy_date: new Date().toISOString().slice(0, 10),
+    notes: null,
+    exchange: null,
+    quote_type: null,
+    asset_type: null,
+  }
+}
+
+function resetDraftHoldingForm() {
+  draftHolding.value = createDefaultDraftHolding()
+  selectedInstrument.value = null
+  searchQuery.value = ''
+  searchResults.value = []
+  searched.value = false
+  searchError.value = null
+}
+
+async function showSuccessFeedback(message: string) {
+  feedbackMessage.value = message
+  await nextTick()
+  if (feedbackBannerRef.value && typeof feedbackBannerRef.value.scrollIntoView === 'function') {
+    feedbackBannerRef.value.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }
 }
 
 async function resolvePortfolio() {
@@ -236,6 +268,7 @@ async function createHolding() {
   if (!selectedPortfolioId.value) return
   saving.value = true
   errorMessage.value = null
+  feedbackMessage.value = ''
   try {
     await apiClient.addHolding(selectedPortfolioId.value, {
       symbol: draftHolding.value.symbol.trim().toUpperCase(),
@@ -249,10 +282,11 @@ async function createHolding() {
       buy_date: draftHolding.value.buy_date,
       notes: cleanOptional(draftHolding.value.notes),
     })
-    feedbackMessage.value = 'Holding wurde hinzugefügt.'
-    selectedInstrument.value = null
+    await showSuccessFeedback('Depotbestandteil wurde erfolgreich hinzugefügt.')
+    resetDraftHoldingForm()
     await refreshPortfolio()
   } catch (e) {
+    feedbackMessage.value = ''
     errorMessage.value = e instanceof Error ? e.message : 'Holding konnte nicht gespeichert werden.'
   } finally {
     saving.value = false
@@ -278,6 +312,7 @@ async function saveEdit(holdingId: string) {
   if (!selectedPortfolioId.value) return
   saving.value = true
   errorMessage.value = null
+  feedbackMessage.value = ''
   try {
     await apiClient.updateHolding(selectedPortfolioId.value, holdingId, {
       quantity: Number(editHolding.value.quantity),
@@ -286,10 +321,11 @@ async function saveEdit(holdingId: string) {
       buy_date: editHolding.value.buy_date,
       notes: cleanOptional(editHolding.value.notes),
     })
-    feedbackMessage.value = 'Holding wurde aktualisiert.'
+    await showSuccessFeedback('Holding wurde aktualisiert.')
     editHoldingId.value = ''
     await refreshPortfolio()
   } catch (e) {
+    feedbackMessage.value = ''
     errorMessage.value = e instanceof Error ? e.message : 'Holding konnte nicht aktualisiert werden.'
   } finally {
     saving.value = false
@@ -300,11 +336,13 @@ async function removeHolding(holdingId: string) {
   if (!selectedPortfolioId.value) return
   saving.value = true
   errorMessage.value = null
+  feedbackMessage.value = ''
   try {
     await apiClient.deleteHolding(selectedPortfolioId.value, holdingId)
-    feedbackMessage.value = 'Holding wurde gelöscht.'
+    await showSuccessFeedback('Holding wurde gelöscht.')
     await refreshPortfolio()
   } catch (e) {
+    feedbackMessage.value = ''
     errorMessage.value = e instanceof Error ? e.message : 'Holding konnte nicht gelöscht werden.'
   } finally {
     saving.value = false
@@ -333,4 +371,14 @@ onBeforeUnmount(() => {
 .row-actions { display: flex; gap: .5rem; margin-top: .5rem; }
 .search-list { list-style: none; padding: 0; display: grid; gap: .5rem; margin-top: .5rem; }
 .result-item { width: 100%; text-align: left; display: grid; gap: .2rem; }
+.feedback-banner {
+  margin-top: .75rem;
+  margin-bottom: .5rem;
+  padding: .75rem 1rem;
+  border-radius: 8px;
+  border: 1px solid #86efac;
+  background: #f0fdf4;
+  color: #166534;
+  font-weight: 600;
+}
 </style>
