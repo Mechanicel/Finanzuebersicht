@@ -64,6 +64,9 @@ describe('DepotHoldingsManager', () => {
     await flushUi()
 
     expect(apiClient.addHolding).toHaveBeenCalledWith('p1', expect.objectContaining({ symbol: 'AAPL' }))
+    expect(wrapper.text()).toContain('Depotbestandteil wurde erfolgreich hinzugefügt.')
+    expect((wrapper.find('[data-testid=\"holding-symbol\"]').element as HTMLInputElement).value).toBe('')
+    expect((wrapper.find('input[placeholder*=\"Name / Symbol / ISIN / WKN\"]').element as HTMLInputElement).value).toBe('')
   })
 
   it('refreshes results while typing and handles empty search state', async () => {
