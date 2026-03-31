@@ -156,7 +156,7 @@ class GatewayService:
         response_payload = await self._request_account_service(
             "POST",
             f"/api/v1/persons/{person_id}/accounts",
-            json=payload.model_dump(exclude_none=True),
+            json=payload.model_dump(mode="json", exclude_none=True),
         )
         return AccountReadModel.model_validate(response_payload)
 
@@ -164,7 +164,7 @@ class GatewayService:
         response_payload = await self._request_account_service(
             "PATCH",
             f"/api/v1/persons/{person_id}/accounts/{account_id}",
-            json=payload.model_dump(exclude_none=True),
+            json=payload.model_dump(mode="json", exclude_none=True),
         )
         return AccountReadModel.model_validate(response_payload)
 
