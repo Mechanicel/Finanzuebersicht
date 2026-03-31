@@ -47,12 +47,14 @@ class GatewayService:
         person_base_url: str,
         masterdata_base_url: str,
         account_base_url: str,
+        marketdata_base_url: str,
         timeout_seconds: float,
     ) -> None:
         self._analytics_base_url = analytics_base_url.rstrip("/")
         self._person_base_url = person_base_url.rstrip("/")
         self._masterdata_base_url = masterdata_base_url.rstrip("/")
         self._account_base_url = account_base_url.rstrip("/")
+        self._marketdata_base_url = marketdata_base_url.rstrip("/")
         self._timeout = timeout_seconds
 
     async def list_persons(
@@ -171,6 +173,35 @@ class GatewayService:
     async def list_portfolios(self, person_id: UUID) -> list[PortfolioReadModel]:
         return PERSON_PORTFOLIOS.get(person_id, [])
 
+    async def search_marketdata_instruments(self, *, q: str, limit: int | None = None) -> dict:
+        return await self._request_marketdata_service(
+            "GET",
+            "/api/v1/instruments/search",
+            params={"q": q, "limit": limit},
+        )
+
+    async def get_marketdata_summary(self, symbol: str) -> dict:
+        return await self._request_marketdata_service("GET", f"/api/v1/instruments/{symbol}/summary")
+
+    async def get_marketdata_blocks(self, symbol: str) -> dict:
+        return await self._request_marketdata_service("GET", f"/api/v1/instruments/{symbol}/blocks")
+
+    async def get_marketdata_prices(
+        self,
+        symbol: str,
+        *,
+        range_value: str | None = None,
+        interval: str | None = None,
+    ) -> dict:
+        return await self._request_marketdata_service(
+            "GET",
+            f"/api/v1/instruments/{symbol}/prices",
+            params={"range": range_value, "interval": interval},
+        )
+
+    async def get_marketdata_full(self, symbol: str) -> dict:
+        return await self._request_marketdata_service("GET", f"/api/v1/instruments/{symbol}/full")
+
     async def get_analytics_overview(self, person_id: UUID) -> dict:
         return await self._get_analytics_payload(person_id, "overview")
 
@@ -286,6 +317,31 @@ class GatewayService:
 
         if expect_no_content:
             return {}
+
+        return response.json()["data"]
+
+    async def _request_marketdata_service(
+        self,
+        method: str,
+        path: str,
+        *,
+        json: dict | None = None,
+        params: dict | None = None,
+    ) -> dict:
+        url = f"{self._marketdata_base_url}{path}"
+        query = {key: value for key, value in (params or {}).items() if value is not None}
+        try:
+            async with httpx.AsyncClient(timeout=self._timeout) as client:
+                response = await client.request(method, url, json=json, params=query)
+        except httpx.RequestError as exc:
+            raise HTTPException(
+                status_code=502,
+                detail="Marketdata-Service ist derzeit nicht erreichbar. Bitte später erneut versuchen.",
+            ) from exc
+
+        if response.status_code >= 400:
+            detail = self._error_detail(response)
+            raise HTTPException(status_code=response.status_code, detail=detail)
 
         return response.json()["data"]
 
