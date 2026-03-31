@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import date, datetime, timedelta
 from statistics import pstdev
 from typing import Any, Protocol
@@ -56,6 +57,7 @@ class YFinanceMarketDataProvider:
         DataInterval.ONE_WEEK: "1wk",
         DataInterval.ONE_MONTH: "1mo",
     }
+    _SEARCH_PROVIDER_NAME = "yfinance"
 
     def __init__(
         self,
@@ -145,11 +147,42 @@ class YFinanceMarketDataProvider:
         )
 
     def search_instruments(self, query: str, limit: int) -> list[InstrumentSearchItem]:
+        logger = logging.getLogger(__name__)
+        max_results = min(max(limit * 3, 10), 40)
+        raw_quotes: list[dict[str, Any]] | None = None
         try:
-            search = yf.Search(query=query, max_results=min(max(limit * 3, 10), 40), session=self._session)
+            search = yf.Search(query=query, max_results=max_results, session=self._session)
             raw_quotes = list(search.quotes or [])
         except Exception as exc:  # pragma: no cover - library/network behaviour
-            raise UpstreamServiceError() from exc
+            logger.warning(
+                "marketdata search failed with provider session; retrying without session",
+                extra={
+                    "provider": self._SEARCH_PROVIDER_NAME,
+                    "query": query,
+                    "exception_type": type(exc).__name__,
+                    "error_message": str(exc)[:240],
+                },
+                exc_info=True,
+            )
+
+        if raw_quotes is None:
+            try:
+                search = yf.Search(query=query, max_results=max_results)
+                raw_quotes = list(search.quotes or [])
+            except Exception as exc:  # pragma: no cover - library/network behaviour
+                logger.error(
+                    "marketdata search failed without session",
+                    extra={
+                        "provider": self._SEARCH_PROVIDER_NAME,
+                        "query": query,
+                        "exception_type": type(exc).__name__,
+                        "error_message": str(exc)[:240],
+                    },
+                    exc_info=True,
+                )
+                if self._is_upstream_search_failure(exc):
+                    raise UpstreamServiceError() from exc
+                return []
 
         terms = query.strip()
         lowered = terms.lower()
@@ -190,6 +223,10 @@ class YFinanceMarketDataProvider:
 
         scored.sort(key=lambda pair: (pair[0], pair[1].symbol), reverse=True)
         return [item for _, item in scored[:limit]]
+
+    @staticmethod
+    def _is_upstream_search_failure(exc: Exception) -> bool:
+        return isinstance(exc, requests.RequestException)
 
     def list_benchmark_options(self) -> list[BenchmarkOption]:
         return list(self._benchmarks)
