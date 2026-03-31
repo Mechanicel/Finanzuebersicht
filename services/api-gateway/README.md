@@ -36,3 +36,4 @@ Das Gateway ist der **einheitliche Einstiegspunkt** für das Vue-Frontend.
 ## BFF-Regel
 
 Das Gateway implementiert nur Frontend-Use-Cases und wird nicht als generischer Daten-Dump verwendet.
+Für Marketdata-Endpunkte bedeutet das in diesem Schritt: reine Proxy-Weiterleitung ohne Aggregation oder Provider-Fachlogik.
