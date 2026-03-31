@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from enum import StrEnum
 
 from pydantic import BaseModel, Field, field_validator
@@ -56,6 +56,23 @@ class InstrumentSearchResponse(BaseModel):
     query: str
     items: list[InstrumentSearchItem]
     total: int
+
+
+
+class InstrumentSelectionDetailsResponse(BaseModel):
+    symbol: str
+    isin: str | None = None
+    wkn: str | None = None
+    company_name: str
+    display_name: str | None = None
+    exchange: str
+    currency: str
+    quote_type: str | None = None
+    asset_type: str | None = None
+    last_price: float = Field(ge=0)
+    change_1d_pct: float | None = None
+    volume: int | None = None
+    as_of: datetime | None = None
 
 
 class PricePoint(BaseModel):

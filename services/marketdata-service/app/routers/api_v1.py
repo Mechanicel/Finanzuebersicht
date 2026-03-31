@@ -14,6 +14,7 @@ from app.models import (
     InstrumentDataBlocksResponse,
     InstrumentFullResponse,
     InstrumentSearchResponse,
+    InstrumentSelectionDetailsResponse,
     InstrumentSummary,
     PriceSeriesResponse,
 )
@@ -55,6 +56,18 @@ async def instrument_blocks(
     service: MarketDataService = Depends(get_marketdata_service),
 ) -> ApiResponse[InstrumentDataBlocksResponse]:
     return ApiResponse(data=service.get_instrument_blocks(symbol))
+
+
+
+@router.get(
+    "/marketdata/instruments/{symbol}/selection",
+    response_model=ApiResponse[InstrumentSelectionDetailsResponse],
+)
+async def instrument_selection_details(
+    symbol: str,
+    service: MarketDataService = Depends(get_marketdata_service),
+) -> ApiResponse[InstrumentSelectionDetailsResponse]:
+    return ApiResponse(data=service.get_instrument_selection_details(symbol))
 
 
 @router.get("/marketdata/instruments/{symbol}/full", response_model=ApiResponse[InstrumentFullResponse])

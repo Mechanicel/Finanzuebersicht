@@ -18,7 +18,7 @@ if str(SERVICE_ROOT) not in sys.path:
 from finanzuebersicht_shared.testing import assert_standard_health_payload, create_test_client
 
 from app.config import get_settings
-from app.dependencies import get_marketdata_service, get_provider
+from app.dependencies import get_marketdata_service, get_provider, get_selection_cache_repository
 from app.main import app
 
 
@@ -28,6 +28,7 @@ def reset_singletons(monkeypatch: pytest.MonkeyPatch) -> None:
     get_settings.cache_clear()
     get_marketdata_service.cache_clear()
     get_provider.cache_clear()
+    get_selection_cache_repository.cache_clear()
 
 
 def test_health_and_ready() -> None:
@@ -79,6 +80,11 @@ def test_blocks_full_benchmark_and_comparison_endpoints() -> None:
     full = client.get("/api/v1/marketdata/instruments/MSFT/full")
     assert full.status_code == 200
     assert full.json()["data"]["summary"]["symbol"] == "MSFT"
+
+    selection = client.get("/api/v1/marketdata/instruments/MSFT/selection")
+    assert selection.status_code == 200
+    assert selection.json()["data"]["symbol"] == "MSFT"
+    assert selection.json()["data"]["last_price"] > 0
 
     benchmarks = client.get("/api/v1/marketdata/benchmarks/options")
     assert benchmarks.status_code == 200
