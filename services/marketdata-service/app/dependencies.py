@@ -3,13 +3,23 @@ from __future__ import annotations
 from functools import lru_cache
 
 from app.config import get_settings
-from app.providers import InMemoryMarketDataProvider
+from app.providers import InMemoryMarketDataProvider, MarketDataProvider, YFinanceMarketDataProvider
 from app.service import MarketDataService
 
 
 @lru_cache
-def get_provider() -> InMemoryMarketDataProvider:
-    return InMemoryMarketDataProvider()
+def get_provider() -> MarketDataProvider:
+    settings = get_settings()
+    provider_name = settings.marketdata_provider.strip().lower()
+    if provider_name == "inmemory":
+        return InMemoryMarketDataProvider()
+    if provider_name == "yfinance":
+        return YFinanceMarketDataProvider(
+            timeout_seconds=settings.marketdata_request_timeout_seconds,
+            retries=settings.marketdata_request_retries,
+            backoff_factor=settings.marketdata_request_backoff_factor,
+        )
+    raise RuntimeError(f"Unsupported marketdata_provider '{settings.marketdata_provider}'")
 
 
 @lru_cache
