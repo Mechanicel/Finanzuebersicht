@@ -16,14 +16,22 @@
     <div v-if="selectedPortfolioId" class="manager-grid">
       <section>
         <h4>Position hinzufügen</h4>
-        <div class="grid two-col">
-          <div><label>Instrument-Suche</label><input class="input" v-model.trim="searchQuery" placeholder="Name / Symbol / ISIN / WKN" /></div>
-          <button class="btn" type="button" @click="searchInstrument" :disabled="searchQuery.length < 1 || searching">Suchen</button>
+        <div>
+          <label>Instrument-Suche</label>
+          <input class="input" v-model.trim="searchQuery" :placeholder="`Name / Symbol / ISIN / WKN (mind. ${MIN_SEARCH_LENGTH} Zeichen)`" />
         </div>
+        <p v-if="searchHint" class="muted">{{ searchHint }}</p>
+        <LoadingState v-if="searching" />
+        <ErrorState v-else-if="searchError" :message="searchError" />
+        <EmptyState v-else-if="showEmptySearch">Keine Treffer gefunden.</EmptyState>
 
-        <ul v-if="searchResults.length" class="search-list">
+        <ul v-else-if="searchResults.length" class="search-list">
           <li v-for="item in searchResults" :key="`${item.symbol}-${item.isin || ''}`">
-            <button class="btn secondary" type="button" @click="selectInstrument(item)">{{ item.symbol }} · {{ item.display_name || item.company_name }}</button>
+            <button class="btn secondary result-item" type="button" @click="selectInstrument(item)">
+              <strong>{{ item.symbol }}</strong>
+              <span>{{ item.display_name || item.company_name || 'Unbenanntes Instrument' }}</span>
+              <small v-if="item.last_price != null">Letzter Preis: {{ item.last_price }} {{ item.currency || '' }}</small>
+            </button>
           </li>
         </ul>
 
@@ -81,7 +89,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { apiClient } from '../api/client'
 import type { HoldingCreatePayload, HoldingReadModel, InstrumentSearchItem, PortfolioDetailReadModel, PortfolioReadModel } from '../types/models'
 import ErrorState from '../components/ErrorState.vue'
@@ -100,12 +108,24 @@ const searching = ref(false)
 const searchQuery = ref('')
 const searchResults = ref<InstrumentSearchItem[]>([])
 const selectedInstrument = ref<InstrumentSearchItem | null>(null)
+const searchError = ref<string | null>(null)
+const searched = ref(false)
 const errorMessage = ref<string | null>(null)
 const feedbackMessage = ref('')
 const editHoldingId = ref('')
 
 const draftHolding = ref<HoldingCreatePayload>({ symbol: '', quantity: 1, acquisition_price: 0, currency: 'EUR', buy_date: new Date().toISOString().slice(0, 10), notes: null })
 const editHolding = ref({ quantity: 1, acquisition_price: 0, currency: 'EUR', buy_date: new Date().toISOString().slice(0, 10), notes: '' })
+const MIN_SEARCH_LENGTH = 2
+const SEARCH_DEBOUNCE_MS = 350
+let searchDebounceHandle: ReturnType<typeof setTimeout> | null = null
+
+const showEmptySearch = computed(() => searched.value && !searching.value && !searchError.value && searchResults.value.length === 0 && searchQuery.value.length >= MIN_SEARCH_LENGTH)
+const searchHint = computed(() => {
+  if (!searchQuery.value.length) return 'Suche startet beim Tippen.'
+  if (searchQuery.value.length < MIN_SEARCH_LENGTH) return `Bitte mindestens ${MIN_SEARCH_LENGTH} Zeichen eingeben.`
+  return null
+})
 
 function cleanOptional(value?: string | null) {
   const trimmed = (value ?? '').trim()
@@ -151,12 +171,21 @@ function onPortfolioChange(event: Event) {
 }
 
 async function searchInstrument() {
+  if (searchQuery.value.length < MIN_SEARCH_LENGTH) {
+    searchResults.value = []
+    searched.value = false
+    searchError.value = null
+    return
+  }
   searching.value = true
+  searchError.value = null
+  searched.value = true
   try {
     const result = await apiClient.searchInstruments(searchQuery.value)
     searchResults.value = result.items
   } catch (e) {
-    errorMessage.value = e instanceof Error ? e.message : 'Instrumentensuche fehlgeschlagen.'
+    searchError.value = e instanceof Error ? e.message : 'Instrumentensuche fehlgeschlagen.'
+    searchResults.value = []
   } finally {
     searching.value = false
   }
@@ -178,6 +207,20 @@ function selectInstrument(item: InstrumentSearchItem) {
   }
 }
 
+function scheduleSearch() {
+  if (searchDebounceHandle) clearTimeout(searchDebounceHandle)
+  if (searchQuery.value.length < MIN_SEARCH_LENGTH) {
+    searching.value = false
+    searchError.value = null
+    searchResults.value = []
+    searched.value = false
+    return
+  }
+  searchDebounceHandle = setTimeout(() => {
+    void searchInstrument()
+  }, SEARCH_DEBOUNCE_MS)
+}
+
 async function createHolding() {
   if (!selectedPortfolioId.value) return
   saving.value = true
@@ -196,6 +239,7 @@ async function createHolding() {
       notes: cleanOptional(draftHolding.value.notes),
     })
     feedbackMessage.value = 'Holding wurde hinzugefügt.'
+    selectedInstrument.value = null
     await refreshPortfolio()
   } catch (e) {
     errorMessage.value = e instanceof Error ? e.message : 'Holding konnte nicht gespeichert werden.'
@@ -257,7 +301,14 @@ async function removeHolding(holdingId: string) {
 }
 
 watch(() => [props.personId, props.depotLabel], () => { void load() })
+watch(searchQuery, () => {
+  searchError.value = null
+  scheduleSearch()
+})
 onMounted(() => { void load() })
+onBeforeUnmount(() => {
+  if (searchDebounceHandle) clearTimeout(searchDebounceHandle)
+})
 </script>
 
 <style scoped>
@@ -270,4 +321,5 @@ onMounted(() => { void load() })
 .holding-item { border: 1px solid #e2e8f0; border-radius: 8px; padding: .75rem; }
 .row-actions { display: flex; gap: .5rem; margin-top: .5rem; }
 .search-list { list-style: none; padding: 0; display: grid; gap: .5rem; margin-top: .5rem; }
+.result-item { width: 100%; text-align: left; display: grid; gap: .2rem; }
 </style>

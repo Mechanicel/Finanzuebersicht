@@ -140,19 +140,19 @@ class GatewayService:
         await self._request_portfolio_service("DELETE", f"/api/v1/portfolios/{portfolio_id}/holdings/{holding_id}", expect_no_content=True)
 
     async def search_marketdata_instruments(self, *, q: str, limit: int | None = None) -> dict:
-        return await self._request_marketdata_service("GET", "/api/v1/instruments/search", params={"q": q, "limit": limit})
+        return await self._request_marketdata_service("GET", "/api/v1/marketdata/instruments/search", params={"q": q, "limit": limit})
 
     async def get_marketdata_summary(self, symbol: str) -> dict:
-        return await self._request_marketdata_service("GET", f"/api/v1/instruments/{symbol}/summary")
+        return await self._request_marketdata_service("GET", f"/api/v1/marketdata/instruments/{symbol}/summary")
 
     async def get_marketdata_blocks(self, symbol: str) -> dict:
-        return await self._request_marketdata_service("GET", f"/api/v1/instruments/{symbol}/blocks")
+        return await self._request_marketdata_service("GET", f"/api/v1/marketdata/instruments/{symbol}/blocks")
 
     async def get_marketdata_prices(self, symbol: str, *, range_value: str | None = None, interval: str | None = None) -> dict:
-        return await self._request_marketdata_service("GET", f"/api/v1/instruments/{symbol}/prices", params={"range": range_value, "interval": interval})
+        return await self._request_marketdata_service("GET", f"/api/v1/marketdata/instruments/{symbol}/prices", params={"range": range_value, "interval": interval})
 
     async def get_marketdata_full(self, symbol: str) -> dict:
-        return await self._request_marketdata_service("GET", f"/api/v1/instruments/{symbol}/full")
+        return await self._request_marketdata_service("GET", f"/api/v1/marketdata/instruments/{symbol}/full")
 
     async def get_analytics_overview(self, person_id: UUID) -> dict:
         return await self._get_analytics_payload(person_id, "overview")

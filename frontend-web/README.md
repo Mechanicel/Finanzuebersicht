@@ -36,4 +36,6 @@ Die Depot-Add/Edit-Flows nutzen über den Gateway folgende Endpunkte:
 - `POST /app/portfolios/{portfolio_id}/holdings`
 - `GET /app/marketdata/instruments/search`
 
+Die Instrumentsuche läuft interaktiv beim Tippen (debounced, ohne separaten Such-Button) und unterstützt ein gemeinsames Suchfeld für Name, Symbol, ISIN und WKN.
+
 Hinweis: Depot-Positionen werden direkt im Add/Edit-Kontext des Kontos gepflegt. Holdings speichern nur Kauf-/Bestandsdaten (symbol, optionale IDs, quantity, acquisition_price, currency, buy_date, notes). Laufende Marktpreise und Instrumentsuche bleiben im marketdata-service.
