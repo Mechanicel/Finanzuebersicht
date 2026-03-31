@@ -260,6 +260,19 @@ export interface InstrumentSearchResult {
   total: number
 }
 
+export interface InstrumentSelectionDetail {
+  symbol: string
+  company_name?: string | null
+  display_name?: string | null
+  isin?: string | null
+  wkn?: string | null
+  exchange?: string | null
+  quote_type?: string | null
+  asset_type?: string | null
+  currency?: string | null
+  last_price?: number | null
+}
+
 export interface DashboardReadModel {
   person_id: string
   overview: Record<string, unknown>

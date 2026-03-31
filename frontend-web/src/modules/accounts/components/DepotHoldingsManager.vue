@@ -26,10 +26,11 @@
 
         <ul v-else-if="searchResults.length" class="search-list">
           <li v-for="item in searchResults" :key="`${item.symbol}-${item.isin || ''}`">
-            <button class="btn secondary result-item" type="button" @click="selectInstrument(item)">
+            <button class="btn secondary result-item" type="button" :disabled="selectingSymbol === item.symbol" @click="selectInstrument(item)">
               <strong>{{ item.symbol }}</strong>
               <span>{{ item.display_name || item.company_name || 'Unbenanntes Instrument' }}</span>
               <small v-if="item.last_price != null">Letzter Preis: {{ item.last_price }} {{ item.currency || '' }}</small>
+              <small v-if="selectingSymbol === item.symbol">Lade Instrumentdetails…</small>
             </button>
           </li>
         </ul>
@@ -93,7 +94,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { apiClient } from '@/shared/api/client'
-import type { HoldingCreatePayload, HoldingReadModel, InstrumentSearchItem, PortfolioDetailReadModel, PortfolioReadModel } from '@/shared/model/types'
+import type { HoldingCreatePayload, HoldingReadModel, InstrumentSearchItem, InstrumentSelectionDetail, PortfolioDetailReadModel, PortfolioReadModel } from '@/shared/model/types'
 import ErrorState from '@/shared/ui/ErrorState.vue'
 import LoadingState from '@/shared/ui/LoadingState.vue'
 import EmptyState from '@/shared/ui/EmptyState.vue'
@@ -115,6 +116,7 @@ const searching = ref(false)
 const searchQuery = ref('')
 const searchResults = ref<InstrumentSearchItem[]>([])
 const selectedInstrument = ref<InstrumentSearchItem | null>(null)
+const selectingSymbol = ref<string | null>(null)
 const searchError = ref<string | null>(null)
 const searched = ref(false)
 const errorMessage = ref<string | null>(null)
@@ -231,9 +233,11 @@ async function searchInstrument() {
   }
 }
 
-function selectInstrument(item: InstrumentSearchItem) {
-  selectedInstrument.value = item
-  draftHolding.value = {
+function buildDraftHoldingFromInstrument(item: InstrumentSearchItem | InstrumentSelectionDetail) {
+  const fallbackPrice = selectedInstrument.value?.last_price
+  const selectionPrice = item.last_price
+  const acquisitionPrice = selectionPrice ?? fallbackPrice ?? 0
+  return {
     symbol: item.symbol,
     isin: item.isin,
     wkn: item.wkn,
@@ -243,10 +247,26 @@ function selectInstrument(item: InstrumentSearchItem) {
     quote_type: item.quote_type,
     asset_type: item.asset_type,
     quantity: 1,
-    acquisition_price: item.last_price ?? 0,
-    currency: item.currency ?? 'EUR',
+    acquisition_price: acquisitionPrice,
+    currency: item.currency ?? selectedInstrument.value?.currency ?? 'EUR',
     buy_date: new Date().toISOString().slice(0, 10),
     notes: null,
+  }
+}
+
+async function selectInstrument(item: InstrumentSearchItem) {
+  selectedInstrument.value = item
+  selectingSymbol.value = item.symbol
+  errorMessage.value = null
+  try {
+    const selectionDetails = await apiClient.marketdataSelection(item.symbol)
+    selectedInstrument.value = { ...item, ...selectionDetails }
+    draftHolding.value = buildDraftHoldingFromInstrument(selectionDetails)
+  } catch (e) {
+    errorMessage.value = e instanceof Error ? e.message : 'Instrumentdetails konnten nicht geladen werden.'
+    draftHolding.value = buildDraftHoldingFromInstrument(item)
+  } finally {
+    selectingSymbol.value = null
   }
 }
 
