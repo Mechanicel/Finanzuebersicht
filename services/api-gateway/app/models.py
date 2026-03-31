@@ -186,10 +186,55 @@ class AccountUpdatePayload(BaseModel):
     settlement_account_iban: str | None = None
 
 
+
+
+class PortfolioCreatePayload(BaseModel):
+    display_name: str
+
+
+class HoldingCreatePayload(BaseModel):
+    symbol: str
+    isin: str | None = None
+    wkn: str | None = None
+    company_name: str | None = None
+    display_name: str | None = None
+    quantity: float
+    acquisition_price: float
+    currency: str = "EUR"
+    buy_date: str
+    notes: str | None = None
+
+
+class HoldingUpdatePayload(BaseModel):
+    quantity: float | None = None
+    acquisition_price: float | None = None
+    currency: str | None = None
+    buy_date: str | None = None
+    notes: str | None = None
+
+
+class HoldingReadModel(HoldingCreatePayload):
+    holding_id: UUID
+    portfolio_id: UUID
+    created_at: str
+    updated_at: str
+
+
 class PortfolioReadModel(BaseModel):
     portfolio_id: UUID
-    label: str
-    total_value: float
+    person_id: UUID
+    display_name: str
+    created_at: str
+    updated_at: str
+
+
+class PortfolioListReadModel(BaseModel):
+    items: list[PortfolioReadModel]
+    total: int
+
+
+class PortfolioDetailReadModel(PortfolioReadModel):
+    holdings: list[HoldingReadModel]
 
 
 class DashboardReadModel(BaseModel):

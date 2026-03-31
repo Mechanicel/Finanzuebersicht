@@ -1,90 +1,77 @@
 from __future__ import annotations
 
-from datetime import date
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Response, status
 from finanzuebersicht_shared.models import ApiResponse
 
 from app.dependencies import get_portfolio_service
 from app.models import (
-    HoldingSnapshot,
-    HoldingsReplaceRequest,
-    HoldingsResponse,
+    Holding,
+    HoldingCreatePayload,
+    HoldingUpdatePayload,
+    Portfolio,
+    PortfolioCreatePayload,
     PortfolioDetailResponse,
-    ResponseMode,
-    SnapshotCreateRequest,
-    SnapshotsResponse,
+    PortfolioListResponse,
 )
 from app.service import PortfolioService
 
 router = APIRouter(tags=["portfolio"])
 
 
+@router.post("/portfolios", response_model=ApiResponse[Portfolio], status_code=status.HTTP_201_CREATED)
+async def create_portfolio(
+    payload: PortfolioCreatePayload,
+    service: PortfolioService = Depends(get_portfolio_service),
+) -> ApiResponse[Portfolio]:
+    return ApiResponse(data=service.create_portfolio(payload))
+
+
+@router.get("/persons/{person_id}/portfolios", response_model=ApiResponse[PortfolioListResponse])
+async def list_person_portfolios(
+    person_id: UUID,
+    service: PortfolioService = Depends(get_portfolio_service),
+) -> ApiResponse[PortfolioListResponse]:
+    return ApiResponse(data=service.list_person_portfolios(person_id))
+
+
 @router.get("/portfolios/{portfolio_id}", response_model=ApiResponse[PortfolioDetailResponse])
 async def get_portfolio(
     portfolio_id: UUID,
-    include_history: bool = Query(default=False),
-    response_mode: ResponseMode = Query(default=ResponseMode.DETAILED),
     service: PortfolioService = Depends(get_portfolio_service),
 ) -> ApiResponse[PortfolioDetailResponse]:
-    return ApiResponse(data=service.get_portfolio(portfolio_id, include_history=include_history, mode=response_mode))
-
-
-@router.get("/accounts/{account_id}/portfolio", response_model=ApiResponse[PortfolioDetailResponse])
-async def get_account_portfolio(
-    account_id: UUID,
-    include_history: bool = Query(default=False),
-    response_mode: ResponseMode = Query(default=ResponseMode.DETAILED),
-    service: PortfolioService = Depends(get_portfolio_service),
-) -> ApiResponse[PortfolioDetailResponse]:
-    return ApiResponse(data=service.get_account_portfolio(account_id, include_history=include_history, mode=response_mode))
-
-
-@router.put("/accounts/{account_id}/portfolio/holdings", response_model=ApiResponse[HoldingsResponse])
-async def put_account_holdings(
-    account_id: UUID,
-    payload: HoldingsReplaceRequest,
-    service: PortfolioService = Depends(get_portfolio_service),
-) -> ApiResponse[HoldingsResponse]:
-    return ApiResponse(data=service.put_holdings(account_id, payload))
-
-
-@router.get("/accounts/{account_id}/portfolio/holdings", response_model=ApiResponse[HoldingsResponse])
-async def get_account_holdings(
-    account_id: UUID,
-    response_mode: ResponseMode = Query(default=ResponseMode.DETAILED),
-    service: PortfolioService = Depends(get_portfolio_service),
-) -> ApiResponse[HoldingsResponse]:
-    return ApiResponse(data=service.list_holdings(account_id, mode=response_mode))
+    return ApiResponse(data=service.get_portfolio_detail(portfolio_id))
 
 
 @router.post(
-    "/accounts/{account_id}/portfolio/snapshots",
-    response_model=ApiResponse[HoldingSnapshot],
+    "/portfolios/{portfolio_id}/holdings",
+    response_model=ApiResponse[Holding],
     status_code=status.HTTP_201_CREATED,
 )
-async def create_snapshot(
-    account_id: UUID,
-    payload: SnapshotCreateRequest,
+async def create_holding(
+    portfolio_id: UUID,
+    payload: HoldingCreatePayload,
     service: PortfolioService = Depends(get_portfolio_service),
-) -> ApiResponse[HoldingSnapshot]:
-    return ApiResponse(data=service.create_snapshot(account_id, payload))
+) -> ApiResponse[Holding]:
+    return ApiResponse(data=service.create_holding(portfolio_id, payload))
 
 
-@router.get("/accounts/{account_id}/portfolio/snapshots", response_model=ApiResponse[SnapshotsResponse])
-async def list_snapshots(
-    account_id: UUID,
-    as_of: date | None = Query(default=None),
-    include_history: bool = Query(default=True),
-    response_mode: ResponseMode = Query(default=ResponseMode.DETAILED),
+@router.patch("/portfolios/{portfolio_id}/holdings/{holding_id}", response_model=ApiResponse[Holding])
+async def update_holding(
+    portfolio_id: UUID,
+    holding_id: UUID,
+    payload: HoldingUpdatePayload,
     service: PortfolioService = Depends(get_portfolio_service),
-) -> ApiResponse[SnapshotsResponse]:
-    return ApiResponse(
-        data=service.list_snapshots(
-            account_id,
-            as_of=as_of,
-            include_history=include_history,
-            mode=response_mode,
-        )
-    )
+) -> ApiResponse[Holding]:
+    return ApiResponse(data=service.update_holding(portfolio_id, holding_id, payload))
+
+
+@router.delete("/portfolios/{portfolio_id}/holdings/{holding_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_holding(
+    portfolio_id: UUID,
+    holding_id: UUID,
+    service: PortfolioService = Depends(get_portfolio_service),
+) -> Response:
+    service.delete_holding(portfolio_id, holding_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

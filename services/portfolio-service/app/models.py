@@ -1,144 +1,120 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
-from enum import StrEnum
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator
 
 
-ISIN_PATTERN = r"^[A-Z]{2}[A-Z0-9]{9}[0-9]$"
+class PortfolioCreatePayload(BaseModel):
+    person_id: UUID
+    display_name: str = Field(min_length=1, max_length=150)
+
+    @field_validator("display_name")
+    @classmethod
+    def validate_display_name(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("display_name darf nicht leer sein")
+        return cleaned
 
 
-class ResponseMode(StrEnum):
-    COMPACT = "compact"
-    DETAILED = "detailed"
-
-
-class HoldingInput(BaseModel):
-    isin: str = Field(min_length=12, max_length=12, pattern=ISIN_PATTERN)
+class HoldingCreatePayload(BaseModel):
+    symbol: str = Field(min_length=1, max_length=20)
+    isin: str | None = Field(default=None, min_length=12, max_length=12)
+    wkn: str | None = Field(default=None, min_length=6, max_length=6)
+    company_name: str | None = Field(default=None, max_length=200)
+    display_name: str | None = Field(default=None, max_length=200)
     quantity: float = Field(gt=0)
-    instrument_name: str | None = Field(default=None, max_length=200)
+    acquisition_price: float = Field(gt=0)
+    currency: str = Field(default="EUR", min_length=3, max_length=3)
+    buy_date: date
+    notes: str | None = Field(default=None, max_length=1000)
+
+    @field_validator("symbol")
+    @classmethod
+    def normalize_symbol(cls, value: str) -> str:
+        return value.strip().upper()
 
     @field_validator("isin")
     @classmethod
-    def normalize_isin(cls, value: str) -> str:
+    def normalize_isin(cls, value: str | None) -> str | None:
+        return value.strip().upper() if value else value
+
+    @field_validator("wkn")
+    @classmethod
+    def normalize_wkn(cls, value: str | None) -> str | None:
+        return value.strip().upper() if value else value
+
+    @field_validator("currency")
+    @classmethod
+    def normalize_currency(cls, value: str) -> str:
         return value.strip().upper()
 
-
-class HoldingsReplaceRequest(BaseModel):
-    holdings: list[HoldingInput] = Field(min_length=1)
-
-    @model_validator(mode="after")
-    def validate_duplicates(self) -> HoldingsReplaceRequest:
-        seen: set[str] = set()
-        for item in self.holdings:
-            if item.isin in seen:
-                raise ValueError(f"Doppelte ISIN im Holdings-Update: {item.isin}")
-            seen.add(item.isin)
-        return self
-
-
-class SnapshotCreateRequest(BaseModel):
-    snapshot_date: date
-    note: str | None = Field(default=None, max_length=500)
-    holdings: list[HoldingInput] = Field(min_length=1)
-
-    @field_validator("snapshot_date")
+    @field_validator("company_name", "display_name", "notes")
     @classmethod
-    def ensure_date_not_too_old(cls, value: date) -> date:
-        if value.year < 1970:
-            raise ValueError("snapshot_date muss >= 1970 sein")
-        return value
+    def strip_optional_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        return cleaned or None
 
-    @model_validator(mode="after")
-    def validate_duplicates(self) -> SnapshotCreateRequest:
-        seen: set[str] = set()
-        for item in self.holdings:
-            if item.isin in seen:
-                raise ValueError(f"Doppelte ISIN im Snapshot: {item.isin}")
-            seen.add(item.isin)
-        return self
+
+class HoldingUpdatePayload(BaseModel):
+    quantity: float | None = Field(default=None, gt=0)
+    acquisition_price: float | None = Field(default=None, gt=0)
+    currency: str | None = Field(default=None, min_length=3, max_length=3)
+    buy_date: date | None = None
+    notes: str | None = Field(default=None, max_length=1000)
+
+    @field_validator("currency")
+    @classmethod
+    def normalize_currency(cls, value: str | None) -> str | None:
+        return value.strip().upper() if value else value
+
+    @field_validator("notes")
+    @classmethod
+    def strip_notes(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        return cleaned or None
 
 
 class Holding(BaseModel):
     holding_id: UUID = Field(default_factory=uuid4)
     portfolio_id: UUID
-    account_id: UUID
-    isin: str
+    symbol: str
+    isin: str | None = None
+    wkn: str | None = None
+    company_name: str | None = None
+    display_name: str | None = None
     quantity: float = Field(gt=0)
-    instrument_name: str | None = None
+    acquisition_price: float = Field(gt=0)
+    currency: str
+    buy_date: date
+    notes: str | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-
-
-class HoldingsSummary(BaseModel):
-    holdings_count: int = Field(ge=0)
-    total_quantity_summary: float = Field(ge=0)
-
-
-class SnapshotSummary(BaseModel):
-    snapshot_id: UUID
-    snapshot_date: date
-    holdings_count: int = Field(ge=0)
-    total_quantity_summary: float = Field(ge=0)
-    created_at: datetime
-
-
-class HoldingSnapshot(BaseModel):
-    snapshot_id: UUID = Field(default_factory=uuid4)
-    portfolio_id: UUID
-    account_id: UUID
-    snapshot_date: date
-    note: str | None = None
-    holdings: list[HoldingInput]
-    holdings_count: int = Field(ge=0)
-    total_quantity_summary: float = Field(ge=0)
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-
-
-class AccountSummary(BaseModel):
-    account_id: UUID
-    holdings_count: int = Field(ge=0)
-    total_quantity_summary: float = Field(ge=0)
 
 
 class Portfolio(BaseModel):
     portfolio_id: UUID = Field(default_factory=uuid4)
-    account_id: UUID
+    person_id: UUID
     display_name: str
-    account_summary: AccountSummary
-    holdings_count: int = Field(ge=0)
-    total_quantity_summary: float = Field(ge=0)
-    latest_snapshot_summary: SnapshotSummary | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
-class HoldingsResponse(BaseModel):
-    portfolio_id: UUID
-    account_id: UUID
-    display_name: str
-    holdings_count: int = Field(ge=0)
-    total_quantity_summary: float = Field(ge=0)
-    holdings: list[HoldingInput]
-
-
 class PortfolioDetailResponse(BaseModel):
     portfolio_id: UUID
-    account_id: UUID
+    person_id: UUID
     display_name: str
-    account_summary: AccountSummary
-    holdings_count: int = Field(ge=0)
-    total_quantity_summary: float = Field(ge=0)
-    latest_snapshot_summary: SnapshotSummary | None = None
-    holdings: list[HoldingInput] | None = None
-    snapshots: list[SnapshotSummary] | None = None
+    created_at: datetime
+    updated_at: datetime
+    holdings: list[Holding] = Field(default_factory=list)
 
 
-class SnapshotsResponse(BaseModel):
-    account_id: UUID
-    portfolio_id: UUID
-    display_name: str
-    latest_snapshot_summary: SnapshotSummary | None = None
-    snapshots: list[HoldingSnapshot]
+class PortfolioListResponse(BaseModel):
+    items: list[Portfolio]
+    total: int
