@@ -255,6 +255,28 @@ class StubGatewayService:
             status="up", dependencies=[HealthDependency(service="analytics-service", status="up")]
         )
 
+    async def search_marketdata_instruments(self, *, q: str, limit: int | None = None) -> dict:
+        return {"items": [{"symbol": "AAPL", "name": "Apple Inc."}], "query": q, "limit": limit or 20}
+
+    async def get_marketdata_summary(self, symbol: str) -> dict:
+        return {"symbol": symbol, "name": "Apple Inc.", "currency": "USD"}
+
+    async def get_marketdata_blocks(self, symbol: str) -> dict:
+        return {"symbol": symbol, "blocks": {"quote": {"price": 100.0}}}
+
+    async def get_marketdata_prices(
+        self, symbol: str, *, range_value: str | None = None, interval: str | None = None
+    ) -> dict:
+        return {
+            "symbol": symbol,
+            "range": range_value or "1mo",
+            "interval": interval or "1d",
+            "points": [{"timestamp": "2026-03-01T00:00:00Z", "close": 100.0}],
+        }
+
+    async def get_marketdata_full(self, symbol: str) -> dict:
+        return {"symbol": symbol, "summary": {"name": "Apple Inc."}, "prices": {"points": []}}
+
 
 def test_health_endpoint() -> None:
     client = create_test_client(app)
@@ -320,6 +342,17 @@ def test_app_endpoints_for_vue_pages() -> None:
         ).status_code
         == 201
     )
+    assert client.get("/api/v1/app/marketdata/instruments/search", params={"q": "apple", "limit": 5}).status_code == 200
+    assert client.get("/api/v1/app/marketdata/instruments/AAPL/summary").status_code == 200
+    assert client.get("/api/v1/app/marketdata/instruments/AAPL/blocks").status_code == 200
+    assert (
+        client.get(
+            "/api/v1/app/marketdata/instruments/AAPL/prices",
+            params={"range": "1mo", "interval": "1d"},
+        ).status_code
+        == 200
+    )
+    assert client.get("/api/v1/app/marketdata/instruments/AAPL/full").status_code == 200
     assert (
         client.patch(
             f"/api/v1/app/persons/{PERSON_ID}/accounts/10000000-0000-0000-0000-000000000001",

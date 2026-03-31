@@ -235,3 +235,48 @@ async def app_health(
     person_id: UUID, service: Annotated[GatewayService, Depends(get_gateway_service)]
 ) -> ApiResponse[GatewayHealthReadModel]:
     return ApiResponse(data=await service.dependency_health(person_id))
+
+
+@router.get("/app/marketdata/instruments/search", response_model=ApiResponse[dict])
+async def search_marketdata_instruments(
+    service: Annotated[GatewayService, Depends(get_gateway_service)],
+    q: str = Query(..., min_length=1),
+    limit: int | None = Query(default=None, ge=1, le=100),
+) -> ApiResponse[dict]:
+    return ApiResponse(data=await service.search_marketdata_instruments(q=q, limit=limit))
+
+
+@router.get("/app/marketdata/instruments/{symbol}/summary", response_model=ApiResponse[dict])
+async def marketdata_summary(
+    symbol: str,
+    service: Annotated[GatewayService, Depends(get_gateway_service)],
+) -> ApiResponse[dict]:
+    return ApiResponse(data=await service.get_marketdata_summary(symbol))
+
+
+@router.get("/app/marketdata/instruments/{symbol}/blocks", response_model=ApiResponse[dict])
+async def marketdata_blocks(
+    symbol: str,
+    service: Annotated[GatewayService, Depends(get_gateway_service)],
+) -> ApiResponse[dict]:
+    return ApiResponse(data=await service.get_marketdata_blocks(symbol))
+
+
+@router.get("/app/marketdata/instruments/{symbol}/prices", response_model=ApiResponse[dict])
+async def marketdata_prices(
+    symbol: str,
+    service: Annotated[GatewayService, Depends(get_gateway_service)],
+    range_value: str | None = Query(default=None, alias="range"),
+    interval: str | None = Query(default=None),
+) -> ApiResponse[dict]:
+    return ApiResponse(
+        data=await service.get_marketdata_prices(symbol, range_value=range_value, interval=interval)
+    )
+
+
+@router.get("/app/marketdata/instruments/{symbol}/full", response_model=ApiResponse[dict])
+async def marketdata_full(
+    symbol: str,
+    service: Annotated[GatewayService, Depends(get_gateway_service)],
+) -> ApiResponse[dict]:
+    return ApiResponse(data=await service.get_marketdata_full(symbol))

@@ -22,6 +22,16 @@ Das Gateway ist der **einheitliche Einstiegspunkt** für das Vue-Frontend.
 - `GET /api/v1/app/persons/{person_id}/portfolios`
 - `GET /api/v1/app/persons/{person_id}/analytics/overview`
 - `GET /api/v1/app/persons/{person_id}/health`
+- `GET /api/v1/app/marketdata/instruments/search?q=...&limit=...`
+- `GET /api/v1/app/marketdata/instruments/{symbol}/summary`
+- `GET /api/v1/app/marketdata/instruments/{symbol}/blocks`
+- `GET /api/v1/app/marketdata/instruments/{symbol}/prices?range=...&interval=...`
+- `GET /api/v1/app/marketdata/instruments/{symbol}/full`
+
+## Lokale Konfiguration
+
+- `MARKETDATA_SERVICE_URL` (Default: `http://localhost:8005`)
+- `REQUEST_TIMEOUT_SECONDS` gilt unverändert für alle Downstream-Requests inkl. Marketdata-Proxy.
 
 ## BFF-Regel
 
