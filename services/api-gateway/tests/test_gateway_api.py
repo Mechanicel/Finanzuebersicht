@@ -420,3 +420,58 @@ def test_gateway_dependency_health_endpoint() -> None:
     assert response.status_code == 200
     assert response.json()["data"]["dependencies"][0]["service"] == "analytics-service"
     app.dependency_overrides.clear()
+
+
+def test_marketdata_routes_return_downstream_payloads() -> None:
+    app.dependency_overrides[get_gateway_service] = lambda: StubGatewayService()
+    client = create_test_client(app)
+
+    search_response = client.get("/api/v1/app/marketdata/instruments/search", params={"q": "apple", "limit": 5})
+    summary_response = client.get("/api/v1/app/marketdata/instruments/AAPL/summary")
+    prices_response = client.get(
+        "/api/v1/app/marketdata/instruments/AAPL/prices",
+        params={"range": "1mo", "interval": "1d"},
+    )
+
+    assert search_response.status_code == 200
+    assert search_response.json()["data"]["items"][0]["symbol"] == "AAPL"
+    assert summary_response.status_code == 200
+    assert summary_response.json()["data"]["symbol"] == "AAPL"
+    assert prices_response.status_code == 200
+    assert prices_response.json()["data"]["symbol"] == "AAPL"
+    app.dependency_overrides.clear()
+
+
+def test_marketdata_404_is_forwarded() -> None:
+    class NotFoundMarketdataStub(StubGatewayService):
+        async def get_marketdata_summary(self, symbol: str) -> dict:
+            raise HTTPException(status_code=404, detail="Instrument nicht gefunden")
+
+    app.dependency_overrides[get_gateway_service] = lambda: NotFoundMarketdataStub()
+    client = create_test_client(app)
+
+    response = client.get("/api/v1/app/marketdata/instruments/UNKNOWN/summary")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Instrument nicht gefunden"
+    app.dependency_overrides.clear()
+
+
+def test_marketdata_502_is_forwarded_when_downstream_unreachable() -> None:
+    class DownstreamUnavailableMarketdataStub(StubGatewayService):
+        async def get_marketdata_prices(
+            self, symbol: str, *, range_value: str | None = None, interval: str | None = None
+        ) -> dict:
+            raise HTTPException(
+                status_code=502,
+                detail="Marketdata-Service ist derzeit nicht erreichbar. Bitte später erneut versuchen.",
+            )
+
+    app.dependency_overrides[get_gateway_service] = lambda: DownstreamUnavailableMarketdataStub()
+    client = create_test_client(app)
+
+    response = client.get("/api/v1/app/marketdata/instruments/AAPL/prices", params={"range": "1mo", "interval": "1d"})
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == "Marketdata-Service ist derzeit nicht erreichbar. Bitte später erneut versuchen."
+    app.dependency_overrides.clear()
