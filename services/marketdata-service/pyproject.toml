@@ -9,6 +9,7 @@ dependencies = [
   "pydantic>=2.7,<3",
   "finanzuebersicht-shared",
   "yfinance>=0.2.50,<1",
+  "pymongo>=4.8,<5",
 ]
 
 [build-system]

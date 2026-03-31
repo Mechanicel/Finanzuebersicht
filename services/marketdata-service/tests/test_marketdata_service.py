@@ -14,6 +14,7 @@ if str(SERVICE_ROOT) not in sys.path:
     sys.path.append(str(SERVICE_ROOT))
 
 import pytest
+import mongomock
 from fastapi import FastAPI
 from finanzuebersicht_shared.models import ApiResponse
 from finanzuebersicht_shared.testing import create_test_client
@@ -35,22 +36,8 @@ from app.models import (
     SnapshotBlock,
     UpstreamServiceError,
 )
+from app.repositories import InstrumentSelectionCacheRepository
 from app.service import MarketDataService
-
-
-class InMemorySelectionCacheRepository:
-    def __init__(self) -> None:
-        self.items: dict[str, tuple[InstrumentSelectionDetailsResponse, datetime]] = {}
-        self.upsert_calls = 0
-
-    def get(self, symbol: str) -> tuple[InstrumentSelectionDetailsResponse, datetime] | None:
-        return self.items.get(symbol)
-
-    def upsert(self, symbol: str, payload: InstrumentSelectionDetailsResponse) -> datetime:
-        self.upsert_calls += 1
-        fetched_at = datetime.now(UTC)
-        self.items[symbol] = (payload, fetched_at)
-        return fetched_at
 
 
 class FakeProvider:
@@ -141,11 +128,14 @@ class FakeProvider:
 
 def build_service(
     provider: FakeProvider,
-    repository: InMemorySelectionCacheRepository | None = None,
+    repository: InstrumentSelectionCacheRepository | None = None,
     *,
     cache_enabled: bool = True,
     selection_ttl_seconds: int = 60,
 ) -> MarketDataService:
+    if repository is None:
+        client = mongomock.MongoClient()
+        repository = InstrumentSelectionCacheRepository(collection=client["finanzuebersicht"]["selection_cache_test"])
     return MarketDataService(
         provider=provider,
         cache_enabled=cache_enabled,
@@ -154,7 +144,7 @@ def build_service(
         cache_price_ttl_seconds=60,
         cache_series_ttl_seconds=60,
         cache_benchmark_ttl_seconds=60,
-        selection_cache_repository=repository or InMemorySelectionCacheRepository(),
+        selection_cache_repository=repository,
         selection_cache_ttl_seconds=selection_ttl_seconds,
     )
 
@@ -205,7 +195,9 @@ def test_search_cache_hit_avoids_second_provider_call() -> None:
 
 def test_selection_cache_hit_for_fresh_db_record() -> None:
     provider = FakeProvider()
-    repository = InMemorySelectionCacheRepository()
+    client = mongomock.MongoClient()
+    collection = client["finanzuebersicht"]["selection_cache_test"]
+    repository = InstrumentSelectionCacheRepository(collection=collection)
     fresh = InstrumentSelectionDetailsResponse(
         symbol="DUM",
         isin="US0000000001",
@@ -218,7 +210,13 @@ def test_selection_cache_hit_for_fresh_db_record() -> None:
         asset_type="stock",
         last_price=99.0,
     )
-    repository.items["DUM"] = (fresh, datetime.now(UTC) - timedelta(seconds=10))
+    collection.insert_one(
+        {
+            "symbol": "DUM",
+            "payload": fresh.model_dump(mode="json"),
+            "fetched_at": datetime.now(UTC) - timedelta(seconds=10),
+        }
+    )
     service = build_service(provider, repository, cache_enabled=False, selection_ttl_seconds=60)
 
     response = service.get_instrument_selection_details("dum")
@@ -229,7 +227,9 @@ def test_selection_cache_hit_for_fresh_db_record() -> None:
 
 def test_selection_stale_cache_refreshes_provider_and_updates_db() -> None:
     provider = FakeProvider()
-    repository = InMemorySelectionCacheRepository()
+    client = mongomock.MongoClient()
+    collection = client["finanzuebersicht"]["selection_cache_test"]
+    repository = InstrumentSelectionCacheRepository(collection=collection)
     stale = InstrumentSelectionDetailsResponse(
         symbol="DUM",
         company_name="Stale",
@@ -237,15 +237,38 @@ def test_selection_stale_cache_refreshes_provider_and_updates_db() -> None:
         currency="EUR",
         last_price=10.0,
     )
-    repository.items["DUM"] = (stale, datetime.now(UTC) - timedelta(seconds=120))
+    collection.insert_one(
+        {
+            "symbol": "DUM",
+            "payload": stale.model_dump(mode="json"),
+            "fetched_at": datetime.now(UTC) - timedelta(seconds=120),
+        }
+    )
     service = build_service(provider, repository, cache_enabled=False, selection_ttl_seconds=30)
 
     response = service.get_instrument_selection_details("DUM")
 
     assert response.last_price > 0
     assert provider.selection_calls == 1
-    assert repository.upsert_calls == 1
-    assert repository.items["DUM"][0].company_name == "Demo Corp"
+    persisted = collection.find_one({"symbol": "DUM"})
+    assert persisted is not None
+    assert persisted["payload"]["company_name"] == "Demo Corp"
+
+
+def test_selection_cache_miss_loads_from_provider_and_inserts_db() -> None:
+    provider = FakeProvider()
+    client = mongomock.MongoClient()
+    collection = client["finanzuebersicht"]["selection_cache_test"]
+    repository = InstrumentSelectionCacheRepository(collection=collection)
+    service = build_service(provider, repository, cache_enabled=False, selection_ttl_seconds=60)
+
+    response = service.get_instrument_selection_details("DUM")
+
+    assert response.symbol == "DUM"
+    assert provider.selection_calls == 1
+    persisted = collection.find_one({"symbol": "DUM"})
+    assert persisted is not None
+    assert persisted["payload"]["symbol"] == "DUM"
 
 
 def test_selection_response_contains_positive_last_price() -> None:
