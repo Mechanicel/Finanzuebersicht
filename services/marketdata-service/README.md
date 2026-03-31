@@ -202,6 +202,14 @@ Umgebungsvariablen:
 - `MARKETDATA_CACHE_PRICE_TTL_SECONDS` (default `45`)
 - `MARKETDATA_CACHE_SERIES_TTL_SECONDS` (default `30`)
 - `MARKETDATA_CACHE_BENCHMARK_TTL_SECONDS` (default `900`)
+- `MARKETDATA_CACHE_SELECTION_TTL_SECONDS` (default `60`)
+- `MONGO_URI` (optional; wenn gesetzt, hat Vorrang)
+- `MONGO_HOST` (default `localhost`)
+- `MONGO_PORT` (default `27017`)
+- `MONGO_DATABASE` (default `finanzuebersicht`)
+- `MONGO_USER` / `MONGO_PASSWORD` (optional)
+- `MONGO_AUTH_SOURCE` (default `admin`)
+- `MARKETDATA_SELECTION_CACHE_COLLECTION` (default `marketdata_selection_cache`)
 
 ## Start
 
@@ -226,3 +234,5 @@ uv run pytest services/marketdata-service/tests -q
 - Wenn beide Search-Varianten wegen lokaler/Parser-Probleme scheitern, degradiert die Suche kontrolliert zu `200` mit leerer Trefferliste (`items=[]`) statt hartem Fehler beim Tippen.
 - Echte Upstream-/Netzwerkprobleme (z. B. Connection/Timeout gegen Yahoo) werden weiterhin als `503 upstream_unavailable` gemeldet.
 - Zusätzlich zu internem yfinance-Caching nutzt der Service eigene TTL-Caches (Search, Summary, Snapshot/Blocks/Full, Serien, Benchmarks).
+
+- Der Selection-Cache ist ausschließlich Mongo-basiert; es gibt keine SQLite-/Datei-Konfiguration mehr.
