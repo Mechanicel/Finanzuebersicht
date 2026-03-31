@@ -4,6 +4,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import mongomock
 import pytest
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -18,6 +19,7 @@ if str(SERVICE_ROOT) not in sys.path:
 from finanzuebersicht_shared.testing import assert_standard_health_payload, create_test_client
 
 from app.config import get_settings
+import app.dependencies as marketdata_dependencies
 from app.dependencies import get_marketdata_service, get_provider, get_selection_cache_repository
 from app.main import app
 
@@ -25,6 +27,7 @@ from app.main import app
 @pytest.fixture(autouse=True)
 def reset_singletons(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MARKETDATA_PROVIDER", "inmemory")
+    monkeypatch.setattr(marketdata_dependencies, "MongoClient", mongomock.MongoClient)
     get_settings.cache_clear()
     get_marketdata_service.cache_clear()
     get_provider.cache_clear()

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from functools import lru_cache
 
+from pymongo import MongoClient
+
 from app.config import get_settings
 from app.providers import InMemoryMarketDataProvider, MarketDataProvider, YFinanceMarketDataProvider
 from app.repositories import InstrumentSelectionCacheRepository
@@ -26,7 +28,9 @@ def get_provider() -> MarketDataProvider:
 @lru_cache
 def get_selection_cache_repository() -> InstrumentSelectionCacheRepository:
     settings = get_settings()
-    return InstrumentSelectionCacheRepository(db_path=settings.marketdata_selection_cache_db_path)
+    client = MongoClient(settings.resolved_mongo_uri())
+    collection = client[settings.mongo_database][settings.marketdata_selection_cache_collection]
+    return InstrumentSelectionCacheRepository(collection=collection)
 
 
 @lru_cache
