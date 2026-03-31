@@ -8,8 +8,8 @@
     <p v-if="feedbackMessage" class="success">{{ feedbackMessage }}</p>
     <ErrorState v-if="errorMessage" :message="errorMessage" />
 
-    <div class="grid two-col">
-      <div><label>Portfolio</label><select class="input" :value="selectedPortfolioId" @change="onPortfolioChange"><option value="">Bitte wählen</option><option v-for="portfolio in portfolios" :key="portfolio.portfolio_id" :value="portfolio.portfolio_id">{{ portfolio.display_name }}</option></select></div>
+    <div class="context-panel">
+      <p class="muted">Portfolio-Kontext: <strong>{{ portfolioDetail?.display_name || depotLabel }}</strong></p>
       <button class="btn secondary" type="button" @click="refreshPortfolio" :disabled="!selectedPortfolioId || loading">Holdings aktualisieren</button>
     </div>
 
@@ -38,15 +38,18 @@
         <form class="holding-form" @submit.prevent="createHolding">
           <p class="muted">{{ selectedInstrument ? `Vorausgefüllt aus Suche: ${selectedInstrument.symbol}` : 'Ohne Suche möglich: Symbol direkt eintragen.' }}</p>
           <div class="grid three-col">
-            <div><label>Symbol</label><input class="input" v-model.trim="draftHolding.symbol" required /></div>
-            <div><label>ISIN</label><input class="input" v-model.trim="draftHolding.isin" /></div>
-            <div><label>WKN</label><input class="input" v-model.trim="draftHolding.wkn" /></div>
+            <div><label>Symbol</label><input data-testid="holding-symbol" class="input" v-model.trim="draftHolding.symbol" required /></div>
+            <div><label>ISIN</label><input data-testid="holding-isin" class="input" v-model.trim="draftHolding.isin" /></div>
+            <div><label>WKN</label><input data-testid="holding-wkn" class="input" v-model.trim="draftHolding.wkn" /></div>
             <div><label>Stückzahl</label><input class="input" v-model.number="draftHolding.quantity" type="number" min="0.000001" step="0.000001" required /></div>
-            <div><label>Kaufkurs</label><input class="input" v-model.number="draftHolding.acquisition_price" type="number" min="0.000001" step="0.000001" required /></div>
-            <div><label>Währung</label><input class="input" v-model.trim="draftHolding.currency" maxlength="3" required /></div>
+            <div><label>Kaufkurs</label><input data-testid="holding-acquisition-price" class="input" v-model.number="draftHolding.acquisition_price" type="number" min="0.000001" step="0.000001" required /></div>
+            <div><label>Währung</label><input data-testid="holding-currency" class="input" v-model.trim="draftHolding.currency" maxlength="3" required /></div>
             <div><label>Kaufdatum</label><input class="input" v-model="draftHolding.buy_date" type="date" required /></div>
-            <div><label>Name</label><input class="input" v-model.trim="draftHolding.display_name" /></div>
-            <div><label>Unternehmen</label><input class="input" v-model.trim="draftHolding.company_name" /></div>
+            <div><label>Name</label><input data-testid="holding-display-name" class="input" v-model.trim="draftHolding.display_name" /></div>
+            <div><label>Unternehmen</label><input data-testid="holding-company-name" class="input" v-model.trim="draftHolding.company_name" /></div>
+            <div><label>Börse</label><input data-testid="holding-exchange" class="input" v-model.trim="draftHolding.exchange" /></div>
+            <div><label>Quote-Type</label><input data-testid="holding-quote-type" class="input" v-model.trim="draftHolding.quote_type" /></div>
+            <div><label>Asset-Type</label><input data-testid="holding-asset-type" class="input" v-model.trim="draftHolding.asset_type" /></div>
             <div class="wide"><label>Notiz</label><input class="input" v-model.trim="draftHolding.notes" /></div>
           </div>
           <button class="btn" type="submit" :disabled="saving">Holding hinzufügen</button>
@@ -114,7 +117,13 @@ const errorMessage = ref<string | null>(null)
 const feedbackMessage = ref('')
 const editHoldingId = ref('')
 
-const draftHolding = ref<HoldingCreatePayload>({ symbol: '', quantity: 1, acquisition_price: 0, currency: 'EUR', buy_date: new Date().toISOString().slice(0, 10), notes: null })
+type HoldingDraftState = HoldingCreatePayload & {
+  exchange?: string | null
+  quote_type?: string | null
+  asset_type?: string | null
+}
+
+const draftHolding = ref<HoldingDraftState>({ symbol: '', quantity: 1, acquisition_price: 0, currency: 'EUR', buy_date: new Date().toISOString().slice(0, 10), notes: null, exchange: null, quote_type: null, asset_type: null })
 const editHolding = ref({ quantity: 1, acquisition_price: 0, currency: 'EUR', buy_date: new Date().toISOString().slice(0, 10), notes: '' })
 const MIN_SEARCH_LENGTH = 2
 const SEARCH_DEBOUNCE_MS = 350
@@ -165,11 +174,6 @@ async function refreshPortfolio() {
   portfolioDetail.value = await apiClient.portfolio(selectedPortfolioId.value)
 }
 
-function onPortfolioChange(event: Event) {
-  selectedPortfolioId.value = (event.target as HTMLSelectElement).value
-  void refreshPortfolio()
-}
-
 async function searchInstrument() {
   if (searchQuery.value.length < MIN_SEARCH_LENGTH) {
     searchResults.value = []
@@ -199,8 +203,11 @@ function selectInstrument(item: InstrumentSearchItem) {
     wkn: item.wkn,
     display_name: item.display_name,
     company_name: item.company_name,
+    exchange: item.exchange,
+    quote_type: item.quote_type,
+    asset_type: item.asset_type,
     quantity: 1,
-    acquisition_price: item.last_price ?? 1,
+    acquisition_price: item.last_price ?? 0,
     currency: item.currency ?? 'EUR',
     buy_date: new Date().toISOString().slice(0, 10),
     notes: null,
@@ -313,9 +320,9 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .nested { margin-top: .75rem; }
-.two-col { grid-template-columns: 1fr auto; gap: .75rem; }
 .three-col { grid-template-columns: repeat(3, 1fr); gap: .75rem; }
 .wide { grid-column: span 3; }
+.context-panel { display: flex; align-items: center; justify-content: space-between; gap: .75rem; margin-top: .75rem; }
 .manager-grid { display: grid; gap: 1rem; }
 .holding-list { list-style: none; padding: 0; display: grid; gap: .75rem; }
 .holding-item { border: 1px solid #e2e8f0; border-radius: 8px; padding: .75rem; }
