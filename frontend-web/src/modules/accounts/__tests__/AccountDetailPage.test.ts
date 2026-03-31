@@ -9,7 +9,7 @@ import { apiClient } from '@/shared/api/client'
 const pushMock = vi.fn()
 
 vi.mock('vue-router', () => ({
-  useRoute: () => ({ query: { personId: 'person-1' }, params: { accountId: 'account-1' } }),
+  useRoute: () => ({ query: { personId: 'person-1', section: 'bestandteile' }, params: { accountId: 'account-1' } }),
   useRouter: () => ({ push: pushMock })
 }))
 

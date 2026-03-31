@@ -49,7 +49,7 @@
                   <strong>{{ account.label }}</strong>
                   <p class="muted">{{ accountTypeLabels[account.account_type] }} · {{ bankName(account.bank_id) }}</p>
                 </div>
-                <span class="row-action-hint">Details öffnen →</span>
+                <span class="row-action-hint" aria-hidden="true">→</span>
               </div>
               <dl class="account-details">
                 <div><dt>Saldo</dt><dd>{{ account.balance }} {{ account.currency }}</dd></div>

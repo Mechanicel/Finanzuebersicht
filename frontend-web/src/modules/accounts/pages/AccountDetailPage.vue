@@ -14,7 +14,49 @@
 
     <article v-else-if="account" class="accounts-card">
       <p v-if="feedbackMessage" :class="feedbackType">{{ feedbackMessage }}</p>
-      <form class="account-form" @submit.prevent="submitEdit">
+      <template v-if="account.account_type === 'depot'">
+        <nav class="section-tabs" aria-label="Depot-Bereiche">
+          <button
+            v-for="tab in depotTabs"
+            :key="tab.id"
+            class="tab-btn"
+            :class="{ active: activeDepotTab === tab.id }"
+            type="button"
+            @click="setActiveDepotTab(tab.id)"
+          >
+            {{ tab.label }}
+          </button>
+        </nav>
+
+        <form v-if="activeDepotTab === 'details'" class="account-form" @submit.prevent="submitEdit">
+          <AccountFormFields v-model="editForm" :bank-options="bankOptions" />
+          <p v-if="editError" class="error">{{ editError }}</p>
+
+          <div class="edit-actions">
+            <button class="btn" type="submit" :disabled="submitting">Speichern</button>
+            <button class="btn secondary" type="button" @click="resetForm" :disabled="submitting">Zurücksetzen</button>
+            <button class="btn secondary" type="button" @click="requestDelete" :disabled="submitting">Löschen</button>
+          </div>
+        </form>
+
+        <DepotHoldingsManager
+          v-else-if="activeDepotTab === 'bestandteile'"
+          :person-id="personId"
+          :depot-label="account.label"
+          :title="`Depot-Bestandteile für ${account.label}`"
+          view-mode="holdings"
+        />
+
+        <DepotHoldingsManager
+          v-else
+          :person-id="personId"
+          :depot-label="account.label"
+          :title="`Werte hinzufügen für ${account.label}`"
+          view-mode="add"
+        />
+      </template>
+
+      <form v-else class="account-form" @submit.prevent="submitEdit">
         <AccountFormFields v-model="editForm" :bank-options="bankOptions" />
         <p v-if="editError" class="error">{{ editError }}</p>
 
@@ -24,13 +66,6 @@
           <button class="btn secondary" type="button" @click="requestDelete" :disabled="submitting">Löschen</button>
         </div>
       </form>
-
-      <DepotHoldingsManager
-        v-if="account.account_type === 'depot'"
-        :person-id="personId"
-        :depot-label="account.label"
-        :title="`Depot-Positionen für ${account.label}`"
-      />
     </article>
 
     <div v-if="deleteCandidate" class="confirm-overlay" role="dialog" aria-modal="true">
@@ -76,8 +111,18 @@ const banks = ref<BankReadModel[]>([])
 const assignedBankIds = ref<string[]>([])
 const editForm = ref<AccountFormState>(createEmptyAccountForm())
 const deleteCandidate = ref<AccountReadModel | null>(null)
+const depotTabs = [
+  { id: 'details', label: 'Depot-Details' },
+  { id: 'bestandteile', label: 'Depot-Bestandteile' },
+  { id: 'werte', label: 'Werte hinzufügen' },
+] as const
+type DepotTabId = (typeof depotTabs)[number]['id']
 
 const bankById = computed(() => new Map(banks.value.map((bank) => [bank.bank_id, bank])))
+const activeDepotTab = computed<DepotTabId>(() => {
+  const raw = typeof route.query.section === 'string' ? route.query.section : ''
+  return depotTabs.some((tab) => tab.id === raw) ? (raw as DepotTabId) : 'details'
+})
 const bankOptions = computed(() =>
   assignedBankIds.value
     .map((bankId) => bankById.value.get(bankId))
@@ -90,6 +135,10 @@ function goBack() {
     return
   }
   void router.push(`/accounts/manage?personId=${personId.value}`)
+}
+
+function setActiveDepotTab(tab: DepotTabId) {
+  void router.replace({ query: { ...route.query, section: tab } })
 }
 
 function showFeedback(type: 'success' | 'error', message: string) {
@@ -194,6 +243,9 @@ onMounted(loadData)
 .accounts-card { border: 1px solid #e2e8f0; border-radius: 10px; padding: 1rem; }
 .account-form { display: grid; gap: .75rem; }
 .edit-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
+.section-tabs { display: flex; flex-wrap: wrap; gap: .5rem; margin-bottom: 1rem; border-bottom: 1px solid #e2e8f0; padding-bottom: .5rem; }
+.tab-btn { border: 1px solid #cbd5e1; border-radius: 999px; padding: .35rem .75rem; background: #fff; color: #334155; font: inherit; cursor: pointer; }
+.tab-btn.active { background: #0f172a; border-color: #0f172a; color: #fff; font-weight: 600; }
 .confirm-overlay { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.45); display: grid; place-items: center; padding: 1rem; }
 .confirm-dialog { background: #fff; border-radius: 10px; border: 1px solid #e2e8f0; max-width: 520px; width: 100%; padding: 1rem; }
 </style>
