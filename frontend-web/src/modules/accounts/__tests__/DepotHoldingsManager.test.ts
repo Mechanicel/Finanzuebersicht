@@ -12,6 +12,7 @@ vi.mock('@/shared/api/client', () => ({
     createPortfolio: vi.fn(),
     portfolio: vi.fn(),
     searchInstruments: vi.fn(),
+    marketdataSelection: vi.fn(),
     addHolding: vi.fn(),
     updateHolding: vi.fn(),
     deleteHolding: vi.fn(),
@@ -38,6 +39,7 @@ describe('DepotHoldingsManager', () => {
       holdings: [{ holding_id: 'h1', portfolio_id: 'p1', symbol: 'AAPL', quantity: 2, acquisition_price: 100, currency: 'USD', buy_date: '2026-03-01', created_at: 'x', updated_at: 'x' }],
     })
     vi.mocked(apiClient.searchInstruments).mockResolvedValue({ query: 'AAPL', total: 1, items: [{ symbol: 'AAPL', company_name: 'Apple', display_name: 'Apple', currency: 'USD', last_price: 170 }] })
+    vi.mocked(apiClient.marketdataSelection).mockResolvedValue({ symbol: 'AAPL', company_name: 'Apple', display_name: 'Apple', currency: 'USD', last_price: 171 })
     vi.mocked(apiClient.addHolding).mockResolvedValue({} as never)
     vi.mocked(apiClient.updateHolding).mockResolvedValue({} as never)
     vi.mocked(apiClient.deleteHolding).mockResolvedValue(undefined)
@@ -60,6 +62,7 @@ describe('DepotHoldingsManager', () => {
     expect(apiClient.searchInstruments).toHaveBeenCalledWith('AAPL')
     await wrapper.find('ul.search-list button').trigger('click')
     await flushUi()
+    expect(apiClient.marketdataSelection).toHaveBeenCalledWith('AAPL')
     await wrapper.find('form.holding-form').trigger('submit.prevent')
     await flushUi()
 
@@ -104,6 +107,18 @@ describe('DepotHoldingsManager', () => {
         last_price: 170
       }]
     })
+    vi.mocked(apiClient.marketdataSelection).mockResolvedValue({
+      symbol: 'AAPL',
+      company_name: 'Apple Inc. Detail',
+      display_name: 'Apple Detail',
+      isin: 'US0378331005',
+      wkn: '865985',
+      currency: 'USD',
+      exchange: 'XNAS',
+      quote_type: 'EQUITY',
+      asset_type: 'stock',
+      last_price: 171.5
+    })
     const wrapper = mount(DepotHoldingsManager, { props: { personId: 'person-1', depotLabel: 'Depot Core' } })
     await flushUi()
     await wrapper.find('input[placeholder*="Name / Symbol / ISIN / WKN"]').setValue('AAPL')
@@ -115,13 +130,34 @@ describe('DepotHoldingsManager', () => {
     expect((wrapper.find('[data-testid=\"holding-symbol\"]').element as HTMLInputElement).value).toBe('AAPL')
     expect((wrapper.find('[data-testid=\"holding-isin\"]').element as HTMLInputElement).value).toBe('US0378331005')
     expect((wrapper.find('[data-testid=\"holding-wkn\"]').element as HTMLInputElement).value).toBe('865985')
-    expect((wrapper.find('[data-testid=\"holding-company-name\"]').element as HTMLInputElement).value).toBe('Apple Inc.')
-    expect((wrapper.find('[data-testid=\"holding-display-name\"]').element as HTMLInputElement).value).toBe('Apple')
+    expect((wrapper.find('[data-testid=\"holding-company-name\"]').element as HTMLInputElement).value).toBe('Apple Inc. Detail')
+    expect((wrapper.find('[data-testid=\"holding-display-name\"]').element as HTMLInputElement).value).toBe('Apple Detail')
     expect((wrapper.find('[data-testid=\"holding-currency\"]').element as HTMLInputElement).value).toBe('USD')
-    expect((wrapper.find('[data-testid=\"holding-exchange\"]').element as HTMLInputElement).value).toBe('NMS')
+    expect((wrapper.find('[data-testid=\"holding-exchange\"]').element as HTMLInputElement).value).toBe('XNAS')
     expect((wrapper.find('[data-testid=\"holding-quote-type\"]').element as HTMLInputElement).value).toBe('EQUITY')
     expect((wrapper.find('[data-testid=\"holding-asset-type\"]').element as HTMLInputElement).value).toBe('stock')
+    expect((wrapper.find('[data-testid=\"holding-acquisition-price\"]').element as HTMLInputElement).value).toBe('171.5')
+  })
+
+  it('falls back to search result when detail request fails', async () => {
+    vi.mocked(apiClient.searchInstruments).mockResolvedValue({
+      query: 'AAPL',
+      total: 1,
+      items: [{ symbol: 'AAPL', company_name: 'Apple Inc.', display_name: 'Apple', currency: 'USD', last_price: 170 }]
+    })
+    vi.mocked(apiClient.marketdataSelection).mockRejectedValue(new Error('Detail down'))
+
+    const wrapper = mount(DepotHoldingsManager, { props: { personId: 'person-1', depotLabel: 'Depot Core' } })
+    await flushUi()
+    await wrapper.find('input[placeholder*="Name / Symbol / ISIN / WKN"]').setValue('AAPL')
+    await vi.advanceTimersByTimeAsync(350)
+    await flushUi()
+    await wrapper.find('ul.search-list button').trigger('click')
+    await flushUi()
+
+    expect((wrapper.find('[data-testid=\"holding-symbol\"]').element as HTMLInputElement).value).toBe('AAPL')
     expect((wrapper.find('[data-testid=\"holding-acquisition-price\"]').element as HTMLInputElement).value).toBe('170')
+    expect(wrapper.text()).toContain('Detail down')
   })
 
   it('updates and deletes an existing holding', async () => {

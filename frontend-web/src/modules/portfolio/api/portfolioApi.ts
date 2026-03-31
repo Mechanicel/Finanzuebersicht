@@ -4,6 +4,7 @@ import type {
   HoldingCreatePayload,
   HoldingReadModel,
   HoldingUpdatePayload,
+  InstrumentSelectionDetail,
   InstrumentSearchResult,
   PortfolioCreatePayload,
   PortfolioDetailReadModel,
@@ -37,4 +38,8 @@ export async function deleteHolding(portfolioId: string, holdingId: string) {
 
 export async function searchInstruments(q: string, limit = 10) {
   return (await http.get<ApiEnvelope<InstrumentSearchResult>>('/app/marketdata/instruments/search', { params: { q, limit } })).data.data
+}
+
+export async function marketdataSelection(symbol: string) {
+  return (await http.get<ApiEnvelope<InstrumentSelectionDetail>>(`/app/marketdata/instruments/${symbol}/selection`)).data.data
 }
