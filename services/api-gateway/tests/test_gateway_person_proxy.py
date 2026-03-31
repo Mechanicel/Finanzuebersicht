@@ -493,14 +493,18 @@ async def test_gateway_accounts_forwarding(monkeypatch: pytest.MonkeyPatch) -> N
     created = await service.create_account(
         person_id,
         AccountCreatePayload(
-            bank_id="30000000-0000-0000-0000-000000000001",
+            bank_id=UUID("30000000-0000-0000-0000-000000000001"),
             account_type="depot",
             label="Depot A",
             balance="1000.00",
             currency="EUR",
         ),
     )
-    updated = await service.update_account(person_id, account_id, AccountUpdatePayload(label="Depot B"))
+    updated = await service.update_account(
+        person_id,
+        account_id,
+        AccountUpdatePayload(label="Depot B", bank_id=UUID("30000000-0000-0000-0000-000000000001")),
+    )
 
     assert listed[0].label == "Depot A"
     assert got.account_type == "depot"
@@ -510,6 +514,10 @@ async def test_gateway_accounts_forwarding(monkeypatch: pytest.MonkeyPatch) -> N
     assert calls[1][1].endswith(f"/api/v1/persons/{person_id}/accounts/{account_id}")
     assert calls[2][0] == "POST"
     assert calls[3][0] == "PATCH"
+    assert calls[2][2] is not None
+    assert calls[2][2]["bank_id"] == "30000000-0000-0000-0000-000000000001"
+    assert calls[3][2] is not None
+    assert calls[3][2]["bank_id"] == "30000000-0000-0000-0000-000000000001"
 
 
 @pytest.mark.anyio
