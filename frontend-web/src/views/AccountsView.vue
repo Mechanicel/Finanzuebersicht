@@ -50,16 +50,25 @@
               <div><dt>Zinssatz</dt><dd>{{ account.interest_rate || '—' }}</dd></div>
             </dl>
 
-            <form v-else class="account-form edit-form" @submit.prevent="submitEdit(account.account_id)">
-              <AccountFormFields v-model="editForm" :bank-options="bankOptions" />
-              <p v-if="editError" class="error">{{ editError }}</p>
-              <div class="edit-actions">
-                <button class="btn" type="submit" :disabled="submitting">Speichern</button>
-                <button class="btn secondary" type="button" @click="cancelEdit" :disabled="submitting">
-                  Abbrechen
-                </button>
-              </div>
-            </form>
+            <div v-else>
+              <form class="account-form edit-form" @submit.prevent="submitEdit(account.account_id)">
+                <AccountFormFields v-model="editForm" :bank-options="bankOptions" />
+                <p v-if="editError" class="error">{{ editError }}</p>
+                <div class="edit-actions">
+                  <button class="btn" type="submit" :disabled="submitting">Speichern</button>
+                  <button class="btn secondary" type="button" @click="cancelEdit" :disabled="submitting">
+                    Abbrechen
+                  </button>
+                </div>
+              </form>
+
+              <DepotHoldingsManager
+                v-if="account.account_type === 'depot'"
+                :person-id="personId"
+                :depot-label="account.label"
+                title="Depot-Positionen im Bearbeiten"
+              />
+            </div>
           </section>
         </div>
       </article>
@@ -79,6 +88,7 @@ import type { AccountFormState } from './accountForm'
 import { accountTypeLabels, createEmptyAccountForm, createFormFromAccount, toUpdatePayload } from './accountForm'
 import { extractApiErrorMessage } from './apiErrorMessage'
 import type { AccountReadModel, BankReadModel, PersonReadModel } from '../types/models'
+import DepotHoldingsManager from './DepotHoldingsManager.vue'
 
 const route = useRoute()
 const personId = computed(() => (typeof route.query.personId === 'string' ? route.query.personId : ''))
@@ -316,27 +326,5 @@ onMounted(loadData)
 
 .edit-form {
   margin-top: 0.75rem;
-}
-
-.edit-actions {
-  display: flex;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-}
-
-.success {
-  color: #065f46;
-  background: #ecfdf5;
-  border: 1px solid #6ee7b7;
-  padding: 0.55rem 0.7rem;
-  border-radius: 8px;
-}
-
-.error {
-  color: #991b1b;
-}
-
-.muted {
-  color: #64748b;
 }
 </style>

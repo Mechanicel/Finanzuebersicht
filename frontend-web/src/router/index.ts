@@ -24,7 +24,6 @@ export const router = createRouter({
     { path: '/allowances', component: AllowancesView },
     { path: '/accounts', redirect: '/accounts/manage' },
     { path: '/accounts/new', component: AccountsCreateView },
-    { path: '/accounts/manage', component: AccountsView },
-    { path: '/holdings', component: () => import('../views/HoldingsView.vue') }
+    { path: '/accounts/manage', component: AccountsView }
   ]
 })

@@ -52,14 +52,14 @@ describe('AccountsCreateView', () => {
     vi.mocked(apiClient.createAccount).mockResolvedValue({} as never)
   })
 
-  it('navigates back to person hub after successful account creation', async () => {
+  it('navigates back to person hub after successful normal account creation', async () => {
     const wrapper = mount(AccountsCreateView, {
-      global: { stubs: { RouterLink: { template: '<a><slot /></a>' } } }
+      global: { stubs: { RouterLink: { template: '<a><slot /></a>' }, DepotHoldingsManager: true } }
     })
     await flushUi()
 
     const form = wrapper.find('form.account-form')
-    await form.find('input[placeholder="z. B. Giro Hauptkonto"]').setValue('Depot Langfrist')
+    await form.find('input[placeholder="z. B. Giro Hauptkonto"]').setValue('Giro')
     await form.find('input[placeholder="0.00"]').setValue('1250.50')
     await form.find('input[placeholder="EUR"]').setValue('eur')
 
@@ -68,5 +68,23 @@ describe('AccountsCreateView', () => {
 
     expect(apiClient.createAccount).toHaveBeenCalled()
     expect(pushMock).toHaveBeenCalledWith('/persons/person-1')
+  })
+
+  it('keeps depot flow in screen after depot creation', async () => {
+    const wrapper = mount(AccountsCreateView, {
+      global: { stubs: { RouterLink: { template: '<a><slot /></a>' }, DepotHoldingsManager: true } }
+    })
+    await flushUi()
+
+    await wrapper.find('select.input').setValue('depot')
+    const form = wrapper.find('form.account-form')
+    await form.find('input[placeholder="z. B. Giro Hauptkonto"]').setValue('Depot Langfrist')
+    await form.find('input[placeholder="0.00"]').setValue('1000')
+    await form.trigger('submit.prevent')
+    await flushUi()
+
+    expect(apiClient.createAccount).toHaveBeenCalledWith('person-1', expect.objectContaining({ account_type: 'depot' }))
+    expect(pushMock).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('Depot-Flow abschließen')
   })
 })
