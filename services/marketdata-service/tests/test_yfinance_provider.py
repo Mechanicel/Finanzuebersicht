@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
+import requests
 
 ROOT = Path(__file__).resolve().parents[3]
 SHARED_SRC = ROOT / "shared" / "src"
@@ -82,7 +83,7 @@ def test_search_ranking_symbol_isin_wkn_company(monkeypatch: pytest.MonkeyPatch)
     provider = YFinanceMarketDataProvider(timeout_seconds=3)
 
     class FakeSearch:
-        def __init__(self, *, query: str, max_results: int, session):
+        def __init__(self, *, query: str, max_results: int, session=None):
             self.quotes = [
                 {"symbol": "AAP", "shortname": "Other", "longname": "Other Corp", "isin": "US0000000001"},
                 {"symbol": "AAPL", "shortname": "Apple", "longname": "Apple Inc.", "isin": "US0378331005"},
@@ -101,7 +102,7 @@ def test_search_by_company_name_and_wkn_best_effort(monkeypatch: pytest.MonkeyPa
     provider = YFinanceMarketDataProvider(timeout_seconds=3)
 
     class FakeSearch:
-        def __init__(self, *, query: str, max_results: int, session):
+        def __init__(self, *, query: str, max_results: int, session=None):
             self.quotes = [
                 {"symbol": "AAPL", "shortname": "Apple", "longname": "Apple Inc.", "wkn": "865985"},
                 {"symbol": "MSFT", "shortname": "Microsoft", "longname": "Microsoft Corp."},
@@ -117,12 +118,52 @@ def test_search_by_company_name_and_wkn_best_effort(monkeypatch: pytest.MonkeyPa
     assert by_wkn[0].wkn == "865985"
 
 
+def test_search_retries_without_session(monkeypatch: pytest.MonkeyPatch) -> None:
+    provider = YFinanceMarketDataProvider(timeout_seconds=3)
+    calls: list[object] = []
+
+    class FlakySearch:
+        def __init__(self, *, query: str, max_results: int, session=None):
+            calls.append(session)
+            if session is not None:
+                raise RuntimeError("session mode failed")
+            self.quotes = [{"symbol": "AAPL", "shortname": "Apple", "longname": "Apple Inc."}]
+
+    monkeypatch.setattr("app.providers.yf.Search", FlakySearch)
+
+    result = provider.search_instruments("AAPL", limit=5)
+
+    assert [item.symbol for item in result] == ["AAPL"]
+    assert len(calls) == 2
+    assert calls[0] is provider._session
+    assert calls[1] is None
+
+
+def test_search_non_upstream_exception_degrades_to_empty(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    provider = YFinanceMarketDataProvider(timeout_seconds=3)
+
+    class BoomSearch:
+        def __init__(self, *, query: str, max_results: int, session=None):
+            raise ValueError("parser issue")
+
+    monkeypatch.setattr("app.providers.yf.Search", BoomSearch)
+    caplog.set_level("WARNING")
+
+    result = provider.search_instruments("com", limit=5)
+
+    assert result == []
+    assert "marketdata search failed with provider session" in caplog.text
+    assert "marketdata search failed without session" in caplog.text
+
+
 def test_search_upstream_error_is_wrapped(monkeypatch: pytest.MonkeyPatch) -> None:
     provider = YFinanceMarketDataProvider(timeout_seconds=3)
 
     class BoomSearch:
-        def __init__(self, *, query: str, max_results: int, session):
-            raise RuntimeError("yahoo down")
+        def __init__(self, *, query: str, max_results: int, session=None):
+            raise requests.ConnectionError("yahoo down")
 
     monkeypatch.setattr("app.providers.yf.Search", BoomSearch)
 

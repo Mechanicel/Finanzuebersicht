@@ -221,5 +221,8 @@ uv run pytest services/marketdata-service/tests -q
 - Der Service mappt Yahoo/yfinance bewusst nur auf eigene API-Modelle; rohe Yahoo-Responses werden nicht nach außen gereicht.
 - ISIN/WKN werden nur gesetzt, wenn der Provider das Feld plausibel liefert. Fehlende Werte bleiben `null` statt geraten zu werden.
 - WKN-Suche ist **best effort**: Treffer werden berücksichtigt, falls Yahoo/yfinance WKN im Suchtreffer liefert.
-- Yahoo-Verfügbarkeit/Rate-Limits können variieren. Temporäre Upstream-Probleme werden als `503 upstream_unavailable` gemeldet.
+- Die Instrumentsuche über `yfinance.Search` ist defensiv umgesetzt: zuerst mit Provider-Session, bei Fehlern automatischer Retry ohne explizite Session.
+- Suchfehler werden intern mit Query, Providernamen, Exception-Typ und Kurzmeldung geloggt; API-Responses bleiben dabei bewusst generisch.
+- Wenn beide Search-Varianten wegen lokaler/Parser-Probleme scheitern, degradiert die Suche kontrolliert zu `200` mit leerer Trefferliste (`items=[]`) statt hartem Fehler beim Tippen.
+- Echte Upstream-/Netzwerkprobleme (z. B. Connection/Timeout gegen Yahoo) werden weiterhin als `503 upstream_unavailable` gemeldet.
 - Zusätzlich zu internem yfinance-Caching nutzt der Service eigene TTL-Caches (Search, Summary, Snapshot/Blocks/Full, Serien, Benchmarks).
