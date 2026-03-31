@@ -6,7 +6,7 @@ from finanzuebersicht_shared import create_app
 from finanzuebersicht_shared.models import ErrorDetail, ErrorResponse
 
 from app.config import get_settings
-from app.models import BadRequestError, NotFoundError
+from app.models import BadRequestError, NotFoundError, UpstreamServiceError
 from app.routers import api_v1_router
 
 
@@ -34,6 +34,15 @@ def _register_marketdata_error_handlers(app: FastAPI) -> None:
             details=[ErrorDetail(code="bad_request", message=exc.message)],
         )
         return JSONResponse(status_code=400, content=payload.model_dump())
+
+    @app.exception_handler(UpstreamServiceError)
+    async def upstream_handler(request: Request, exc: UpstreamServiceError) -> JSONResponse:
+        payload = ErrorResponse(
+            error="upstream_unavailable",
+            request_id=getattr(request.state, "request_id", None),
+            details=[ErrorDetail(code="upstream_unavailable", message=exc.message)],
+        )
+        return JSONResponse(status_code=503, content=payload.model_dump())
 
 
 def create_application() -> FastAPI:

@@ -56,6 +56,14 @@ def test_instrument_summary_and_prices() -> None:
     assert payload["symbol"] == "AAPL"
     assert payload["range"] == "3M"
     assert len(payload["points"]) == 63
+    assert payload["interval"] == "1d"
+
+    weekly = client.get(
+        "/api/v1/marketdata/instruments/AAPL/prices",
+        params={"range": "3M", "interval": "1wk"},
+    )
+    assert weekly.status_code == 200
+    assert len(weekly.json()["data"]["points"]) < len(payload["points"])
 
 
 def test_blocks_full_benchmark_and_comparison_endpoints() -> None:
@@ -76,6 +84,12 @@ def test_blocks_full_benchmark_and_comparison_endpoints() -> None:
     search = client.get("/api/v1/marketdata/benchmarks/search", params={"q": "sp"})
     assert search.status_code == 200
     assert search.json()["data"]["total"] >= 1
+
+    instrument_search = client.get("/api/v1/marketdata/instruments/search", params={"q": "micro", "limit": 5})
+    assert instrument_search.status_code == 200
+    instrument_payload = instrument_search.json()["data"]
+    assert instrument_payload["total"] >= 1
+    assert instrument_payload["items"][0]["symbol"] == "MSFT"
 
     comparison = client.post(
         "/api/v1/marketdata/comparisons/series",
@@ -110,3 +124,12 @@ def test_structured_error_responses() -> None:
     invalid_query = client.get("/api/v1/marketdata/benchmarks/search", params={"q": "x"})
     assert invalid_query.status_code == 422
     assert invalid_query.json()["error"] == "validation_error"
+
+
+def test_instrument_search_empty_result() -> None:
+    client = create_test_client(app)
+    response = client.get("/api/v1/marketdata/instruments/search", params={"q": "does-not-exist"})
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["total"] == 0
+    assert payload["items"] == []
