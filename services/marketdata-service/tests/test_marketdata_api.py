@@ -34,6 +34,16 @@ def reset_singletons(monkeypatch: pytest.MonkeyPatch) -> None:
     get_selection_cache_repository.cache_clear()
 
 
+def test_selection_cache_repository_uses_mongo_collection_from_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MONGO_DATABASE", "finanzuebersicht_test")
+    monkeypatch.setenv("MARKETDATA_SELECTION_CACHE_COLLECTION", "marketdata_selection_cache_test")
+
+    repository = get_selection_cache_repository()
+
+    assert repository._collection.database.name == "finanzuebersicht_test"
+    assert repository._collection.name == "marketdata_selection_cache_test"
+
+
 def test_health_and_ready() -> None:
     client = create_test_client(app)
     health = client.get("/health")
