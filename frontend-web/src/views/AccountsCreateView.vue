@@ -29,8 +29,18 @@
         <form v-else class="account-form" @submit.prevent="submitCreate">
           <AccountFormFields v-model="createForm" :bank-options="bankOptions" />
           <p v-if="createError" class="error">{{ createError }}</p>
-          <button class="btn" type="submit" :disabled="submitting">Konto anlegen</button>
+          <button class="btn" type="submit" :disabled="submitting">
+            {{ createForm.account_type === 'depot' ? 'Depot anlegen & Positionen pflegen' : 'Konto anlegen' }}
+          </button>
         </form>
+
+        <DepotHoldingsManager
+          v-if="createdDepotLabel"
+          :person-id="personId"
+          :depot-label="createdDepotLabel"
+          title="Depot angelegt – Positionen direkt weiter pflegen"
+        />
+        <button v-if="createdDepotLabel" class="btn" type="button" @click="finishDepotFlow">Depot-Flow abschließen</button>
       </article>
     </template>
   </section>
@@ -47,6 +57,7 @@ import type { AccountFormState } from './accountForm'
 import { createEmptyAccountForm, toCreatePayload } from './accountForm'
 import { extractApiErrorMessage } from './apiErrorMessage'
 import type { BankReadModel, PersonReadModel } from '../types/models'
+import DepotHoldingsManager from './DepotHoldingsManager.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -62,6 +73,7 @@ const person = ref<PersonReadModel | null>(null)
 const banks = ref<BankReadModel[]>([])
 const assignedBankIds = ref<string[]>([])
 const createForm = ref<AccountFormState>(createEmptyAccountForm())
+const createdDepotLabel = ref('')
 
 const subtitle = computed(() => {
   const fullName = `${person.value?.first_name ?? ''} ${person.value?.last_name ?? ''}`.trim()
@@ -112,6 +124,7 @@ async function loadData() {
   loading.value = true
   errorMessage.value = null
   createError.value = ''
+  createdDepotLabel.value = ''
 
   try {
     const [personDetail, assignmentResult, bankResult] = await Promise.all([
@@ -146,12 +159,21 @@ async function submitCreate() {
 
   try {
     await apiClient.createAccount(personId.value, toCreatePayload(createForm.value))
+    if (createForm.value.account_type === 'depot') {
+      createdDepotLabel.value = createForm.value.label.trim()
+      return
+    }
     await router.push(`/persons/${personId.value}`)
   } catch (e) {
     createError.value = extractApiErrorMessage(e, 'Konto konnte nicht angelegt werden.')
   } finally {
     submitting.value = false
   }
+}
+
+async function finishDepotFlow() {
+  if (!personId.value) return
+  await router.push(`/persons/${personId.value}`)
 }
 
 watch(personId, loadData)

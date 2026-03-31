@@ -26,9 +26,9 @@ Im Personen-Hub ist die Kontenverwaltung in zwei getrennte Schritte aufgeteilt:
 
 Ein Depot wird im UI als Kontotyp innerhalb der Kontenverwaltung behandelt (kein separater Hauptbereich im Personen-Hub).
 
-## Depot-/Holding-Flow (HoldingsView)
+## Depot-/Holding-Flow in der Kontenverwaltung
 
-Die View nutzt über den Gateway folgende Endpunkte:
+Die Depot-Add/Edit-Flows nutzen über den Gateway folgende Endpunkte:
 
 - `GET /app/persons/{person_id}/portfolios`
 - `POST /app/persons/{person_id}/portfolios`
@@ -36,4 +36,4 @@ Die View nutzt über den Gateway folgende Endpunkte:
 - `POST /app/portfolios/{portfolio_id}/holdings`
 - `GET /app/marketdata/instruments/search`
 
-Hinweis: Holdings speichern nur Kauf-/Bestandsdaten. Laufende Marktpreise werden nicht im Portfolio gespeichert, sondern bei Bedarf aus Marketdata geladen.
+Hinweis: Depot-Positionen werden direkt im Add/Edit-Kontext des Kontos gepflegt. Holdings speichern nur Kauf-/Bestandsdaten (symbol, optionale IDs, quantity, acquisition_price, currency, buy_date, notes). Laufende Marktpreise und Instrumentsuche bleiben im marketdata-service.

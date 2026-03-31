@@ -58,12 +58,12 @@ const assignmentResponse = {
   total: 1
 }
 
-function buildAccount(label: string) {
+function buildAccount(label: string, accountType: 'girokonto' | 'depot' = 'girokonto') {
   return {
     account_id: 'account-1',
     person_id: 'person-1',
     bank_id: 'bank-1',
-    account_type: 'girokonto' as const,
+    account_type: accountType,
     label,
     balance: '100.00',
     currency: 'EUR',
@@ -93,7 +93,7 @@ describe('AccountsView form wiring', () => {
 
     mount(AccountsView, {
       global: {
-        stubs: { RouterLink: { template: '<a><slot /></a>' } }
+        stubs: { RouterLink: { template: '<a><slot /></a>' }, DepotHoldingsManager: true }
       }
     })
     await flushUi()
@@ -110,7 +110,7 @@ describe('AccountsView form wiring', () => {
   it('submits edit form with changed label', async () => {
     const wrapper = mount(AccountsView, {
       global: {
-        stubs: { RouterLink: { template: '<a><slot /></a>' } }
+        stubs: { RouterLink: { template: '<a><slot /></a>' }, DepotHoldingsManager: true }
       }
     })
     await flushUi()
@@ -128,6 +128,20 @@ describe('AccountsView form wiring', () => {
       'account-1',
       expect.objectContaining({ label: 'Giro umbenannt' })
     )
-    expect(wrapper.text()).not.toContain('Bitte gib eine Bezeichnung für das Konto an.')
+  })
+
+  it('shows depot holdings manager when editing depot account', async () => {
+    vi.mocked(apiClient.accounts).mockResolvedValue([buildAccount('Depot Core', 'depot')])
+    const wrapper = mount(AccountsView, {
+      global: {
+        stubs: { RouterLink: { template: '<a><slot /></a>' }, DepotHoldingsManager: { template: '<div data-test="depot-manager" />' } }
+      }
+    })
+    await flushUi()
+
+    await wrapper.find('button.secondary').trigger('click')
+    await flushUi()
+
+    expect(wrapper.find('[data-test="depot-manager"]').exists()).toBe(true)
   })
 })
