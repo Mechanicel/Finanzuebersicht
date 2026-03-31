@@ -6,8 +6,11 @@ import { nextTick } from 'vue'
 import AccountsView from './AccountsView.vue'
 import { apiClient } from '../api/client'
 
+const pushMock = vi.fn()
+
 vi.mock('vue-router', () => ({
-  useRoute: () => ({ query: { personId: 'person-1' } })
+  useRoute: () => ({ query: { personId: 'person-1' } }),
+  useRouter: () => ({ push: pushMock })
 }))
 
 vi.mock('../api/client', () => ({
@@ -16,7 +19,8 @@ vi.mock('../api/client', () => ({
     accounts: vi.fn(),
     personBanks: vi.fn(),
     banks: vi.fn(),
-    updateAccount: vi.fn()
+    updateAccount: vi.fn(),
+    deleteAccount: vi.fn()
   }
 }))
 
@@ -58,15 +62,16 @@ const assignmentResponse = {
   total: 1
 }
 
-function buildAccount(label: string, accountType: 'girokonto' | 'depot' = 'girokonto') {
+function buildAccount(label: string, accountType: 'girokonto' | 'depot' = 'girokonto', accountId = 'account-1') {
   return {
-    account_id: 'account-1',
+    account_id: accountId,
     person_id: 'person-1',
     bank_id: 'bank-1',
     account_type: accountType,
     label,
     balance: '100.00',
     currency: 'EUR',
+    iban: accountId === 'account-1' ? 'DE111' : 'DE222',
     created_at: '2026-03-01',
     updated_at: '2026-03-01'
   }
@@ -86,31 +91,12 @@ describe('AccountsView form wiring', () => {
     vi.mocked(apiClient.personBanks).mockResolvedValue(assignmentResponse)
     vi.mocked(apiClient.accounts).mockResolvedValue([buildAccount('Bestehendes Konto')])
     vi.mocked(apiClient.updateAccount).mockResolvedValue(buildAccount('Bearbeitetes Konto'))
-  })
-
-  it('mounts without runtime-template compilation warning for account form fields', async () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-
-    mount(AccountsView, {
-      global: {
-        stubs: { RouterLink: { template: '<a><slot /></a>' }, DepotHoldingsManager: true }
-      }
-    })
-    await flushUi()
-
-    expect(
-      warnSpy.mock.calls.some(([message]) =>
-        String(message).includes('runtime compilation is not supported in this build of Vue')
-      )
-    ).toBe(false)
-
-    warnSpy.mockRestore()
+    vi.mocked(apiClient.deleteAccount).mockResolvedValue(undefined)
   })
 
   it('submits edit form with changed label', async () => {
     const wrapper = mount(AccountsView, {
-      global: {
-        stubs: { RouterLink: { template: '<a><slot /></a>' }, DepotHoldingsManager: true }
+      global: { stubs: { RouterLink: { template: '<a><slot /></a>' } }
       }
     })
     await flushUi()
@@ -130,18 +116,83 @@ describe('AccountsView form wiring', () => {
     )
   })
 
-  it('shows depot holdings manager when editing depot account', async () => {
-    vi.mocked(apiClient.accounts).mockResolvedValue([buildAccount('Depot Core', 'depot')])
+  it('filters account list through search input', async () => {
+    vi.mocked(apiClient.accounts).mockResolvedValue([
+      buildAccount('Giro Alltag', 'girokonto', 'account-1'),
+      buildAccount('Depot Langfrist', 'depot', 'account-2')
+    ])
     const wrapper = mount(AccountsView, {
-      global: {
-        stubs: { RouterLink: { template: '<a><slot /></a>' }, DepotHoldingsManager: { template: '<div data-test="depot-manager" />' } }
-      }
+      global: { stubs: { RouterLink: { template: '<a><slot /></a>' } } }
+    })
+    await flushUi()
+
+    expect(wrapper.text()).toContain('Giro Alltag')
+    expect(wrapper.text()).toContain('Depot Langfrist')
+
+    await wrapper.find('input[type="search"]').setValue('langfrist')
+    await flushUi()
+
+    expect(wrapper.text()).not.toContain('Giro Alltag')
+    expect(wrapper.text()).toContain('Depot Langfrist')
+  })
+
+  it('shows delete button and opens confirmation dialog; cancel does not delete', async () => {
+    const wrapper = mount(AccountsView, {
+      global: { stubs: { RouterLink: { template: '<a><slot /></a>' } } }
     })
     await flushUi()
 
     await wrapper.find('button.secondary').trigger('click')
     await flushUi()
 
-    expect(wrapper.find('[data-test="depot-manager"]').exists()).toBe(true)
+    const deleteButton = wrapper.findAll('button').find((button) => button.text() === 'Löschen')
+    expect(deleteButton).toBeTruthy()
+    await deleteButton!.trigger('click')
+    await flushUi()
+
+    expect(wrapper.text()).toContain('Konto löschen?')
+
+    const cancelButton = wrapper.findAll('button').find((button) => button.text() === 'Abbrechen')
+    expect(cancelButton).toBeTruthy()
+    await cancelButton!.trigger('click')
+    await flushUi()
+
+    expect(apiClient.deleteAccount).not.toHaveBeenCalled()
+  })
+
+  it('deletes account only after confirmation', async () => {
+    const wrapper = mount(AccountsView, {
+      global: { stubs: { RouterLink: { template: '<a><slot /></a>' } } }
+    })
+    await flushUi()
+
+    await wrapper.find('button.secondary').trigger('click')
+    await flushUi()
+
+    const deleteButton = wrapper.findAll('button').find((button) => button.text() === 'Löschen')
+    await deleteButton!.trigger('click')
+    await flushUi()
+
+    const confirmButton = wrapper.findAll('button').find((button) => button.text() === 'Löschen bestätigen')
+    await confirmButton!.trigger('click')
+    await flushUi()
+
+    expect(apiClient.deleteAccount).toHaveBeenCalledWith('person-1', 'account-1')
+  })
+
+  it('opens dedicated depot holdings route during edit flow', async () => {
+    vi.mocked(apiClient.accounts).mockResolvedValue([buildAccount('Depot Core', 'depot')])
+    const wrapper = mount(AccountsView, {
+      global: { stubs: { RouterLink: { template: '<a><slot /></a>' } } }
+    })
+    await flushUi()
+
+    await wrapper.find('button.secondary').trigger('click')
+    await flushUi()
+
+    const holdingsButton = wrapper.findAll('button').find((button) => button.text() === 'Depot-Positionen öffnen')
+    await holdingsButton!.trigger('click')
+
+    expect(pushMock).toHaveBeenCalledWith('/accounts/depot-holdings?personId=person-1&depotLabel=Depot%20Core&origin=manage')
   })
 })

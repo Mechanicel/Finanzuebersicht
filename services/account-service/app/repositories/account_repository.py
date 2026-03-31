@@ -30,6 +30,9 @@ class AccountRepository(ABC):
     @abstractmethod
     def update_person_account(self, account: PersonAccount) -> PersonAccount: ...
 
+    @abstractmethod
+    def delete_person_account(self, person_id: UUID, account_id: UUID) -> bool: ...
+
 
 class InMemoryAccountRepository(AccountRepository):
     def __init__(self) -> None:
@@ -49,6 +52,9 @@ class InMemoryAccountRepository(AccountRepository):
     def update_person_account(self, account: PersonAccount) -> PersonAccount:
         self._accounts_by_person[account.person_id][account.account_id] = account
         return account
+
+    def delete_person_account(self, person_id: UUID, account_id: UUID) -> bool:
+        return self._accounts_by_person.get(person_id, {}).pop(account_id, None) is not None
 
 
 class MongoAccountRepository(AccountRepository):
@@ -102,6 +108,13 @@ class MongoAccountRepository(AccountRepository):
             return account
         except PyMongoError as exc:
             raise AccountRepositoryError("Failed to update account") from exc
+
+    def delete_person_account(self, person_id: UUID, account_id: UUID) -> bool:
+        try:
+            result = self._accounts.delete_one({"person_id": str(person_id), "account_id": str(account_id)})
+            return result.deleted_count > 0
+        except PyMongoError as exc:
+            raise AccountRepositoryError("Failed to delete account") from exc
 
     @staticmethod
     def _to_doc(account: PersonAccount) -> dict[str, object]:

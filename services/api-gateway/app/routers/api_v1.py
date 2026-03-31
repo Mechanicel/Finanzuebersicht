@@ -215,6 +215,18 @@ async def patch_account(
     return ApiResponse(data=await service.update_account(person_id, account_id, payload))
 
 
+
+
+@router.delete("/app/persons/{person_id}/accounts/{account_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_account(
+    person_id: UUID,
+    account_id: UUID,
+    service: Annotated[GatewayService, Depends(get_gateway_service)],
+) -> Response:
+    await service.delete_account(person_id, account_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @router.get("/app/persons/{person_id}/portfolios", response_model=ApiResponse[PortfolioListReadModel])
 async def portfolios(
     person_id: UUID, service: Annotated[GatewayService, Depends(get_gateway_service)]

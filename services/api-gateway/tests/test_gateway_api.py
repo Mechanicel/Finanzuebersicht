@@ -214,6 +214,9 @@ class StubGatewayService:
         account["updated_at"] = "2026-03-02T08:00:00+00:00"
         return account
 
+    async def delete_account(self, person_id: UUID, account_id: UUID) -> None:
+        return None
+
     async def list_portfolios(self, person_id: UUID) -> dict:
         return {
             "items": [{
@@ -406,6 +409,12 @@ def test_app_endpoints_for_vue_pages() -> None:
             json={"label": "Depot aktualisiert"},
         ).status_code
         == 200
+    )
+    assert (
+        client.delete(
+            f"/api/v1/app/persons/{PERSON_ID}/accounts/10000000-0000-0000-0000-000000000001"
+        ).status_code
+        == 204
     )
     assert client.get(f"/api/v1/app/persons/{PERSON_ID}/portfolios").status_code == 200
     assert client.get(f"/api/v1/app/persons/{PERSON_ID}/analytics/overview").status_code == 200

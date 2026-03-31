@@ -54,7 +54,7 @@ describe('AccountsCreateView', () => {
 
   it('navigates back to person hub after successful normal account creation', async () => {
     const wrapper = mount(AccountsCreateView, {
-      global: { stubs: { RouterLink: { template: '<a><slot /></a>' }, DepotHoldingsManager: true } }
+      global: { stubs: { RouterLink: { template: '<a><slot /></a>' } } }
     })
     await flushUi()
 
@@ -70,9 +70,9 @@ describe('AccountsCreateView', () => {
     expect(pushMock).toHaveBeenCalledWith('/persons/person-1')
   })
 
-  it('keeps depot flow in screen after depot creation', async () => {
+  it('routes depot creation into dedicated holdings screen instead of inline expansion', async () => {
     const wrapper = mount(AccountsCreateView, {
-      global: { stubs: { RouterLink: { template: '<a><slot /></a>' }, DepotHoldingsManager: true } }
+      global: { stubs: { RouterLink: { template: '<a><slot /></a>' } } }
     })
     await flushUi()
 
@@ -84,7 +84,7 @@ describe('AccountsCreateView', () => {
     await flushUi()
 
     expect(apiClient.createAccount).toHaveBeenCalledWith('person-1', expect.objectContaining({ account_type: 'depot' }))
-    expect(pushMock).not.toHaveBeenCalled()
-    expect(wrapper.text()).toContain('Depot-Flow abschließen')
+    expect(pushMock).toHaveBeenCalledWith('/accounts/depot-holdings?personId=person-1&depotLabel=Depot%20Langfrist&origin=create')
+    expect(wrapper.text()).not.toContain('Depot-Flow abschließen')
   })
 })

@@ -22,9 +22,22 @@
       <article v-else class="accounts-card">
         <p v-if="feedbackMessage" :class="feedbackType">{{ feedbackMessage }}</p>
         <h3>Konten der Person</h3>
+
+        <div class="search-row">
+          <label for="account-search">Konten suchen</label>
+          <input
+            id="account-search"
+            v-model.trim="searchQuery"
+            class="input"
+            type="search"
+            placeholder="Suche nach Label, Typ, IBAN, Konto-/Depotnummer"
+          />
+        </div>
+
         <EmptyState v-if="accounts.length === 0">Für diese Person sind aktuell keine Konten vorhanden.</EmptyState>
+        <EmptyState v-else-if="filteredAccounts.length === 0">Keine Konten für die aktuelle Suche gefunden.</EmptyState>
         <div v-else class="account-list">
-          <section v-for="account in accounts" :key="account.account_id" class="account-item">
+          <section v-for="account in filteredAccounts" :key="account.account_id" class="account-item">
             <div class="account-item-header">
               <div>
                 <strong>{{ account.label }}</strong>
@@ -45,40 +58,60 @@
               <div><dt>Saldo</dt><dd>{{ account.balance }} {{ account.currency }}</dd></div>
               <div><dt>IBAN</dt><dd>{{ account.iban || '—' }}</dd></div>
               <div><dt>Kontonummer</dt><dd>{{ account.account_number || '—' }}</dd></div>
-              <div><dt>Deponummer</dt><dd>{{ account.depot_number || '—' }}</dd></div>
+              <div><dt>Depotnummer</dt><dd>{{ account.depot_number || '—' }}</dd></div>
               <div><dt>Eröffnungsdatum</dt><dd>{{ account.opening_date || '—' }}</dd></div>
               <div><dt>Zinssatz</dt><dd>{{ account.interest_rate || '—' }}</dd></div>
             </dl>
 
-            <div v-else>
-              <form class="account-form edit-form" @submit.prevent="submitEdit(account.account_id)">
-                <AccountFormFields v-model="editForm" :bank-options="bankOptions" />
-                <p v-if="editError" class="error">{{ editError }}</p>
-                <div class="edit-actions">
-                  <button class="btn" type="submit" :disabled="submitting">Speichern</button>
-                  <button class="btn secondary" type="button" @click="cancelEdit" :disabled="submitting">
-                    Abbrechen
-                  </button>
-                </div>
-              </form>
+            <form v-else class="account-form edit-form" @submit.prevent="submitEdit(account.account_id)">
+              <AccountFormFields v-model="editForm" :bank-options="bankOptions" />
+              <p v-if="editError" class="error">{{ editError }}</p>
 
-              <DepotHoldingsManager
-                v-if="account.account_type === 'depot'"
-                :person-id="personId"
-                :depot-label="account.label"
-                title="Depot-Positionen im Bearbeiten"
-              />
-            </div>
+              <div class="edit-actions">
+                <button class="btn" type="submit" :disabled="submitting">Speichern</button>
+                <button class="btn secondary" type="button" @click="cancelEdit" :disabled="submitting">
+                  Abbrechen
+                </button>
+                <button class="btn secondary" type="button" @click="requestDelete(account)">
+                  Löschen
+                </button>
+                <button
+                  v-if="account.account_type === 'depot'"
+                  class="btn secondary"
+                  type="button"
+                  @click="openDepotHoldings(account)"
+                >
+                  Depot-Positionen öffnen
+                </button>
+              </div>
+            </form>
           </section>
         </div>
       </article>
     </template>
+
+    <div v-if="deleteCandidate" class="confirm-overlay" role="dialog" aria-modal="true">
+      <article class="confirm-dialog">
+        <h3>Konto löschen?</h3>
+        <p>
+          Soll das Konto <strong>{{ deleteCandidate.label }}</strong> wirklich gelöscht werden?
+          Dieser Schritt kann nicht rückgängig gemacht werden.
+        </p>
+        <p v-if="deleteCandidate.account_type === 'depot'" class="muted">
+          Hinweis: Falls ein gleichnamiges Portfolio existiert, bleiben dessen Holdings unverändert.
+        </p>
+        <div class="edit-actions">
+          <button class="btn" type="button" @click="confirmDelete" :disabled="submitting">Löschen bestätigen</button>
+          <button class="btn secondary" type="button" @click="cancelDelete" :disabled="submitting">Abbrechen</button>
+        </div>
+      </article>
+    </div>
   </section>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { apiClient } from '../api/client'
 import EmptyState from '../components/EmptyState.vue'
 import ErrorState from '../components/ErrorState.vue'
@@ -88,9 +121,9 @@ import type { AccountFormState } from './accountForm'
 import { accountTypeLabels, createEmptyAccountForm, createFormFromAccount, toUpdatePayload } from './accountForm'
 import { extractApiErrorMessage } from './apiErrorMessage'
 import type { AccountReadModel, BankReadModel, PersonReadModel } from '../types/models'
-import DepotHoldingsManager from './DepotHoldingsManager.vue'
 
 const route = useRoute()
+const router = useRouter()
 const personId = computed(() => (typeof route.query.personId === 'string' ? route.query.personId : ''))
 const backTarget = computed(() => (personId.value ? `/persons/${personId.value}` : '/persons/select'))
 const backLabel = computed(() => (personId.value ? 'Zurück zum Personen-Hub' : 'Zur Personenliste'))
@@ -101,12 +134,14 @@ const errorMessage = ref<string | null>(null)
 const feedbackMessage = ref('')
 const feedbackType = ref<'success' | 'error'>('success')
 const editError = ref('')
+const searchQuery = ref('')
 const person = ref<PersonReadModel | null>(null)
 const accounts = ref<AccountReadModel[]>([])
 const banks = ref<BankReadModel[]>([])
 const assignedBankIds = ref<string[]>([])
 const editForm = ref<AccountFormState>(createEmptyAccountForm())
 const editAccountId = ref('')
+const deleteCandidate = ref<AccountReadModel | null>(null)
 
 const subtitle = computed(() => {
   const fullName = `${person.value?.first_name ?? ''} ${person.value?.last_name ?? ''}`.trim()
@@ -122,6 +157,28 @@ const bankOptions = computed(() =>
     .map((bankId) => bankById.value.get(bankId))
     .filter((bank): bank is BankReadModel => Boolean(bank))
 )
+
+const filteredAccounts = computed(() => {
+  const query = searchQuery.value.trim().toLowerCase()
+  if (!query) {
+    return accounts.value
+  }
+
+  return accounts.value.filter((account) => {
+    const searchable = [
+      account.label,
+      accountTypeLabels[account.account_type],
+      account.account_type,
+      account.iban ?? '',
+      account.account_number ?? '',
+      account.depot_number ?? ''
+    ]
+      .join(' ')
+      .toLowerCase()
+
+    return searchable.includes(query)
+  })
+})
 
 function bankName(bankId: string): string {
   return bankById.value.get(bankId)?.name ?? `Unbekannte Bank (${bankId})`
@@ -143,6 +200,21 @@ function cancelEdit() {
   editAccountId.value = ''
   editForm.value = createEmptyAccountForm(bankOptions.value[0]?.bank_id ?? '')
   editError.value = ''
+}
+
+function requestDelete(account: AccountReadModel) {
+  deleteCandidate.value = account
+}
+
+function cancelDelete() {
+  deleteCandidate.value = null
+}
+
+function openDepotHoldings(account: AccountReadModel) {
+  if (!personId.value) {
+    return
+  }
+  void router.push(`/accounts/depot-holdings?personId=${personId.value}&depotLabel=${encodeURIComponent(account.label)}&origin=manage`)
 }
 
 function validateForm(form: AccountFormState): string | null {
@@ -228,6 +300,27 @@ async function submitEdit(accountId: string) {
   }
 }
 
+async function confirmDelete() {
+  if (!personId.value || !deleteCandidate.value) {
+    return
+  }
+
+  submitting.value = true
+  try {
+    await apiClient.deleteAccount(personId.value, deleteCandidate.value.account_id)
+    showFeedback('success', 'Konto wurde gelöscht.')
+    if (editAccountId.value === deleteCandidate.value.account_id) {
+      cancelEdit()
+    }
+    deleteCandidate.value = null
+    await loadData()
+  } catch (e) {
+    showFeedback('error', extractApiErrorMessage(e, 'Konto konnte nicht gelöscht werden.'))
+  } finally {
+    submitting.value = false
+  }
+}
+
 watch(personId, loadData)
 onMounted(loadData)
 </script>
@@ -260,22 +353,15 @@ onMounted(loadData)
   margin-top: 0;
 }
 
+.search-row {
+  display: grid;
+  gap: 0.4rem;
+  margin-bottom: 1rem;
+}
+
 .account-form {
   display: grid;
   gap: 0.75rem;
-}
-
-.form-grid {
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-}
-
-.empty-hint {
-  margin-top: 0;
-  color: #92400e;
-  background: #fff7ed;
-  border: 1px solid #fdba74;
-  border-radius: 8px;
-  padding: 0.65rem 0.75rem;
 }
 
 .account-list {
@@ -319,12 +405,31 @@ onMounted(loadData)
   color: #64748b;
 }
 
-.account-details dd {
-  margin: 0.2rem 0 0;
-  font-weight: 600;
+.edit-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
 }
 
-.edit-form {
-  margin-top: 0.75rem;
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+}
+
+.confirm-dialog {
+  background: #fff;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+  max-width: 520px;
+  width: 100%;
+  padding: 1rem;
+}
+
+.confirm-dialog h3 {
+  margin-top: 0;
 }
 </style>

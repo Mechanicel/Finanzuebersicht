@@ -131,7 +131,7 @@ describe('apiClient allowances', () => {
 
 
 describe('apiClient accounts', () => {
-  it('calls account list/create/update endpoints', async () => {
+  it('calls account list/create/update/delete endpoints', async () => {
     const personId = '00000000-0000-0000-0000-000000000101'
     const accountId = '40000000-0000-0000-0000-000000000001'
 
@@ -176,6 +176,7 @@ describe('apiClient accounts', () => {
         updated_at: '2026-03-02'
       }
     })
+    mock.onDelete(`/app/persons/${personId}/accounts/${accountId}`).reply(204)
 
     const list = await apiClient.accounts(personId)
     const created = await apiClient.createAccount(personId, {
@@ -186,6 +187,7 @@ describe('apiClient accounts', () => {
       currency: 'EUR'
     })
     const updated = await apiClient.updateAccount(personId, accountId, { label: 'Giro Notgroschen', balance: '1500.00' })
+    await apiClient.deleteAccount(personId, accountId)
 
     expect(list).toHaveLength(1)
     expect(created.balance).toBe('1250.00')
