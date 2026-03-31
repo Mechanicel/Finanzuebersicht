@@ -8,6 +8,7 @@ dependencies = [
   "uvicorn[standard]>=0.30,<1",
   "pydantic>=2.7,<3",
   "finanzuebersicht-shared",
+  "yfinance>=0.2.50,<1",
 ]
 
 [build-system]

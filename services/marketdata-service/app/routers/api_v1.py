@@ -33,7 +33,7 @@ async def instrument_summary(
 @router.get("/marketdata/instruments/search", response_model=ApiResponse[InstrumentSearchResponse])
 async def instrument_search(
     q: str = Query(min_length=1),
-    limit: int = Query(default=10, ge=1, le=50),
+    limit: int = Query(default=10, ge=1, le=25),
     service: MarketDataService = Depends(get_marketdata_service),
 ) -> ApiResponse[InstrumentSearchResponse]:
     return ApiResponse(data=service.search_instruments(query=q, limit=limit))

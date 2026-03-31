@@ -17,12 +17,15 @@ if str(SERVICE_ROOT) not in sys.path:
 
 from finanzuebersicht_shared.testing import assert_standard_health_payload, create_test_client
 
+from app.config import get_settings
 from app.dependencies import get_marketdata_service, get_provider
 from app.main import app
 
 
 @pytest.fixture(autouse=True)
-def reset_singletons() -> None:
+def reset_singletons(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MARKETDATA_PROVIDER", "inmemory")
+    get_settings.cache_clear()
     get_marketdata_service.cache_clear()
     get_provider.cache_clear()
 

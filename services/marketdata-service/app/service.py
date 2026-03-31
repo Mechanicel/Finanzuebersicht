@@ -145,7 +145,7 @@ class MarketDataService:
         if not normalized_query:
             raise BadRequestError("query must not be empty")
 
-        bounded_limit = min(max(1, limit), 50)
+        bounded_limit = min(max(1, limit), 25)
         normalized_cache_query = normalized_query.lower()
         cache_key = f"search:{normalized_cache_query}:{bounded_limit}"
         cached = self._cache_get(self.search_cache, cache_key)
