@@ -130,7 +130,57 @@ export interface AllowanceUpsertPayload {
   currency?: string
 }
 
-export interface AccountReadModel { account_id: string; name: string; type: string; balance: number }
+export type AccountType = 'girokonto' | 'tagesgeldkonto' | 'festgeldkonto' | 'depot'
+
+export interface AccountReadModel {
+  account_id: string
+  person_id: string
+  bank_id: string
+  account_type: AccountType
+  label: string
+  balance: string
+  currency: string
+  created_at: string
+  updated_at: string
+  account_number?: string | null
+  depot_number?: string | null
+  iban?: string | null
+  opening_date?: string | null
+  interest_rate?: string | null
+  payout_account_iban?: string | null
+  settlement_account_iban?: string | null
+}
+
+
+export interface AccountCreatePayload {
+  bank_id: string
+  account_type: AccountType
+  label: string
+  balance: string
+  currency?: string
+  account_number?: string | null
+  depot_number?: string | null
+  iban?: string | null
+  opening_date?: string | null
+  interest_rate?: string | null
+  payout_account_iban?: string | null
+  settlement_account_iban?: string | null
+}
+
+export interface AccountUpdatePayload {
+  bank_id?: string
+  account_type?: AccountType
+  label?: string
+  balance?: string
+  currency?: string
+  account_number?: string | null
+  depot_number?: string | null
+  iban?: string | null
+  opening_date?: string | null
+  interest_rate?: string | null
+  payout_account_iban?: string | null
+  settlement_account_iban?: string | null
+}
 export interface PortfolioReadModel { portfolio_id: string; label: string; total_value: number }
 export interface DashboardReadModel {
   person_id: string

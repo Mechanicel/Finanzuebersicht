@@ -139,9 +139,51 @@ class AllowanceSummaryReadModel(BaseModel):
 
 class AccountReadModel(BaseModel):
     account_id: UUID
-    name: str
-    type: str
-    balance: float
+    person_id: UUID
+    bank_id: UUID
+    account_type: Literal["girokonto", "tagesgeldkonto", "festgeldkonto", "depot"]
+    label: str
+    balance: str
+    currency: str
+    created_at: str
+    updated_at: str
+    account_number: str | None = None
+    depot_number: str | None = None
+    iban: str | None = None
+    opening_date: str | None = None
+    interest_rate: str | None = None
+    payout_account_iban: str | None = None
+    settlement_account_iban: str | None = None
+
+
+class AccountCreatePayload(BaseModel):
+    bank_id: UUID
+    account_type: Literal["girokonto", "tagesgeldkonto", "festgeldkonto", "depot"]
+    label: str
+    balance: str
+    currency: str = "EUR"
+    account_number: str | None = None
+    depot_number: str | None = None
+    iban: str | None = None
+    opening_date: str | None = None
+    interest_rate: str | None = None
+    payout_account_iban: str | None = None
+    settlement_account_iban: str | None = None
+
+
+class AccountUpdatePayload(BaseModel):
+    bank_id: UUID | None = None
+    account_type: Literal["girokonto", "tagesgeldkonto", "festgeldkonto", "depot"] | None = None
+    label: str | None = None
+    balance: str | None = None
+    currency: str | None = None
+    account_number: str | None = None
+    depot_number: str | None = None
+    iban: str | None = None
+    opening_date: str | None = None
+    interest_rate: str | None = None
+    payout_account_iban: str | None = None
+    settlement_account_iban: str | None = None
 
 
 class PortfolioReadModel(BaseModel):
