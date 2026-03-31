@@ -16,10 +16,10 @@ export interface AccountFormState {
 }
 
 export const accountTypeLabels: Record<AccountType, string> = {
-  girokonto: 'Girokonto',
+  girokonto: 'Normales Konto (Girokonto)',
   tagesgeldkonto: 'Tagesgeldkonto',
   festgeldkonto: 'Festgeldkonto',
-  depot: 'Depot'
+  depot: 'Depot (Wertpapierdepot)'
 }
 
 const optionalFields: Record<AccountType, Array<keyof AccountFormState>> = {
