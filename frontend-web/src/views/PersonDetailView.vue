@@ -36,8 +36,8 @@
             <div class="action-list">
               <RouterLink class="action-item" :to="personRoute('/bank-assignments')">Bank hinzufügen / Bankzuordnung</RouterLink>
               <RouterLink class="action-item" :to="personRoute('/allowances')">Freibeträge verwalten</RouterLink>
-              <RouterLink class="action-item" :to="personRoute('/accounts')">Konten</RouterLink>
-              <RouterLink class="action-item" :to="personRoute('/holdings')">Holdings / Depot</RouterLink>
+              <RouterLink class="action-item" :to="personRoute('/accounts/new')">Konto hinzufügen</RouterLink>
+              <RouterLink class="action-item" :to="personRoute('/accounts/manage')">Konten ansehen &amp; bearbeiten</RouterLink>
             </div>
           </article>
 

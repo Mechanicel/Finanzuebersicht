@@ -7,8 +7,10 @@ import PersonDetailView from '../views/PersonDetailView.vue'
 import BankAssignmentsView from '../views/BankAssignmentsView.vue'
 import AllowancesView from '../views/AllowancesView.vue'
 import AccountsView from '../views/AccountsView.vue'
-import HoldingsView from '../views/HoldingsView.vue'
+import AccountDetailView from '../views/AccountDetailView.vue'
+import AccountsCreateView from '../views/AccountsCreateView.vue'
 import BankCreateView from '../views/BankCreateView.vue'
+import DepotHoldingsFlowView from '../views/DepotHoldingsFlowView.vue'
 
 export const router = createRouter({
   history: createWebHistory(),
@@ -22,7 +24,10 @@ export const router = createRouter({
     { path: '/bank-assignments', component: BankAssignmentsView },
     { path: '/banks/new', component: BankCreateView },
     { path: '/allowances', component: AllowancesView },
-    { path: '/accounts', component: AccountsView },
-    { path: '/holdings', component: HoldingsView }
+    { path: '/accounts', redirect: '/accounts/manage' },
+    { path: '/accounts/new', component: AccountsCreateView },
+    { path: '/accounts/manage', component: AccountsView },
+    { path: '/accounts/manage/:accountId', component: AccountDetailView },
+    { path: '/accounts/depot-holdings', component: DepotHoldingsFlowView }
   ]
 })

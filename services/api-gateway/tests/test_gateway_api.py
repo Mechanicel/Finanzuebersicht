@@ -214,14 +214,64 @@ class StubGatewayService:
         account["updated_at"] = "2026-03-02T08:00:00+00:00"
         return account
 
-    async def list_portfolios(self, person_id: UUID) -> list[dict]:
-        return [
-            {
+    async def delete_account(self, person_id: UUID, account_id: UUID) -> None:
+        return None
+
+    async def list_portfolios(self, person_id: UUID) -> dict:
+        return {
+            "items": [{
                 "portfolio_id": "20000000-0000-0000-0000-000000000001",
-                "label": "Core",
-                "total_value": 10,
-            }
-        ]
+                "person_id": str(person_id),
+                "display_name": "Core",
+                "created_at": "2026-03-01T00:00:00+00:00",
+                "updated_at": "2026-03-01T00:00:00+00:00",
+            }],
+            "total": 1,
+        }
+
+    async def create_portfolio(self, person_id: UUID, payload) -> dict:
+        return {
+            "portfolio_id": "20000000-0000-0000-0000-000000000009",
+            "person_id": str(person_id),
+            "display_name": payload.display_name,
+            "created_at": "2026-03-01T00:00:00+00:00",
+            "updated_at": "2026-03-01T00:00:00+00:00",
+        }
+
+    async def get_portfolio(self, portfolio_id: UUID) -> dict:
+        return {
+            "portfolio_id": str(portfolio_id),
+            "person_id": str(PERSON_ID),
+            "display_name": "Core",
+            "created_at": "2026-03-01T00:00:00+00:00",
+            "updated_at": "2026-03-01T00:00:00+00:00",
+            "holdings": [],
+        }
+
+    async def create_holding(self, portfolio_id: UUID, payload) -> dict:
+        return {
+            "holding_id": "30000000-0000-0000-0000-000000000001",
+            "portfolio_id": str(portfolio_id),
+            **payload.model_dump(),
+            "created_at": "2026-03-01T00:00:00+00:00",
+            "updated_at": "2026-03-01T00:00:00+00:00",
+        }
+
+    async def update_holding(self, portfolio_id: UUID, holding_id: UUID, payload) -> dict:
+        return {
+            "holding_id": str(holding_id),
+            "portfolio_id": str(portfolio_id),
+            "symbol": "AAPL",
+            "quantity": payload.quantity or 1,
+            "acquisition_price": payload.acquisition_price or 10,
+            "currency": payload.currency or "EUR",
+            "buy_date": payload.buy_date or "2026-03-01",
+            "created_at": "2026-03-01T00:00:00+00:00",
+            "updated_at": "2026-03-02T00:00:00+00:00",
+        }
+
+    async def delete_holding(self, portfolio_id: UUID, holding_id: UUID) -> None:
+        return None
 
     async def get_analytics_overview(self, person_id: UUID) -> dict:
         return {"labels": ["2026-02-28"], "series": []}
@@ -254,6 +304,28 @@ class StubGatewayService:
         return GatewayHealthReadModel(
             status="up", dependencies=[HealthDependency(service="analytics-service", status="up")]
         )
+
+    async def search_marketdata_instruments(self, *, q: str, limit: int | None = None) -> dict:
+        return {"items": [{"symbol": "AAPL", "name": "Apple Inc."}], "query": q, "limit": limit or 20}
+
+    async def get_marketdata_summary(self, symbol: str) -> dict:
+        return {"symbol": symbol, "name": "Apple Inc.", "currency": "USD"}
+
+    async def get_marketdata_blocks(self, symbol: str) -> dict:
+        return {"symbol": symbol, "blocks": {"quote": {"price": 100.0}}}
+
+    async def get_marketdata_prices(
+        self, symbol: str, *, range_value: str | None = None, interval: str | None = None
+    ) -> dict:
+        return {
+            "symbol": symbol,
+            "range": range_value or "1mo",
+            "interval": interval or "1d",
+            "points": [{"timestamp": "2026-03-01T00:00:00Z", "close": 100.0}],
+        }
+
+    async def get_marketdata_full(self, symbol: str) -> dict:
+        return {"symbol": symbol, "summary": {"name": "Apple Inc."}, "prices": {"points": []}}
 
 
 def test_health_endpoint() -> None:
@@ -320,12 +392,29 @@ def test_app_endpoints_for_vue_pages() -> None:
         ).status_code
         == 201
     )
+    assert client.get("/api/v1/app/marketdata/instruments/search", params={"q": "apple", "limit": 5}).status_code == 200
+    assert client.get("/api/v1/app/marketdata/instruments/AAPL/summary").status_code == 200
+    assert client.get("/api/v1/app/marketdata/instruments/AAPL/blocks").status_code == 200
+    assert (
+        client.get(
+            "/api/v1/app/marketdata/instruments/AAPL/prices",
+            params={"range": "1mo", "interval": "1d"},
+        ).status_code
+        == 200
+    )
+    assert client.get("/api/v1/app/marketdata/instruments/AAPL/full").status_code == 200
     assert (
         client.patch(
             f"/api/v1/app/persons/{PERSON_ID}/accounts/10000000-0000-0000-0000-000000000001",
             json={"label": "Depot aktualisiert"},
         ).status_code
         == 200
+    )
+    assert (
+        client.delete(
+            f"/api/v1/app/persons/{PERSON_ID}/accounts/10000000-0000-0000-0000-000000000001"
+        ).status_code
+        == 204
     )
     assert client.get(f"/api/v1/app/persons/{PERSON_ID}/portfolios").status_code == 200
     assert client.get(f"/api/v1/app/persons/{PERSON_ID}/analytics/overview").status_code == 200
@@ -386,4 +475,59 @@ def test_gateway_dependency_health_endpoint() -> None:
 
     assert response.status_code == 200
     assert response.json()["data"]["dependencies"][0]["service"] == "analytics-service"
+    app.dependency_overrides.clear()
+
+
+def test_marketdata_routes_return_downstream_payloads() -> None:
+    app.dependency_overrides[get_gateway_service] = lambda: StubGatewayService()
+    client = create_test_client(app)
+
+    search_response = client.get("/api/v1/app/marketdata/instruments/search", params={"q": "apple", "limit": 5})
+    summary_response = client.get("/api/v1/app/marketdata/instruments/AAPL/summary")
+    prices_response = client.get(
+        "/api/v1/app/marketdata/instruments/AAPL/prices",
+        params={"range": "1mo", "interval": "1d"},
+    )
+
+    assert search_response.status_code == 200
+    assert search_response.json()["data"]["items"][0]["symbol"] == "AAPL"
+    assert summary_response.status_code == 200
+    assert summary_response.json()["data"]["symbol"] == "AAPL"
+    assert prices_response.status_code == 200
+    assert prices_response.json()["data"]["symbol"] == "AAPL"
+    app.dependency_overrides.clear()
+
+
+def test_marketdata_404_is_forwarded() -> None:
+    class NotFoundMarketdataStub(StubGatewayService):
+        async def get_marketdata_summary(self, symbol: str) -> dict:
+            raise HTTPException(status_code=404, detail="Instrument nicht gefunden")
+
+    app.dependency_overrides[get_gateway_service] = lambda: NotFoundMarketdataStub()
+    client = create_test_client(app)
+
+    response = client.get("/api/v1/app/marketdata/instruments/UNKNOWN/summary")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Instrument nicht gefunden"
+    app.dependency_overrides.clear()
+
+
+def test_marketdata_502_is_forwarded_when_downstream_unreachable() -> None:
+    class DownstreamUnavailableMarketdataStub(StubGatewayService):
+        async def get_marketdata_prices(
+            self, symbol: str, *, range_value: str | None = None, interval: str | None = None
+        ) -> dict:
+            raise HTTPException(
+                status_code=502,
+                detail="Marketdata-Service ist derzeit nicht erreichbar. Bitte später erneut versuchen.",
+            )
+
+    app.dependency_overrides[get_gateway_service] = lambda: DownstreamUnavailableMarketdataStub()
+    client = create_test_client(app)
+
+    response = client.get("/api/v1/app/marketdata/instruments/AAPL/prices", params={"range": "1mo", "interval": "1d"})
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == "Marketdata-Service ist derzeit nicht erreichbar. Bitte später erneut versuchen."
     app.dependency_overrides.clear()

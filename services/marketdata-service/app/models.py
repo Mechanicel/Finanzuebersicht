@@ -26,11 +26,36 @@ class InstrumentSummary(BaseModel):
     symbol: str
     isin: str | None = None
     company_name: str
+    display_name: str | None = None
+    wkn: str | None = None
     exchange: str
     currency: str
+    quote_type: str | None = None
+    asset_type: str | None = None
     country: str | None = None
     sector: str | None = None
     industry: str | None = None
+
+
+class InstrumentSearchItem(BaseModel):
+    symbol: str
+    company_name: str
+    display_name: str | None = None
+    isin: str | None = None
+    wkn: str | None = None
+    exchange: str | None = None
+    currency: str | None = None
+    quote_type: str | None = None
+    asset_type: str | None = None
+    last_price: float | None = None
+    country: str | None = None
+    sector: str | None = None
+
+
+class InstrumentSearchResponse(BaseModel):
+    query: str
+    items: list[InstrumentSearchItem]
+    total: int
 
 
 class PricePoint(BaseModel):
@@ -163,5 +188,11 @@ class NotFoundError(Exception):
 
 class BadRequestError(Exception):
     def __init__(self, message: str) -> None:
+        self.message = message
+        super().__init__(message)
+
+
+class UpstreamServiceError(Exception):
+    def __init__(self, message: str = "Market data provider temporarily unavailable") -> None:
         self.message = message
         super().__init__(message)

@@ -22,6 +22,7 @@ from app.models import (
     AccountUpdatePayload,
     AllowanceUpsertPayload,
     BankCreatePayload,
+    PortfolioCreatePayload,
     PersonCreatePayload,
     PersonUpdatePayload,
 )
@@ -98,6 +99,8 @@ async def test_gateway_person_crud_forwarding(monkeypatch: pytest.MonkeyPatch) -
         person_base_url="http://localhost:8002",
         masterdata_base_url="http://localhost:8001",
         account_base_url="http://localhost:8003",
+        portfolio_base_url="http://localhost:8004",
+        marketdata_base_url="http://localhost:8005",
         timeout_seconds=1.0,
     )
     person_id = UUID("00000000-0000-0000-0000-000000000101")
@@ -152,6 +155,8 @@ async def test_gateway_person_errors_are_translated(monkeypatch: pytest.MonkeyPa
         person_base_url="http://localhost:8002",
         masterdata_base_url="http://localhost:8001",
         account_base_url="http://localhost:8003",
+        portfolio_base_url="http://localhost:8004",
+        marketdata_base_url="http://localhost:8005",
         timeout_seconds=1.0,
     )
 
@@ -216,6 +221,8 @@ async def test_gateway_bank_endpoints_forwarding(monkeypatch: pytest.MonkeyPatch
         person_base_url="http://localhost:8002",
         masterdata_base_url="http://localhost:8001",
         account_base_url="http://localhost:8003",
+        portfolio_base_url="http://localhost:8004",
+        marketdata_base_url="http://localhost:8005",
         timeout_seconds=1.0,
     )
 
@@ -284,6 +291,8 @@ async def test_gateway_person_bank_assignment_forwarding(monkeypatch: pytest.Mon
         person_base_url="http://localhost:8002",
         masterdata_base_url="http://localhost:8001",
         account_base_url="http://localhost:8003",
+        portfolio_base_url="http://localhost:8004",
+        marketdata_base_url="http://localhost:8005",
         timeout_seconds=1.0,
     )
 
@@ -374,6 +383,8 @@ async def test_gateway_allowances_forwarding(monkeypatch: pytest.MonkeyPatch) ->
         person_base_url="http://localhost:8002",
         masterdata_base_url="http://localhost:8001",
         account_base_url="http://localhost:8003",
+        portfolio_base_url="http://localhost:8004",
+        marketdata_base_url="http://localhost:8005",
         timeout_seconds=1.0,
     )
 
@@ -428,6 +439,8 @@ async def test_gateway_allowance_error_details_are_forwarded(monkeypatch: pytest
         person_base_url="http://localhost:8002",
         masterdata_base_url="http://localhost:8001",
         account_base_url="http://localhost:8003",
+        portfolio_base_url="http://localhost:8004",
+        marketdata_base_url="http://localhost:8005",
         timeout_seconds=1.0,
     )
 
@@ -485,6 +498,8 @@ async def test_gateway_accounts_forwarding(monkeypatch: pytest.MonkeyPatch) -> N
         person_base_url="http://localhost:8002",
         masterdata_base_url="http://localhost:8001",
         account_base_url="http://localhost:8003",
+        portfolio_base_url="http://localhost:8004",
+        marketdata_base_url="http://localhost:8005",
         timeout_seconds=1.0,
     )
 
@@ -532,6 +547,8 @@ async def test_gateway_masterdata_connect_error_is_translated(monkeypatch: pytes
         person_base_url="http://localhost:8002",
         masterdata_base_url="http://localhost:8001",
         account_base_url="http://localhost:8003",
+        portfolio_base_url="http://localhost:8004",
+        marketdata_base_url="http://localhost:8005",
         timeout_seconds=1.0,
     )
 
@@ -542,3 +559,166 @@ async def test_gateway_masterdata_connect_error_is_translated(monkeypatch: pytes
 
     assert exc.value.status_code == 502
     assert exc.value.detail == "Masterdata-Service ist derzeit nicht erreichbar. Bitte später erneut versuchen."
+
+
+@pytest.mark.anyio
+async def test_gateway_marketdata_forwarding_success(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[str, str, dict | None, dict | None]] = []
+
+    async def fake_request(self, method: str, url: str, json: dict | None = None, params: dict | None = None):
+        calls.append((method, url, json, params))
+
+        class Response:
+            status_code = 200
+
+            @staticmethod
+            def json() -> dict:
+                if url.endswith("/search"):
+                    return {"data": {"items": [{"symbol": "AAPL", "name": "Apple Inc."}], "total": 1}}
+                if url.endswith("/summary"):
+                    return {"data": {"symbol": "AAPL", "currency": "USD"}}
+                return {"data": {"symbol": "AAPL", "points": [{"close": 100.0}]}}
+
+            text = ""
+
+        return Response()
+
+    monkeypatch.setattr("httpx.AsyncClient.request", fake_request)
+
+    service = GatewayService(
+        analytics_base_url="http://analytics",
+        person_base_url="http://localhost:8002",
+        masterdata_base_url="http://localhost:8001",
+        account_base_url="http://localhost:8003",
+        portfolio_base_url="http://localhost:8004",
+        marketdata_base_url="http://localhost:8005",
+        timeout_seconds=1.0,
+    )
+
+    search = await service.search_marketdata_instruments(q="apple", limit=5)
+    summary = await service.get_marketdata_summary("AAPL")
+    prices = await service.get_marketdata_prices("AAPL", range_value="1mo", interval="1d")
+
+    assert search["total"] == 1
+    assert summary["symbol"] == "AAPL"
+    assert prices["symbol"] == "AAPL"
+    assert calls[0][1].endswith("/api/v1/marketdata/instruments/search")
+    assert calls[0][3] == {"q": "apple", "limit": 5}
+    assert calls[1][1].endswith("/api/v1/marketdata/instruments/AAPL/summary")
+    assert calls[2][1].endswith("/api/v1/marketdata/instruments/AAPL/prices")
+    assert calls[2][3] == {"range": "1mo", "interval": "1d"}
+
+
+@pytest.mark.anyio
+async def test_gateway_marketdata_404_is_forwarded(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def fake_request(self, method: str, url: str, json: dict | None = None, params: dict | None = None):
+        class Response:
+            status_code = 404
+
+            @staticmethod
+            def json() -> dict:
+                return {"detail": "Instrument nicht gefunden"}
+
+            text = "Instrument nicht gefunden"
+
+        return Response()
+
+    monkeypatch.setattr("httpx.AsyncClient.request", fake_request)
+
+    service = GatewayService(
+        analytics_base_url="http://analytics",
+        person_base_url="http://localhost:8002",
+        masterdata_base_url="http://localhost:8001",
+        account_base_url="http://localhost:8003",
+        portfolio_base_url="http://localhost:8004",
+        marketdata_base_url="http://localhost:8005",
+        timeout_seconds=1.0,
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        await service.get_marketdata_summary("UNKNOWN")
+
+    assert exc.value.status_code == 404
+    assert exc.value.detail == "Instrument nicht gefunden"
+
+
+@pytest.mark.anyio
+async def test_gateway_marketdata_connect_error_is_translated(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def fake_request(self, method: str, url: str, json: dict | None = None, params: dict | None = None):
+        raise ConnectError("connection failed", request=Request(method, url))
+
+    monkeypatch.setattr("httpx.AsyncClient.request", fake_request)
+
+    service = GatewayService(
+        analytics_base_url="http://analytics",
+        person_base_url="http://localhost:8002",
+        masterdata_base_url="http://localhost:8001",
+        account_base_url="http://localhost:8003",
+        portfolio_base_url="http://localhost:8004",
+        marketdata_base_url="http://localhost:8005",
+        timeout_seconds=1.0,
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        await service.get_marketdata_prices("AAPL", range_value="1mo", interval="1d")
+
+    assert exc.value.status_code == 502
+    assert exc.value.detail == "Marketdata-Service ist derzeit nicht erreichbar. Bitte später erneut versuchen."
+
+@pytest.mark.anyio
+async def test_gateway_portfolio_passthrough(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[str, str, dict | None]] = []
+
+    async def fake_request(self, method: str, url: str, json: dict | None = None, params: dict | None = None):
+        calls.append((method, url, json))
+
+        class Response:
+            status_code = 200
+
+            @staticmethod
+            def json() -> dict:
+                if method == "GET" and "/persons/" in url:
+                    return {"data": {"items": [], "total": 0}}
+                if method == "POST":
+                    return {"data": {"portfolio_id": "20000000-0000-0000-0000-000000000001", "person_id": "00000000-0000-0000-0000-000000000101", "display_name": "Core", "created_at": "2026-01-01T00:00:00+00:00", "updated_at": "2026-01-01T00:00:00+00:00"}}
+                return {"data": {"portfolio_id": "20000000-0000-0000-0000-000000000001", "person_id": "00000000-0000-0000-0000-000000000101", "display_name": "Core", "created_at": "2026-01-01T00:00:00+00:00", "updated_at": "2026-01-01T00:00:00+00:00", "holdings": []}}
+
+            text = ""
+
+        return Response()
+
+    monkeypatch.setattr("httpx.AsyncClient.request", fake_request)
+    service = GatewayService("http://analytics", "http://person", "http://master", "http://account", "http://portfolio", "http://market", 1.0)
+    person_id = UUID("00000000-0000-0000-0000-000000000101")
+
+    await service.list_portfolios(person_id)
+    await service.create_portfolio(person_id, PortfolioCreatePayload(display_name="Core"))
+
+    assert calls[0][1].endswith(f"/api/v1/persons/{person_id}/portfolios")
+    assert calls[1][1].endswith("/api/v1/portfolios")
+
+
+@pytest.mark.anyio
+async def test_gateway_portfolio_404_and_502(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def fake_404(self, method: str, url: str, json: dict | None = None, params: dict | None = None):
+        class Response:
+            status_code = 404
+            text = "not found"
+            @staticmethod
+            def json() -> dict:
+                return {"detail": "Portfolio nicht gefunden"}
+        return Response()
+
+    monkeypatch.setattr("httpx.AsyncClient.request", fake_404)
+    service = GatewayService("http://analytics", "http://person", "http://master", "http://account", "http://portfolio", "http://market", 1.0)
+    with pytest.raises(HTTPException) as not_found:
+        await service.get_portfolio(UUID("20000000-0000-0000-0000-000000000001"))
+    assert not_found.value.status_code == 404
+
+    async def fake_error(self, method: str, url: str, json: dict | None = None, params: dict | None = None):
+        raise ConnectError("down", request=Request(method, url))
+
+    monkeypatch.setattr("httpx.AsyncClient.request", fake_error)
+    with pytest.raises(HTTPException) as upstream:
+        await service.list_portfolios(UUID("00000000-0000-0000-0000-000000000101"))
+    assert upstream.value.status_code == 502

@@ -131,7 +131,7 @@ describe('apiClient allowances', () => {
 
 
 describe('apiClient accounts', () => {
-  it('calls account list/create/update endpoints', async () => {
+  it('calls account list/create/update/delete endpoints', async () => {
     const personId = '00000000-0000-0000-0000-000000000101'
     const accountId = '40000000-0000-0000-0000-000000000001'
 
@@ -176,6 +176,7 @@ describe('apiClient accounts', () => {
         updated_at: '2026-03-02'
       }
     })
+    mock.onDelete(`/app/persons/${personId}/accounts/${accountId}`).reply(204)
 
     const list = await apiClient.accounts(personId)
     const created = await apiClient.createAccount(personId, {
@@ -186,6 +187,7 @@ describe('apiClient accounts', () => {
       currency: 'EUR'
     })
     const updated = await apiClient.updateAccount(personId, accountId, { label: 'Giro Notgroschen', balance: '1500.00' })
+    await apiClient.deleteAccount(personId, accountId)
 
     expect(list).toHaveLength(1)
     expect(created.balance).toBe('1250.00')
@@ -200,5 +202,27 @@ describe('apiClient accounts', () => {
       })
     )
     expect(mock.history.patch[0]?.data).toBe(JSON.stringify({ label: 'Giro Notgroschen', balance: '1500.00' }))
+  })
+})
+
+describe('apiClient portfolio and holdings endpoints', () => {
+  it('calls portfolio/holding endpoints', async () => {
+    const personId = '00000000-0000-0000-0000-000000000101'
+    const portfolioId = '20000000-0000-0000-0000-000000000001'
+    const holdingId = '30000000-0000-0000-0000-000000000001'
+
+    mock.onGet(`/app/persons/${personId}/portfolios`).reply(200, { data: { items: [], total: 0 } })
+    mock.onPost(`/app/persons/${personId}/portfolios`).reply(201, { data: { portfolio_id: portfolioId, person_id: personId, display_name: 'Core', created_at: 'x', updated_at: 'x' } })
+    mock.onGet(`/app/portfolios/${portfolioId}`).reply(200, { data: { portfolio_id: portfolioId, person_id: personId, display_name: 'Core', created_at: 'x', updated_at: 'x', holdings: [] } })
+    mock.onPost(`/app/portfolios/${portfolioId}/holdings`).reply(201, { data: { holding_id: holdingId, portfolio_id: portfolioId, symbol: 'AAPL', quantity: 1, acquisition_price: 10, currency: 'EUR', buy_date: '2026-03-01', created_at: 'x', updated_at: 'x' } })
+    mock.onDelete(`/app/portfolios/${portfolioId}/holdings/${holdingId}`).reply(204)
+
+    const list = await apiClient.portfolios(personId)
+    await apiClient.createPortfolio(personId, { display_name: 'Core' })
+    await apiClient.portfolio(portfolioId)
+    await apiClient.addHolding(portfolioId, { symbol: 'AAPL', quantity: 1, acquisition_price: 10, currency: 'EUR', buy_date: '2026-03-01' })
+    await apiClient.deleteHolding(portfolioId, holdingId)
+
+    expect(list.total).toBe(0)
   })
 })

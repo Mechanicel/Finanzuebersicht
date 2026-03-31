@@ -181,7 +181,85 @@ export interface AccountUpdatePayload {
   payout_account_iban?: string | null
   settlement_account_iban?: string | null
 }
-export interface PortfolioReadModel { portfolio_id: string; label: string; total_value: number }
+
+export interface PortfolioReadModel {
+  portfolio_id: string
+  person_id: string
+  display_name: string
+  created_at: string
+  updated_at: string
+}
+
+export interface PortfolioListReadModel {
+  items: PortfolioReadModel[]
+  total: number
+}
+
+export interface HoldingReadModel {
+  holding_id: string
+  portfolio_id: string
+  symbol: string
+  isin?: string | null
+  wkn?: string | null
+  company_name?: string | null
+  display_name?: string | null
+  quantity: number
+  acquisition_price: number
+  currency: string
+  buy_date: string
+  notes?: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface PortfolioDetailReadModel extends PortfolioReadModel {
+  holdings: HoldingReadModel[]
+}
+
+export interface PortfolioCreatePayload {
+  display_name: string
+}
+
+export interface HoldingCreatePayload {
+  symbol: string
+  isin?: string | null
+  wkn?: string | null
+  company_name?: string | null
+  display_name?: string | null
+  quantity: number
+  acquisition_price: number
+  currency: string
+  buy_date: string
+  notes?: string | null
+}
+
+export interface HoldingUpdatePayload {
+  quantity?: number
+  acquisition_price?: number
+  currency?: string
+  buy_date?: string
+  notes?: string | null
+}
+
+export interface InstrumentSearchItem {
+  symbol: string
+  company_name: string
+  display_name?: string | null
+  isin?: string | null
+  wkn?: string | null
+  exchange?: string | null
+  last_price?: number | null
+  currency?: string | null
+  quote_type?: string | null
+  asset_type?: string | null
+}
+
+export interface InstrumentSearchResult {
+  query: string
+  items: InstrumentSearchItem[]
+  total: number
+}
+
 export interface DashboardReadModel {
   person_id: string
   overview: Record<string, unknown>

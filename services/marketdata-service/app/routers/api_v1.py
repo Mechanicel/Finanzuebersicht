@@ -13,6 +13,7 @@ from app.models import (
     DataRange,
     InstrumentDataBlocksResponse,
     InstrumentFullResponse,
+    InstrumentSearchResponse,
     InstrumentSummary,
     PriceSeriesResponse,
 )
@@ -27,6 +28,15 @@ async def instrument_summary(
     service: MarketDataService = Depends(get_marketdata_service),
 ) -> ApiResponse[InstrumentSummary]:
     return ApiResponse(data=service.get_instrument_summary(symbol))
+
+
+@router.get("/marketdata/instruments/search", response_model=ApiResponse[InstrumentSearchResponse])
+async def instrument_search(
+    q: str = Query(min_length=1),
+    limit: int = Query(default=10, ge=1, le=25),
+    service: MarketDataService = Depends(get_marketdata_service),
+) -> ApiResponse[InstrumentSearchResponse]:
+    return ApiResponse(data=service.search_instruments(query=q, limit=limit))
 
 
 @router.get("/marketdata/instruments/{symbol}/prices", response_model=ApiResponse[PriceSeriesResponse])

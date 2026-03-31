@@ -6,18 +6,18 @@ import { nextTick } from 'vue'
 import AccountsView from './AccountsView.vue'
 import { apiClient } from '../api/client'
 
+const pushMock = vi.fn()
+
 vi.mock('vue-router', () => ({
-  useRoute: () => ({ query: { personId: 'person-1' } })
+  useRoute: () => ({ query: { personId: 'person-1' } }),
+  useRouter: () => ({ push: pushMock })
 }))
 
 vi.mock('../api/client', () => ({
   apiClient: {
     person: vi.fn(),
     accounts: vi.fn(),
-    personBanks: vi.fn(),
-    banks: vi.fn(),
-    createAccount: vi.fn(),
-    updateAccount: vi.fn()
+    banks: vi.fn()
   }
 }))
 
@@ -31,43 +31,24 @@ const personResponse = {
     created_at: '2026-03-01',
     updated_at: '2026-03-01'
   },
-  stats: {
-    person_id: 'person-1',
-    first_name: 'Max',
-    last_name: 'Mustermann',
-    email: null,
-    bank_count: 1,
-    allowance_total: '0.00'
-  }
+  stats: { person_id: 'person-1', first_name: 'Max', last_name: 'Mustermann', email: null, bank_count: 1, allowance_total: '0.00' }
 }
 
 const bankResponse = {
-  items: [
-    {
-      bank_id: 'bank-1',
-      name: 'Testbank',
-      bic: 'TESTDEFFXXX',
-      blz: '10000000',
-      country_code: 'DE'
-    }
-  ],
+  items: [{ bank_id: 'bank-1', name: 'Testbank', bic: 'TESTDEFFXXX', blz: '10000000', country_code: 'DE' }],
   total: 1
 }
 
-const assignmentResponse = {
-  items: [{ person_id: 'person-1', bank_id: 'bank-1', assigned_at: '2026-03-01T00:00:00+00:00' }],
-  total: 1
-}
-
-function buildAccount(label: string) {
+function buildAccount(label: string, accountType: 'girokonto' | 'depot' = 'girokonto', accountId = 'account-1') {
   return {
-    account_id: 'account-1',
+    account_id: accountId,
     person_id: 'person-1',
     bank_id: 'bank-1',
-    account_type: 'girokonto' as const,
+    account_type: accountType,
     label,
     balance: '100.00',
     currency: 'EUR',
+    iban: accountId === 'account-1' ? 'DE111' : 'DE222',
     created_at: '2026-03-01',
     updated_at: '2026-03-01'
   }
@@ -78,86 +59,48 @@ async function flushUi() {
   await nextTick()
 }
 
-describe('AccountsView form wiring', () => {
+describe('AccountsView list flow', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-
     vi.mocked(apiClient.person).mockResolvedValue(personResponse)
     vi.mocked(apiClient.banks).mockResolvedValue(bankResponse)
-    vi.mocked(apiClient.personBanks).mockResolvedValue(assignmentResponse)
     vi.mocked(apiClient.accounts).mockResolvedValue([buildAccount('Bestehendes Konto')])
-    vi.mocked(apiClient.createAccount).mockResolvedValue(buildAccount('Neu angelegt'))
-    vi.mocked(apiClient.updateAccount).mockResolvedValue(buildAccount('Bearbeitetes Konto'))
   })
 
-  it('mounts without runtime-template compilation warning for account form fields', async () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-
-    mount(AccountsView, {
-      global: {
-        stubs: { RouterLink: { template: '<a><slot /></a>' } }
-      }
-    })
+  it('renders each account row as clickable element and has no bearbeiten button', async () => {
+    const wrapper = mount(AccountsView, { global: { stubs: { RouterLink: { template: '<a><slot /></a>' } } } })
     await flushUi()
 
-    expect(
-      warnSpy.mock.calls.some(([message]) =>
-        String(message).includes('runtime compilation is not supported in this build of Vue')
-      )
-    ).toBe(false)
-
-    warnSpy.mockRestore()
+    expect(wrapper.find('button.account-row-btn').exists()).toBe(true)
+    expect(wrapper.findAll('button').some((button) => button.text() === 'Bearbeiten')).toBe(false)
   })
 
-  it('submits create form with entered label instead of triggering empty-label validation', async () => {
+  it('navigates to dedicated detail route on row click', async () => {
+    const wrapper = mount(AccountsView, { global: { stubs: { RouterLink: { template: '<a><slot /></a>' } } } })
+    await flushUi()
+
+    await wrapper.find('button.account-row-btn').trigger('click')
+
+    expect(pushMock).toHaveBeenCalledWith('/accounts/manage/account-1?personId=person-1')
+  })
+
+  it('filters account list through search input', async () => {
+    vi.mocked(apiClient.accounts).mockResolvedValue([
+      buildAccount('Giro Alltag', 'girokonto', 'account-1'),
+      buildAccount('Depot Langfrist', 'depot', 'account-2')
+    ])
     const wrapper = mount(AccountsView, {
-      global: {
-        stubs: { RouterLink: { template: '<a><slot /></a>' } }
-      }
+      global: { stubs: { RouterLink: { template: '<a><slot /></a>' } } }
     })
     await flushUi()
 
-    const createForm = wrapper.find('article.accounts-card form.account-form')
-    await createForm.find('input[placeholder="z. B. Giro Hauptkonto"]').setValue('Giro Urlaub')
-    await createForm.find('input[placeholder="0.00"]').setValue('1250.50')
-    await createForm.find('input[placeholder="EUR"]').setValue('eur')
+    expect(wrapper.text()).toContain('Giro Alltag')
+    expect(wrapper.text()).toContain('Depot Langfrist')
 
-    await createForm.trigger('submit.prevent')
+    await wrapper.find('input[type="search"]').setValue('langfrist')
     await flushUi()
 
-    expect(apiClient.createAccount).toHaveBeenCalledWith(
-      'person-1',
-      expect.objectContaining({
-        label: 'Giro Urlaub',
-        bank_id: 'bank-1',
-        balance: '1250.50',
-        currency: 'EUR'
-      })
-    )
-    expect(wrapper.text()).not.toContain('Bitte gib eine Bezeichnung für das Konto an.')
-  })
-
-  it('submits edit form with changed label', async () => {
-    const wrapper = mount(AccountsView, {
-      global: {
-        stubs: { RouterLink: { template: '<a><slot /></a>' } }
-      }
-    })
-    await flushUi()
-
-    await wrapper.find('button.secondary').trigger('click')
-    await nextTick()
-
-    const editForm = wrapper.find('form.edit-form')
-    await editForm.find('input[placeholder="z. B. Giro Hauptkonto"]').setValue('Giro umbenannt')
-    await editForm.trigger('submit.prevent')
-    await flushUi()
-
-    expect(apiClient.updateAccount).toHaveBeenCalledWith(
-      'person-1',
-      'account-1',
-      expect.objectContaining({ label: 'Giro umbenannt' })
-    )
-    expect(wrapper.text()).not.toContain('Bitte gib eine Bezeichnung für das Konto an.')
+    expect(wrapper.text()).not.toContain('Giro Alltag')
+    expect(wrapper.text()).toContain('Depot Langfrist')
   })
 })

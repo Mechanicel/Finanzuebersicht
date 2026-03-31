@@ -27,7 +27,13 @@ from app.models import (
     PersonReadModel,
     PersonBankAssignmentReadModel,
     PersonUpdatePayload,
+    PortfolioCreatePayload,
+    PortfolioDetailReadModel,
+    PortfolioListReadModel,
     PortfolioReadModel,
+    HoldingCreatePayload,
+    HoldingReadModel,
+    HoldingUpdatePayload,
     TaxAllowanceReadModel,
 )
 from app.service import GatewayService
@@ -209,13 +215,69 @@ async def patch_account(
     return ApiResponse(data=await service.update_account(person_id, account_id, payload))
 
 
-@router.get(
-    "/app/persons/{person_id}/portfolios", response_model=ApiResponse[list[PortfolioReadModel]]
-)
+
+
+@router.delete("/app/persons/{person_id}/accounts/{account_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_account(
+    person_id: UUID,
+    account_id: UUID,
+    service: Annotated[GatewayService, Depends(get_gateway_service)],
+) -> Response:
+    await service.delete_account(person_id, account_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/app/persons/{person_id}/portfolios", response_model=ApiResponse[PortfolioListReadModel])
 async def portfolios(
     person_id: UUID, service: Annotated[GatewayService, Depends(get_gateway_service)]
-) -> ApiResponse[list[PortfolioReadModel]]:
+) -> ApiResponse[PortfolioListReadModel]:
     return ApiResponse(data=await service.list_portfolios(person_id))
+
+
+@router.post("/app/persons/{person_id}/portfolios", response_model=ApiResponse[PortfolioReadModel], status_code=status.HTTP_201_CREATED)
+async def create_portfolio(
+    person_id: UUID,
+    payload: PortfolioCreatePayload,
+    service: Annotated[GatewayService, Depends(get_gateway_service)],
+) -> ApiResponse[PortfolioReadModel]:
+    return ApiResponse(data=await service.create_portfolio(person_id, payload))
+
+
+@router.get("/app/portfolios/{portfolio_id}", response_model=ApiResponse[PortfolioDetailReadModel])
+async def portfolio_detail(
+    portfolio_id: UUID,
+    service: Annotated[GatewayService, Depends(get_gateway_service)],
+) -> ApiResponse[PortfolioDetailReadModel]:
+    return ApiResponse(data=await service.get_portfolio(portfolio_id))
+
+
+@router.post("/app/portfolios/{portfolio_id}/holdings", response_model=ApiResponse[HoldingReadModel], status_code=status.HTTP_201_CREATED)
+async def add_holding(
+    portfolio_id: UUID,
+    payload: HoldingCreatePayload,
+    service: Annotated[GatewayService, Depends(get_gateway_service)],
+) -> ApiResponse[HoldingReadModel]:
+    return ApiResponse(data=await service.create_holding(portfolio_id, payload))
+
+
+@router.patch("/app/portfolios/{portfolio_id}/holdings/{holding_id}", response_model=ApiResponse[HoldingReadModel])
+async def patch_holding(
+    portfolio_id: UUID,
+    holding_id: UUID,
+    payload: HoldingUpdatePayload,
+    service: Annotated[GatewayService, Depends(get_gateway_service)],
+) -> ApiResponse[HoldingReadModel]:
+    return ApiResponse(data=await service.update_holding(portfolio_id, holding_id, payload))
+
+
+@router.delete("/app/portfolios/{portfolio_id}/holdings/{holding_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_holding(
+    portfolio_id: UUID,
+    holding_id: UUID,
+    service: Annotated[GatewayService, Depends(get_gateway_service)],
+) -> Response:
+    await service.delete_holding(portfolio_id, holding_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/app/persons/{person_id}/analytics/overview", response_model=ApiResponse[dict])
@@ -235,3 +297,48 @@ async def app_health(
     person_id: UUID, service: Annotated[GatewayService, Depends(get_gateway_service)]
 ) -> ApiResponse[GatewayHealthReadModel]:
     return ApiResponse(data=await service.dependency_health(person_id))
+
+
+@router.get("/app/marketdata/instruments/search", response_model=ApiResponse[dict])
+async def search_marketdata_instruments(
+    service: Annotated[GatewayService, Depends(get_gateway_service)],
+    q: str = Query(..., min_length=1),
+    limit: int | None = Query(default=None, ge=1, le=100),
+) -> ApiResponse[dict]:
+    return ApiResponse(data=await service.search_marketdata_instruments(q=q, limit=limit))
+
+
+@router.get("/app/marketdata/instruments/{symbol}/summary", response_model=ApiResponse[dict])
+async def marketdata_summary(
+    symbol: str,
+    service: Annotated[GatewayService, Depends(get_gateway_service)],
+) -> ApiResponse[dict]:
+    return ApiResponse(data=await service.get_marketdata_summary(symbol))
+
+
+@router.get("/app/marketdata/instruments/{symbol}/blocks", response_model=ApiResponse[dict])
+async def marketdata_blocks(
+    symbol: str,
+    service: Annotated[GatewayService, Depends(get_gateway_service)],
+) -> ApiResponse[dict]:
+    return ApiResponse(data=await service.get_marketdata_blocks(symbol))
+
+
+@router.get("/app/marketdata/instruments/{symbol}/prices", response_model=ApiResponse[dict])
+async def marketdata_prices(
+    symbol: str,
+    service: Annotated[GatewayService, Depends(get_gateway_service)],
+    range_value: str | None = Query(default=None, alias="range"),
+    interval: str | None = Query(default=None),
+) -> ApiResponse[dict]:
+    return ApiResponse(
+        data=await service.get_marketdata_prices(symbol, range_value=range_value, interval=interval)
+    )
+
+
+@router.get("/app/marketdata/instruments/{symbol}/full", response_model=ApiResponse[dict])
+async def marketdata_full(
+    symbol: str,
+    service: Annotated[GatewayService, Depends(get_gateway_service)],
+) -> ApiResponse[dict]:
+    return ApiResponse(data=await service.get_marketdata_full(symbol))

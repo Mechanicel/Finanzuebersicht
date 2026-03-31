@@ -6,7 +6,8 @@ Neu aufgesetzter Market-Data-Service für die Zielarchitektur mit **api-gateway*
 
 - Flask-Legacy ist vollständig ersetzt durch FastAPI-Struktur unter `services/marketdata-service/app`.
 - Einheitliche Versionierung unter `/api/v1/marketdata/...`.
-- Provider-Abstraktion ist vorbereitet (`MarketDataProvider`), aktuell mit In-Memory-Provider.
+- Provider-Abstraktion ist aktiv (`MarketDataProvider`), Standard ist `yfinance` (Yahoo als Upstream).
+- `InMemoryMarketDataProvider` bleibt für lokale Tests/Fallback verfügbar (`MARKETDATA_PROVIDER=inmemory`).
 - Service-Layer (`MarketDataService`) kapselt Fachlogik.
 - Caching ist vorbereitet (TTL-In-Memory-Cache, konfigurierbar).
 - Strukturierte Fehlerantworten (`not_found`, `bad_request`, `validation_error`).
@@ -192,7 +193,15 @@ Die folgenden Legacy-Muster gelten als **entfallen** und sollen nicht mehr durch
 Umgebungsvariablen:
 
 - `CACHE_ENABLED` (default `true`)
-- `CACHE_TTL_SECONDS` (default `120`)
+- `MARKETDATA_PROVIDER` (default `yfinance`, Alternative `inmemory`)
+- `MARKETDATA_REQUEST_TIMEOUT_SECONDS` (default `8.0`)
+- `MARKETDATA_REQUEST_RETRIES` (default `2`)
+- `MARKETDATA_REQUEST_BACKOFF_FACTOR` (default `0.3`)
+- `MARKETDATA_CACHE_SEARCH_TTL_SECONDS` (default `60`)
+- `MARKETDATA_CACHE_SUMMARY_TTL_SECONDS` (default `120`)
+- `MARKETDATA_CACHE_PRICE_TTL_SECONDS` (default `45`)
+- `MARKETDATA_CACHE_SERIES_TTL_SECONDS` (default `30`)
+- `MARKETDATA_CACHE_BENCHMARK_TTL_SECONDS` (default `900`)
 
 ## Start
 
@@ -205,3 +214,15 @@ uv run uvicorn app.main:app --reload --port 8005
 ```bash
 uv run pytest services/marketdata-service/tests -q
 ```
+
+
+## Datenqualität, Identifier und Caching
+
+- Der Service mappt Yahoo/yfinance bewusst nur auf eigene API-Modelle; rohe Yahoo-Responses werden nicht nach außen gereicht.
+- ISIN/WKN werden nur gesetzt, wenn der Provider das Feld plausibel liefert. Fehlende Werte bleiben `null` statt geraten zu werden.
+- WKN-Suche ist **best effort**: Treffer werden berücksichtigt, falls Yahoo/yfinance WKN im Suchtreffer liefert.
+- Die Instrumentsuche über `yfinance.Search` ist defensiv umgesetzt: zuerst mit Provider-Session, bei Fehlern automatischer Retry ohne explizite Session.
+- Suchfehler werden intern mit Query, Providernamen, Exception-Typ und Kurzmeldung geloggt; API-Responses bleiben dabei bewusst generisch.
+- Wenn beide Search-Varianten wegen lokaler/Parser-Probleme scheitern, degradiert die Suche kontrolliert zu `200` mit leerer Trefferliste (`items=[]`) statt hartem Fehler beim Tippen.
+- Echte Upstream-/Netzwerkprobleme (z. B. Connection/Timeout gegen Yahoo) werden weiterhin als `503 upstream_unavailable` gemeldet.
+- Zusätzlich zu internem yfinance-Caching nutzt der Service eigene TTL-Caches (Search, Summary, Snapshot/Blocks/Full, Serien, Benchmarks).
