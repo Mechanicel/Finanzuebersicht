@@ -3,7 +3,7 @@
     <div class="view-header">
       <div class="view-header-copy">
         <p class="eyebrow">Personen-Hub · Schritt</p>
-        <h2>Konten verwalten</h2>
+        <h2>Konten ansehen & bearbeiten</h2>
         <p v-if="personId">{{ subtitle }}</p>
         <p v-else>Diese Ansicht ist nur aus dem Personen-Hub sinnvoll nutzbar.</p>
       </div>
@@ -12,73 +12,57 @@
 
     <p v-if="!personId" class="context-hint">
       Kein Personenkontext vorhanden. Bitte wähle zuerst eine Person aus und öffne danach den Schritt
-      „Konten verwalten“ im Personen-Hub.
+      „Konten ansehen & bearbeiten“ im Personen-Hub.
     </p>
 
     <template v-else>
       <LoadingState v-if="loading" />
       <ErrorState v-else-if="errorMessage" :message="errorMessage" />
 
-      <template v-else>
+      <article v-else class="accounts-card">
         <p v-if="feedbackMessage" :class="feedbackType">{{ feedbackMessage }}</p>
+        <h3>Konten der Person</h3>
+        <EmptyState v-if="accounts.length === 0">Für diese Person sind aktuell keine Konten vorhanden.</EmptyState>
+        <div v-else class="account-list">
+          <section v-for="account in accounts" :key="account.account_id" class="account-item">
+            <div class="account-item-header">
+              <div>
+                <strong>{{ account.label }}</strong>
+                <p class="muted">{{ accountTypeLabels[account.account_type] }} · {{ bankName(account.bank_id) }}</p>
+              </div>
+              <button
+                v-if="editAccountId !== account.account_id"
+                class="btn secondary"
+                type="button"
+                @click="startEdit(account)"
+                :disabled="submitting"
+              >
+                Bearbeiten
+              </button>
+            </div>
 
-        <article class="accounts-card">
-          <h3>Neues Konto anlegen</h3>
-          <p v-if="bankOptions.length === 0" class="empty-hint">
-            Für diese Person ist aktuell keine Bank zugeordnet. Lege zuerst im Schritt „Bankzuordnung" eine
-            Zuordnung an.
-          </p>
-          <form v-else class="account-form" @submit.prevent="submitCreate">
-            <AccountFormFields v-model="createForm" :bank-options="bankOptions" />
-            <p v-if="createError" class="error">{{ createError }}</p>
-            <button class="btn" type="submit" :disabled="submitting">Konto anlegen</button>
-          </form>
-        </article>
+            <dl v-if="editAccountId !== account.account_id" class="account-details">
+              <div><dt>Saldo</dt><dd>{{ account.balance }} {{ account.currency }}</dd></div>
+              <div><dt>IBAN</dt><dd>{{ account.iban || '—' }}</dd></div>
+              <div><dt>Kontonummer</dt><dd>{{ account.account_number || '—' }}</dd></div>
+              <div><dt>Deponummer</dt><dd>{{ account.depot_number || '—' }}</dd></div>
+              <div><dt>Eröffnungsdatum</dt><dd>{{ account.opening_date || '—' }}</dd></div>
+              <div><dt>Zinssatz</dt><dd>{{ account.interest_rate || '—' }}</dd></div>
+            </dl>
 
-        <article class="accounts-card">
-          <h3>Konten der Person</h3>
-          <EmptyState v-if="accounts.length === 0">Für diese Person sind aktuell keine Konten vorhanden.</EmptyState>
-          <div v-else class="account-list">
-            <section v-for="account in accounts" :key="account.account_id" class="account-item">
-              <div class="account-item-header">
-                <div>
-                  <strong>{{ account.label }}</strong>
-                  <p class="muted">{{ accountTypeLabels[account.account_type] }} · {{ bankName(account.bank_id) }}</p>
-                </div>
-                <button
-                  v-if="editAccountId !== account.account_id"
-                  class="btn secondary"
-                  type="button"
-                  @click="startEdit(account)"
-                  :disabled="submitting"
-                >
-                  Bearbeiten
+            <form v-else class="account-form edit-form" @submit.prevent="submitEdit(account.account_id)">
+              <AccountFormFields v-model="editForm" :bank-options="bankOptions" />
+              <p v-if="editError" class="error">{{ editError }}</p>
+              <div class="edit-actions">
+                <button class="btn" type="submit" :disabled="submitting">Speichern</button>
+                <button class="btn secondary" type="button" @click="cancelEdit" :disabled="submitting">
+                  Abbrechen
                 </button>
               </div>
-
-              <dl v-if="editAccountId !== account.account_id" class="account-details">
-                <div><dt>Saldo</dt><dd>{{ account.balance }} {{ account.currency }}</dd></div>
-                <div><dt>IBAN</dt><dd>{{ account.iban || '—' }}</dd></div>
-                <div><dt>Kontonummer</dt><dd>{{ account.account_number || '—' }}</dd></div>
-                <div><dt>Deponummer</dt><dd>{{ account.depot_number || '—' }}</dd></div>
-                <div><dt>Eröffnungsdatum</dt><dd>{{ account.opening_date || '—' }}</dd></div>
-                <div><dt>Zinssatz</dt><dd>{{ account.interest_rate || '—' }}</dd></div>
-              </dl>
-
-              <form v-else class="account-form edit-form" @submit.prevent="submitEdit(account.account_id)">
-                <AccountFormFields v-model="editForm" :bank-options="bankOptions" />
-                <p v-if="editError" class="error">{{ editError }}</p>
-                <div class="edit-actions">
-                  <button class="btn" type="submit" :disabled="submitting">Speichern</button>
-                  <button class="btn secondary" type="button" @click="cancelEdit" :disabled="submitting">
-                    Abbrechen
-                  </button>
-                </div>
-              </form>
-            </section>
-          </div>
-        </article>
-      </template>
+            </form>
+          </section>
+        </div>
+      </article>
     </template>
   </section>
 </template>
@@ -92,13 +76,7 @@ import ErrorState from '../components/ErrorState.vue'
 import LoadingState from '../components/LoadingState.vue'
 import AccountFormFields from './AccountFormFields.vue'
 import type { AccountFormState } from './accountForm'
-import {
-  accountTypeLabels,
-  createEmptyAccountForm,
-  createFormFromAccount,
-  toCreatePayload,
-  toUpdatePayload
-} from './accountForm'
+import { accountTypeLabels, createEmptyAccountForm, createFormFromAccount, toUpdatePayload } from './accountForm'
 import { extractApiErrorMessage } from './apiErrorMessage'
 import type { AccountReadModel, BankReadModel, PersonReadModel } from '../types/models'
 
@@ -112,13 +90,11 @@ const submitting = ref(false)
 const errorMessage = ref<string | null>(null)
 const feedbackMessage = ref('')
 const feedbackType = ref<'success' | 'error'>('success')
-const createError = ref('')
 const editError = ref('')
 const person = ref<PersonReadModel | null>(null)
 const accounts = ref<AccountReadModel[]>([])
 const banks = ref<BankReadModel[]>([])
 const assignedBankIds = ref<string[]>([])
-const createForm = ref<AccountFormState>(createEmptyAccountForm())
 const editForm = ref<AccountFormState>(createEmptyAccountForm())
 const editAccountId = ref('')
 
@@ -144,11 +120,6 @@ function bankName(bankId: string): string {
 function showFeedback(type: 'success' | 'error', message: string) {
   feedbackType.value = type
   feedbackMessage.value = message
-}
-
-function resetCreateForm() {
-  const defaultBankId = bankOptions.value[0]?.bank_id ?? ''
-  createForm.value = createEmptyAccountForm(defaultBankId)
 }
 
 function startEdit(account: AccountReadModel) {
@@ -187,14 +158,12 @@ async function loadData() {
     errorMessage.value = null
     banks.value = []
     assignedBankIds.value = []
-    resetCreateForm()
     return
   }
 
   loading.value = true
   errorMessage.value = null
   feedbackMessage.value = ''
-  createError.value = ''
   editError.value = ''
 
   try {
@@ -208,7 +177,6 @@ async function loadData() {
     accounts.value = accountList
     assignedBankIds.value = assignmentResult.items.map((item) => item.bank_id)
     banks.value = bankResult.items
-    resetCreateForm()
     if (editAccountId.value) {
       const edited = accounts.value.find((item) => item.account_id === editAccountId.value)
       if (edited) {
@@ -221,32 +189,6 @@ async function loadData() {
     errorMessage.value = extractApiErrorMessage(e, 'Konten konnten nicht geladen werden.')
   } finally {
     loading.value = false
-  }
-}
-
-async function submitCreate() {
-  if (!personId.value || bankOptions.value.length === 0) {
-    return
-  }
-
-  const validationError = validateForm(createForm.value)
-  if (validationError) {
-    createError.value = validationError
-    return
-  }
-
-  submitting.value = true
-  createError.value = ''
-  editError.value = ''
-
-  try {
-    await apiClient.createAccount(personId.value, toCreatePayload(createForm.value))
-    showFeedback('success', 'Konto wurde erfolgreich angelegt.')
-    await loadData()
-  } catch (e) {
-    createError.value = extractApiErrorMessage(e, 'Konto konnte nicht angelegt werden.')
-  } finally {
-    submitting.value = false
   }
 }
 
@@ -263,7 +205,6 @@ async function submitEdit(accountId: string) {
 
   submitting.value = true
   editError.value = ''
-  createError.value = ''
 
   try {
     await apiClient.updateAccount(personId.value, accountId, toUpdatePayload(editForm.value))
@@ -318,6 +259,15 @@ onMounted(loadData)
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
 }
 
+.empty-hint {
+  margin-top: 0;
+  color: #92400e;
+  background: #fff7ed;
+  border: 1px solid #fdba74;
+  border-radius: 8px;
+  padding: 0.65rem 0.75rem;
+}
+
 .account-list {
   display: grid;
   gap: 0.75rem;
@@ -332,20 +282,26 @@ onMounted(loadData)
 .account-item-header {
   display: flex;
   justify-content: space-between;
-  gap: 1rem;
+  gap: 0.75rem;
   align-items: flex-start;
-  margin-bottom: 0.75rem;
+}
+
+.account-item-header p {
+  margin: 0.35rem 0 0;
 }
 
 .account-details {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: 0.5rem;
-  margin: 0;
+  margin: 0.75rem 0 0;
 }
 
 .account-details div {
-  margin: 0;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 0.5rem;
+  background: #f8fafc;
 }
 
 .account-details dt {
@@ -354,37 +310,33 @@ onMounted(loadData)
 }
 
 .account-details dd {
-  margin: 0.1rem 0 0;
+  margin: 0.2rem 0 0;
+  font-weight: 600;
 }
 
-.muted {
-  margin: 0.25rem 0 0;
-  color: #64748b;
-  font-size: 0.875rem;
+.edit-form {
+  margin-top: 0.75rem;
+}
+
+.edit-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
 }
 
 .success {
-  color: #166534;
+  color: #065f46;
+  background: #ecfdf5;
+  border: 1px solid #6ee7b7;
+  padding: 0.55rem 0.7rem;
+  border-radius: 8px;
 }
 
 .error {
   color: #991b1b;
 }
 
-.empty-hint {
-  color: #92400e;
-  background: #fffbeb;
-  border: 1px solid #fcd34d;
-  border-radius: 8px;
-  padding: 0.65rem 0.75rem;
-}
-
-.edit-actions {
-  display: flex;
-  gap: 0.5rem;
-}
-
-.secondary {
-  background: #334155;
+.muted {
+  color: #64748b;
 }
 </style>

@@ -16,7 +16,6 @@ vi.mock('../api/client', () => ({
     accounts: vi.fn(),
     personBanks: vi.fn(),
     banks: vi.fn(),
-    createAccount: vi.fn(),
     updateAccount: vi.fn()
   }
 }))
@@ -86,7 +85,6 @@ describe('AccountsView form wiring', () => {
     vi.mocked(apiClient.banks).mockResolvedValue(bankResponse)
     vi.mocked(apiClient.personBanks).mockResolvedValue(assignmentResponse)
     vi.mocked(apiClient.accounts).mockResolvedValue([buildAccount('Bestehendes Konto')])
-    vi.mocked(apiClient.createAccount).mockResolvedValue(buildAccount('Neu angelegt'))
     vi.mocked(apiClient.updateAccount).mockResolvedValue(buildAccount('Bearbeitetes Konto'))
   })
 
@@ -107,34 +105,6 @@ describe('AccountsView form wiring', () => {
     ).toBe(false)
 
     warnSpy.mockRestore()
-  })
-
-  it('submits create form with entered label instead of triggering empty-label validation', async () => {
-    const wrapper = mount(AccountsView, {
-      global: {
-        stubs: { RouterLink: { template: '<a><slot /></a>' } }
-      }
-    })
-    await flushUi()
-
-    const createForm = wrapper.find('article.accounts-card form.account-form')
-    await createForm.find('input[placeholder="z. B. Giro Hauptkonto"]').setValue('Giro Urlaub')
-    await createForm.find('input[placeholder="0.00"]').setValue('1250.50')
-    await createForm.find('input[placeholder="EUR"]').setValue('eur')
-
-    await createForm.trigger('submit.prevent')
-    await flushUi()
-
-    expect(apiClient.createAccount).toHaveBeenCalledWith(
-      'person-1',
-      expect.objectContaining({
-        label: 'Giro Urlaub',
-        bank_id: 'bank-1',
-        balance: '1250.50',
-        currency: 'EUR'
-      })
-    )
-    expect(wrapper.text()).not.toContain('Bitte gib eine Bezeichnung für das Konto an.')
   })
 
   it('submits edit form with changed label', async () => {

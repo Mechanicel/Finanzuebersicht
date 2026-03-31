@@ -17,6 +17,15 @@ Optional:
 VITE_API_BASE_URL=http://127.0.0.1:8000/api/v1 npm run dev
 ```
 
+## Personen-Hub: Kontenstruktur
+
+Im Personen-Hub ist die Kontenverwaltung in zwei getrennte Schritte aufgeteilt:
+
+- `Konto hinzufügen` (`/accounts/new?personId=...`)
+- `Konten ansehen & bearbeiten` (`/accounts/manage?personId=...`)
+
+Ein Depot wird im UI als Kontotyp innerhalb der Kontenverwaltung behandelt (kein separater Hauptbereich im Personen-Hub).
+
 ## Depot-/Holding-Flow (HoldingsView)
 
 Die View nutzt über den Gateway folgende Endpunkte:
