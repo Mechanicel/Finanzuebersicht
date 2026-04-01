@@ -359,10 +359,23 @@ class YFinanceMarketDataProvider:
                 isin = None
 
             normalized = self._normalize_optional_identifier(isin)
-            if self._is_valid_isin(normalized):
+            if self._is_country_consistent_isin(normalized, symbol=symbol, info=info):
                 return normalized
+            if self._is_valid_isin(normalized):
+                logger.debug(
+                    "marketdata rejected isin due to country mismatch",
+                    extra={"symbol": symbol, "isin": normalized, "exchange": info.get("exchange")},
+                )
 
-            return self._resolve_isin_via_businessinsider(symbol=symbol, info=info)
+            resolved = self._resolve_isin_via_businessinsider(symbol=symbol, info=info)
+            if self._is_country_consistent_isin(resolved, symbol=symbol, info=info):
+                return resolved
+            if self._is_valid_isin(resolved):
+                logger.debug(
+                    "marketdata rejected isin due to country mismatch",
+                    extra={"symbol": symbol, "isin": resolved, "exchange": info.get("exchange")},
+                )
+            return None
         except Exception:
             logger.exception(
                 "marketdata isin resolution failed",
@@ -383,14 +396,35 @@ class YFinanceMarketDataProvider:
         normalized = " ".join(str(value).split()).strip()
         return normalized or None
 
+    @staticmethod
+    def _expected_isin_country_prefix(symbol: str, info: dict[str, Any]) -> str | None:
+        if symbol.upper().endswith(".DE"):
+            return "DE"
+        if str(info.get("exchange") or "").upper() == "GER":
+            return "DE"
+        return None
+
+    @classmethod
+    def _is_country_consistent_isin(
+        cls,
+        value: str | None,
+        *,
+        symbol: str,
+        info: dict[str, Any],
+    ) -> bool:
+        if not cls._is_valid_isin(value):
+            return False
+        expected_prefix = cls._expected_isin_country_prefix(symbol, info)
+        if expected_prefix is None:
+            return True
+        return str(value).strip().upper().startswith(expected_prefix)
+
     def _build_isin_query_candidates(self, *, symbol: str, info: dict[str, Any]) -> list[str]:
-        base_symbol = symbol.split(".", 1)[0].strip().upper()
         candidates = [
             self._normalize_name_for_query(info.get("shortName")),
             self._normalize_name_for_query(info.get("longName")),
             self._normalize_name_for_query(info.get("displayName")),
             symbol.strip().upper(),
-            base_symbol,
         ]
         result: list[str] = []
         seen: set[str] = set()
@@ -447,10 +481,7 @@ class YFinanceMarketDataProvider:
 
     def _resolve_isin_via_businessinsider(self, *, symbol: str, info: dict[str, Any]) -> str | None:
         logger = logging.getLogger(__name__)
-        expected_symbols = [
-            symbol.upper(),
-            symbol.split(".", 1)[0].upper(),
-        ]
+        expected_symbols = [symbol.upper()]
         queries = self._build_isin_query_candidates(symbol=symbol, info=info)
         for query in queries:
             url = (
