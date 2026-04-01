@@ -228,14 +228,14 @@ def test_search_cache_hit_avoids_repeating_openfigi_query() -> None:
 
     assert first.total == 1
     assert second.total == 1
-    # 1x for primary search + 1x for selection enrichment on first request only.
-    assert provider.search_calls == 2
+    assert provider.search_calls == 1
+    assert provider.selection_calls == 0
     assert service.search_cache is not None
     assert service.search_cache.get("search:dummy:10") is None
     assert service.search_cache.get("search:openfigi:v1:dummy:10") is not None
 
 
-def test_search_enriches_top_results_with_missing_fields() -> None:
+def test_search_does_not_enrich_results_with_selection_details() -> None:
     provider = FakeProvider()
     provider.search_results = [
         InstrumentSearchItem(
@@ -259,33 +259,20 @@ def test_search_enriches_top_results_with_missing_fields() -> None:
             change_1d_pct=0.8,
         ),
     ]
-    provider.selection_responses["CBK.DE"] = InstrumentSelectionDetailsResponse(
-        symbol="CBK.DE",
-        isin="DE000CBK1001",
-        wkn="CBK100",
-        company_name="Commerzbank AG",
-        display_name="Commerzbank AG",
-        exchange="XETRA",
-        currency="EUR",
-        quote_type="EQUITY",
-        asset_type="stock",
-        last_price=18.35,
-        change_1d_pct=-1.25,
-    )
     service = build_service(provider)
 
     response = service.search_instruments("commerzbank", limit=10)
 
     assert response.items[0].symbol == "CBK.DE"
-    assert response.items[0].isin == "DE000CBK1001"
-    assert response.items[0].wkn == "CBK100"
-    assert response.items[0].last_price == 18.35
-    assert response.items[0].change_1d_pct == -1.25
+    assert response.items[0].isin is None
+    assert response.items[0].wkn is None
+    assert response.items[0].last_price is None
+    assert response.items[0].change_1d_pct is None
     assert response.items[1].isin == "US0378331005"
-    assert provider.selection_calls == 1
+    assert provider.selection_calls == 0
 
 
-def test_search_enrichment_errors_keep_raw_item() -> None:
+def test_search_does_not_call_selection_even_when_results_are_sparse() -> None:
     provider = FakeProvider()
     provider.search_results = [
         InstrumentSearchItem(
@@ -297,7 +284,6 @@ def test_search_enrichment_errors_keep_raw_item() -> None:
             change_1d_pct=None,
         )
     ]
-    provider.selection_error_symbols.add("CBK.DE")
     service = build_service(provider)
 
     response = service.search_instruments("commerzbank", limit=10)
@@ -306,6 +292,7 @@ def test_search_enrichment_errors_keep_raw_item() -> None:
     assert response.items[0].symbol == "CBK.DE"
     assert response.items[0].last_price is None
     assert response.items[0].change_1d_pct is None
+    assert provider.selection_calls == 0
 
 
 def test_search_propagates_openfigi_upstream_outage() -> None:

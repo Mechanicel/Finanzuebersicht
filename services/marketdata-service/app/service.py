@@ -260,82 +260,10 @@ class MarketDataService:
         cached = self._cache_get(self.search_cache, cache_key)
         if cached is None:
             items = self.provider.search_instruments(normalized_cache_query, bounded_limit)
-            items = self._enrich_search_items(items)
             self._cache_set(self.search_cache, cache_key, items)
         else:
             items = cached
         return InstrumentSearchResponse(query=normalized_query, items=items, total=len(items))
-
-    def _enrich_search_items(self, items: list[InstrumentSearchItem]) -> list[InstrumentSearchItem]:
-        enriched: list[InstrumentSearchItem] = []
-        max_enriched = 3
-        enriched_count = 0
-        for item in items:
-            if (
-                enriched_count >= max_enriched
-                or not self._requires_search_enrichment(item)
-            ):
-                enriched.append(item)
-                continue
-            try:
-                details = self.get_instrument_selection_details(item.symbol)
-            except Exception:
-                self._logger.exception(
-                    "marketdata search enrichment failed",
-                    extra={"symbol": item.symbol},
-                )
-                enriched.append(item)
-                continue
-            enriched.append(self._merge_search_item(item, details))
-            enriched_count += 1
-        return enriched
-
-    @staticmethod
-    def _requires_search_enrichment(item: InstrumentSearchItem) -> bool:
-        if MarketDataService._is_blank_value(item.isin):
-            return True
-        if MarketDataService._is_blank_value(item.wkn):
-            return True
-        if item.last_price is None:
-            return True
-        return item.change_1d_pct is None
-
-    def _merge_search_item(
-        self,
-        item: InstrumentSearchItem,
-        details: InstrumentSelectionDetailsResponse,
-    ) -> InstrumentSearchItem:
-        updates: dict[str, object | None] = {}
-        for field_name in (
-            "isin",
-            "wkn",
-            "exchange",
-            "currency",
-            "quote_type",
-            "asset_type",
-            "last_price",
-            "change_1d_pct",
-        ):
-            item_value = getattr(item, field_name)
-            details_value = getattr(details, field_name)
-            if item_value is None and details_value is not None:
-                updates[field_name] = details_value
-            elif (
-                isinstance(item_value, str)
-                and isinstance(details_value, str)
-                and self._is_blank_value(item_value)
-                and not self._is_blank_value(details_value)
-            ):
-                updates[field_name] = details_value
-
-        if self._is_blank_value(item.display_name) and not self._is_blank_value(details.display_name):
-            updates["display_name"] = details.display_name
-        if self._is_blank_value(item.company_name) and not self._is_blank_value(details.company_name):
-            updates["company_name"] = details.company_name
-
-        if not updates:
-            return item
-        return item.model_copy(update=updates)
 
     def get_comparison_series(self, payload: ComparisonSeriesRequest) -> ComparisonSeriesResponse:
         series: list[ComparisonSeriesItem] = []
