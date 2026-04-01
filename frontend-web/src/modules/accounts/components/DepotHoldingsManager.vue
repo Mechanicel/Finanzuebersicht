@@ -29,7 +29,11 @@
             <button class="btn secondary result-item" type="button" :disabled="selectingSymbol === item.symbol" @click="selectInstrument(item)">
               <strong>{{ item.symbol }}</strong>
               <span>{{ item.display_name || item.company_name || 'Unbenanntes Instrument' }}</span>
+              <small v-if="item.isin">ISIN: {{ item.isin }}</small>
               <small v-if="item.last_price != null">Letzter Preis: {{ item.last_price }} {{ item.currency || '' }}</small>
+              <small v-if="item.change_1d_pct != null" :class="changeClass(item.change_1d_pct)">
+                1D: {{ item.change_1d_pct }}%
+              </small>
               <small v-if="selectingSymbol === item.symbol">Lade Instrumentdetails…</small>
             </button>
           </li>
@@ -249,6 +253,11 @@ function mergeInstrumentData(searchItem: InstrumentSearchItem, selectionDetails:
   return merged
 }
 
+function changeClass(change: number | null | undefined) {
+  if (change == null || change === 0) return 'change-neutral'
+  return change > 0 ? 'change-positive' : 'change-negative'
+}
+
 function buildDraftHoldingFromInstrument(item: InstrumentSearchItem | InstrumentSelectionDetail) {
   const acquisitionPrice = item.last_price ?? 0
   return {
@@ -406,6 +415,9 @@ onBeforeUnmount(() => {
 .row-actions { display: flex; gap: .5rem; margin-top: .5rem; }
 .search-list { list-style: none; padding: 0; display: grid; gap: .5rem; margin-top: .5rem; }
 .result-item { width: 100%; text-align: left; display: grid; gap: .2rem; }
+.change-positive { color: #166534; }
+.change-negative { color: #b91c1c; }
+.change-neutral { color: #475569; }
 .feedback-banner {
   margin-top: .75rem;
   margin-bottom: .5rem;

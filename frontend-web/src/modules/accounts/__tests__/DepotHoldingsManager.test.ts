@@ -38,8 +38,8 @@ describe('DepotHoldingsManager', () => {
       portfolio_id: 'p1', person_id: 'person-1', display_name: 'Depot Core', created_at: 'x', updated_at: 'x',
       holdings: [{ holding_id: 'h1', portfolio_id: 'p1', symbol: 'AAPL', quantity: 2, acquisition_price: 100, currency: 'USD', buy_date: '2026-03-01', created_at: 'x', updated_at: 'x' }],
     })
-    vi.mocked(apiClient.searchInstruments).mockResolvedValue({ query: 'AAPL', total: 1, items: [{ symbol: 'AAPL', company_name: 'Apple', display_name: 'Apple', currency: 'USD', last_price: 170 }] })
-    vi.mocked(apiClient.marketdataSelection).mockResolvedValue({ symbol: 'AAPL', company_name: 'Apple', display_name: 'Apple', currency: 'USD', last_price: 171 })
+    vi.mocked(apiClient.searchInstruments).mockResolvedValue({ query: 'AAPL', total: 1, items: [{ symbol: 'AAPL', company_name: 'Apple', display_name: 'Apple', currency: 'USD', last_price: 170, change_1d_pct: 0.5 }] })
+    vi.mocked(apiClient.marketdataSelection).mockResolvedValue({ symbol: 'AAPL', company_name: 'Apple', display_name: 'Apple', currency: 'USD', last_price: 171, change_1d_pct: 0.7 })
     vi.mocked(apiClient.addHolding).mockResolvedValue({} as never)
     vi.mocked(apiClient.updateHolding).mockResolvedValue({} as never)
     vi.mocked(apiClient.deleteHolding).mockResolvedValue(undefined)
@@ -137,6 +137,47 @@ describe('DepotHoldingsManager', () => {
     expect((wrapper.find('[data-testid=\"holding-quote-type\"]').element as HTMLInputElement).value).toBe('EQUITY')
     expect((wrapper.find('[data-testid=\"holding-asset-type\"]').element as HTMLInputElement).value).toBe('stock')
     expect((wrapper.find('[data-testid=\"holding-acquisition-price\"]').element as HTMLInputElement).value).toBe('171.5')
+  })
+
+  it('shows symbol, isin, price and colored daily change in search results', async () => {
+    vi.mocked(apiClient.searchInstruments).mockResolvedValue({
+      query: 'Commerzbank',
+      total: 2,
+      items: [
+        {
+          symbol: 'CBK.DE',
+          company_name: 'Commerzbank AG',
+          display_name: 'Commerzbank',
+          isin: 'DE000CBK1001',
+          currency: 'EUR',
+          last_price: 18.35,
+          change_1d_pct: 1.42
+        },
+        {
+          symbol: 'NEG.DE',
+          company_name: 'Negative AG',
+          display_name: 'Negative',
+          isin: 'DE000NEG0001',
+          currency: 'EUR',
+          last_price: 9.5,
+          change_1d_pct: -2.1
+        }
+      ]
+    })
+    const wrapper = mount(DepotHoldingsManager, { props: { personId: 'person-1', depotLabel: 'Depot Core' } })
+    await flushUi()
+    await wrapper.find('input[placeholder*="Name / Symbol / ISIN / WKN"]').setValue('Commerzbank')
+    await vi.advanceTimersByTimeAsync(350)
+    await flushUi()
+
+    const listText = wrapper.find('ul.search-list').text()
+    expect(listText).toContain('CBK.DE')
+    expect(listText).toContain('ISIN: DE000CBK1001')
+    expect(listText).toContain('Letzter Preis: 18.35 EUR')
+    expect(listText).toContain('1D: 1.42%')
+    expect(listText).toContain('1D: -2.1%')
+    expect(wrapper.find('.change-positive').exists()).toBe(true)
+    expect(wrapper.find('.change-negative').exists()).toBe(true)
   })
 
   it('keeps search isin/wkn when selection details return null and prefers detail price', async () => {

@@ -48,6 +48,7 @@ class InstrumentSearchItem(BaseModel):
     quote_type: str | None = None
     asset_type: str | None = None
     last_price: float | None = None
+    change_1d_pct: float | None = None
     country: str | None = None
     sector: str | None = None
 

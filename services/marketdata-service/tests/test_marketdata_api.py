@@ -118,6 +118,7 @@ def test_blocks_full_benchmark_and_comparison_endpoints() -> None:
     instrument_payload = instrument_search.json()["data"]
     assert instrument_payload["total"] >= 1
     assert instrument_payload["items"][0]["symbol"] == "MSFT"
+    assert "change_1d_pct" in instrument_payload["items"][0]
 
     comparison = client.post(
         "/api/v1/marketdata/comparisons/series",

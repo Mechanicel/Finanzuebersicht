@@ -249,6 +249,7 @@ export interface InstrumentSearchItem {
   wkn?: string | null
   exchange?: string | null
   last_price?: number | null
+  change_1d_pct?: number | null
   currency?: string | null
   quote_type?: string | null
   asset_type?: string | null
@@ -271,6 +272,7 @@ export interface InstrumentSelectionDetail {
   asset_type?: string | null
   currency?: string | null
   last_price?: number | null
+  change_1d_pct?: number | null
 }
 
 export interface DashboardReadModel {
