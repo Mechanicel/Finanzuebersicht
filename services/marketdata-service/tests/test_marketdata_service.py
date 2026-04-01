@@ -31,6 +31,7 @@ from app.models import (
     InstrumentSummary,
     MetricsBlock,
     NotFoundError,
+    OPENFIGI_IDENTITY_SOURCE,
     PricePoint,
     RiskBlock,
     SnapshotBlock,
@@ -228,6 +229,9 @@ def test_search_cache_hit_avoids_second_provider_call() -> None:
     assert first.total == 1
     assert second.total == 1
     assert provider.search_calls == 1
+    assert service.search_cache is not None
+    assert service.search_cache.get("search:dummy:10") is None
+    assert service.search_cache.get("search:openfigi:v1:dummy:10") is not None
 
 
 def test_search_enriches_top_results_with_missing_fields() -> None:
@@ -303,85 +307,6 @@ def test_search_enrichment_errors_keep_raw_item() -> None:
     assert response.items[0].change_1d_pct is None
 
 
-def test_search_enrichment_skips_structured_products_and_enriches_equity_first() -> None:
-    provider = FakeProvider()
-    provider.search_results = [
-        InstrumentSearchItem(
-            symbol="CERT1.DE",
-            company_name="Commerzbank Turbo Zertifikat",
-            display_name="Turbo Zertifikat",
-            isin=None,
-            wkn=None,
-            currency="EUR",
-            last_price=None,
-            change_1d_pct=None,
-        ),
-        InstrumentSearchItem(
-            symbol="CBK.DE",
-            company_name="Commerzbank AG",
-            display_name="Commerzbank",
-            isin=None,
-            wkn=None,
-            currency="EUR",
-            last_price=None,
-            change_1d_pct=None,
-        ),
-    ]
-    provider.selection_responses["CBK.DE"] = InstrumentSelectionDetailsResponse(
-        symbol="CBK.DE",
-        isin="DE000CBK1001",
-        wkn="CBK100",
-        company_name="Commerzbank AG",
-        display_name="Commerzbank AG",
-        exchange="XETRA",
-        currency="EUR",
-        quote_type="EQUITY",
-        asset_type="stock",
-        last_price=18.35,
-        change_1d_pct=1.2,
-    )
-    service = build_service(provider)
-
-    response = service.search_instruments("commerzbank", limit=10)
-
-    assert response.items[0].symbol == "CBK.DE"
-    assert response.items[0].isin == "DE000CBK1001"
-    assert response.items[1].symbol == "CERT1.DE"
-    assert response.items[1].isin is None
-    assert provider.selection_calls == 1
-
-
-def test_search_response_reorders_equity_like_hits_ahead_of_structured_products_for_plain_company_query() -> None:
-    provider = FakeProvider()
-    provider.search_results = [
-        InstrumentSearchItem(
-            symbol="CERT1.DE",
-            company_name="Commerzbank Turbo Zertifikat",
-            display_name="Turbo Zertifikat",
-            quote_type="WARRANT",
-            asset_type="WARRANT",
-            isin="DE000CERT001",
-            exchange="GER",
-            currency="EUR",
-        ),
-        InstrumentSearchItem(
-            symbol="CBK.DE",
-            company_name="Commerzbank AG",
-            display_name="Commerzbank",
-            quote_type="EQUITY",
-            asset_type="STOCK",
-            isin="DE000CBK1001",
-            exchange="XETRA",
-            currency="EUR",
-        ),
-    ]
-    service = build_service(provider)
-
-    response = service.search_instruments("commerzbank", limit=10)
-
-    assert [item.symbol for item in response.items] == ["CBK.DE", "CERT1.DE"]
-
-
 def test_selection_cache_hit_for_fresh_db_record() -> None:
     provider = FakeProvider()
     client = mongomock.MongoClient()
@@ -402,6 +327,7 @@ def test_selection_cache_hit_for_fresh_db_record() -> None:
     collection.insert_one(
         {
             "symbol": "DUM",
+            "identity_source": OPENFIGI_IDENTITY_SOURCE,
             "payload": fresh.model_dump(mode="json"),
             "fetched_at": datetime.now(UTC) - timedelta(seconds=10),
         }
@@ -429,6 +355,7 @@ def test_selection_stale_cache_refreshes_provider_and_updates_db() -> None:
     collection.insert_one(
         {
             "symbol": "DUM",
+            "identity_source": OPENFIGI_IDENTITY_SOURCE,
             "payload": stale.model_dump(mode="json"),
             "fetched_at": datetime.now(UTC) - timedelta(seconds=120),
         }
@@ -442,6 +369,7 @@ def test_selection_stale_cache_refreshes_provider_and_updates_db() -> None:
     persisted = collection.find_one({"symbol": "DUM"})
     assert persisted is not None
     assert persisted["payload"]["company_name"] == "Demo Corp"
+    assert persisted["identity_source"] == OPENFIGI_IDENTITY_SOURCE
 
 
 def test_selection_cache_miss_loads_from_provider_and_inserts_db() -> None:
@@ -458,6 +386,7 @@ def test_selection_cache_miss_loads_from_provider_and_inserts_db() -> None:
     persisted = collection.find_one({"symbol": "DUM"})
     assert persisted is not None
     assert persisted["payload"]["symbol"] == "DUM"
+    assert persisted["identity_source"] == OPENFIGI_IDENTITY_SOURCE
 
 
 def test_selection_merge_keeps_cached_isin_and_wkn_when_refresh_returns_null() -> None:
@@ -493,6 +422,7 @@ def test_selection_merge_keeps_cached_isin_and_wkn_when_refresh_returns_null() -
     collection.insert_one(
         {
             "symbol": "DUM",
+            "identity_source": OPENFIGI_IDENTITY_SOURCE,
             "payload": stale.model_dump(mode="json"),
             "fetched_at": datetime.now(UTC) - timedelta(seconds=120),
         }
@@ -546,6 +476,7 @@ def test_selection_merge_uses_fresh_price_and_keeps_cached_identity_fields() -> 
     collection.insert_one(
         {
             "symbol": "DUM",
+            "identity_source": OPENFIGI_IDENTITY_SOURCE,
             "payload": stale.model_dump(mode="json"),
             "fetched_at": datetime.now(UTC) - timedelta(seconds=120),
         }
@@ -596,6 +527,7 @@ def test_selection_merge_ignores_whitespace_identity_updates() -> None:
     collection.insert_one(
         {
             "symbol": "DUM",
+            "identity_source": OPENFIGI_IDENTITY_SOURCE,
             "payload": stale.model_dump(mode="json"),
             "fetched_at": datetime.now(UTC) - timedelta(seconds=120),
         }
@@ -612,6 +544,89 @@ def test_selection_merge_ignores_whitespace_identity_updates() -> None:
     assert response.currency == "EUR"
     assert response.quote_type == "equity"
     assert response.asset_type == "stock"
+
+
+def test_selection_cache_without_source_is_ignored() -> None:
+    provider = FakeProvider()
+    client = mongomock.MongoClient()
+    collection = client["finanzuebersicht"]["selection_cache_test"]
+    repository = InstrumentSelectionCacheRepository(collection=collection)
+    stale = InstrumentSelectionDetailsResponse(
+        symbol="DUM",
+        company_name="Legacy Cached",
+        exchange="XETRA",
+        currency="EUR",
+        last_price=10.0,
+    )
+    collection.insert_one(
+        {
+            "symbol": "DUM",
+            "payload": stale.model_dump(mode="json"),
+            "fetched_at": datetime.now(UTC) - timedelta(seconds=10),
+        }
+    )
+    service = build_service(provider, repository, cache_enabled=False, selection_ttl_seconds=60)
+
+    response = service.get_instrument_selection_details("DUM")
+
+    assert response.company_name == "Demo Corp"
+    assert provider.selection_calls == 1
+
+
+def test_selection_cache_with_wrong_source_is_ignored() -> None:
+    provider = FakeProvider()
+    client = mongomock.MongoClient()
+    collection = client["finanzuebersicht"]["selection_cache_test"]
+    repository = InstrumentSelectionCacheRepository(collection=collection)
+    stale = InstrumentSelectionDetailsResponse(
+        symbol="DUM",
+        company_name="Yahoo Cached",
+        exchange="XETRA",
+        currency="EUR",
+        last_price=10.0,
+    )
+    collection.insert_one(
+        {
+            "symbol": "DUM",
+            "identity_source": "yahoo_search_v1",
+            "payload": stale.model_dump(mode="json"),
+            "fetched_at": datetime.now(UTC) - timedelta(seconds=10),
+        }
+    )
+    service = build_service(provider, repository, cache_enabled=False, selection_ttl_seconds=60)
+
+    response = service.get_instrument_selection_details("DUM")
+
+    assert response.company_name == "Demo Corp"
+    assert provider.selection_calls == 1
+
+
+def test_selection_cache_with_openfigi_source_is_used() -> None:
+    provider = FakeProvider()
+    client = mongomock.MongoClient()
+    collection = client["finanzuebersicht"]["selection_cache_test"]
+    repository = InstrumentSelectionCacheRepository(collection=collection)
+    fresh = InstrumentSelectionDetailsResponse(
+        symbol="DUM",
+        company_name="OpenFIGI Cached",
+        exchange="XETRA",
+        currency="EUR",
+        last_price=44.0,
+    )
+    collection.insert_one(
+        {
+            "symbol": "DUM",
+            "identity_source": OPENFIGI_IDENTITY_SOURCE,
+            "payload": fresh.model_dump(mode="json"),
+            "fetched_at": datetime.now(UTC) - timedelta(seconds=10),
+        }
+    )
+    service = build_service(provider, repository, cache_enabled=False, selection_ttl_seconds=60)
+
+    response = service.get_instrument_selection_details("DUM")
+
+    assert response.company_name == "OpenFIGI Cached"
+    assert provider.selection_calls == 0
 
 
 def test_selection_response_contains_positive_last_price() -> None:

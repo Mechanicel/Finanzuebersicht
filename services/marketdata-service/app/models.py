@@ -6,6 +6,10 @@ from enum import StrEnum
 from pydantic import BaseModel, Field, field_validator
 
 
+
+OPENFIGI_IDENTITY_SOURCE = "openfigi_search_v1"
+
+
 class DataRange(StrEnum):
     ONE_MONTH = "1M"
     THREE_MONTHS = "3M"

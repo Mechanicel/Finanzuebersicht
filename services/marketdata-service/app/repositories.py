@@ -21,8 +21,8 @@ class InstrumentSelectionCacheRepository:
         self._collection = collection
         self._initialize()
 
-    def get(self, symbol: str) -> tuple[InstrumentSelectionDetailsResponse, datetime] | None:
-        document = self._collection.find_one({"symbol": symbol})
+    def get(self, symbol: str, identity_source: str) -> tuple[InstrumentSelectionDetailsResponse, datetime] | None:
+        document = self._collection.find_one({"symbol": symbol, "identity_source": identity_source})
         if document is None:
             return None
 
@@ -32,13 +32,14 @@ class InstrumentSelectionCacheRepository:
             fetched_at = fetched_at.replace(tzinfo=UTC)
         return payload, fetched_at
 
-    def upsert(self, symbol: str, payload: InstrumentSelectionDetailsResponse) -> datetime:
+    def upsert(self, symbol: str, payload: InstrumentSelectionDetailsResponse, identity_source: str) -> datetime:
         fetched_at = datetime.now(UTC)
         self._collection.update_one(
-            {"symbol": symbol},
+            {"symbol": symbol, "identity_source": identity_source},
             {
                 "$set": {
                     "symbol": symbol,
+                    "identity_source": identity_source,
                     "payload": payload.model_dump(mode="json", exclude_none=True),
                     "fetched_at": fetched_at,
                 }
@@ -48,7 +49,7 @@ class InstrumentSelectionCacheRepository:
         return fetched_at
 
     def _initialize(self) -> None:
-        self._collection.create_index([("symbol", ASCENDING)], unique=True)
+        self._collection.create_index([("symbol", ASCENDING), ("identity_source", ASCENDING)], unique=True)
 
 
 class InstrumentHydratedRepository:
