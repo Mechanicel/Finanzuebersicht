@@ -215,7 +215,7 @@ class InstrumentIdentity(BaseModel):
     company_name: str | None = None
     isin: str | None = None
     wkn: str | None = None
-    figi: str | None = None
+    figi: str | None = None  # Legacy optional field kept for persisted identity compatibility.
     provider: str
     confidence: str | None = None
     resolved_at: datetime | None = None

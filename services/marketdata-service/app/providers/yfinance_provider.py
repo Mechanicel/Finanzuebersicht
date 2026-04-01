@@ -5,12 +5,8 @@ import re
 from datetime import UTC, date, datetime, timedelta
 from statistics import pstdev
 from typing import Any, Protocol
-from urllib.parse import quote as urlencode
 
-import requests
 import yfinance as yf
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
 
 from app.models import (
     BenchmarkOption,
@@ -56,7 +52,6 @@ class YFinanceMarketDataProvider:
         benchmark_options: list[BenchmarkOption] | None = None,
     ) -> None:
         self.timeout_seconds = timeout_seconds
-        self._session = self._build_session(retries=retries, backoff_factor=backoff_factor)
         self._benchmarks = benchmark_options or [
             BenchmarkOption(
                 benchmark_id="sp500",
@@ -263,27 +258,13 @@ class YFinanceMarketDataProvider:
 
     @staticmethod
     def _is_upstream_search_failure(exc: Exception) -> bool:
-        return isinstance(exc, requests.RequestException)
+        return exc.__class__.__module__.startswith("requests")
 
     def list_benchmark_options(self) -> list[BenchmarkOption]:
         return list(self._benchmarks)
 
     def _get_ticker(self, symbol: str):
         return yf.Ticker(symbol)
-
-    @staticmethod
-    def _build_session(*, retries: int, backoff_factor: float) -> requests.Session:
-        retry = Retry(
-            total=max(0, retries),
-            backoff_factor=max(0.0, backoff_factor),
-            status_forcelist=(429, 500, 502, 503, 504),
-            allowed_methods=frozenset({"GET"}),
-        )
-        adapter = HTTPAdapter(max_retries=retry)
-        session = requests.Session()
-        session.mount("http://", adapter)
-        session.mount("https://", adapter)
-        return session
 
     def _safe_info(self, ticker) -> dict[str, Any]:
         try:
@@ -337,7 +318,7 @@ class YFinanceMarketDataProvider:
                     "marketdata ticker.isin lookup failed",
                     extra={"symbol": symbol},
                 )
-                isin = None
+                return None
 
             normalized = self._normalize_optional_identifier(isin)
             if self._is_country_consistent_isin(normalized, symbol=symbol, info=info):
@@ -346,15 +327,6 @@ class YFinanceMarketDataProvider:
                 logger.debug(
                     "marketdata rejected isin due to country mismatch",
                     extra={"symbol": symbol, "isin": normalized, "exchange": info.get("exchange")},
-                )
-
-            resolved = self._resolve_isin_via_businessinsider(symbol=symbol, info=info)
-            if self._is_country_consistent_isin(resolved, symbol=symbol, info=info):
-                return resolved
-            if self._is_valid_isin(resolved):
-                logger.debug(
-                    "marketdata rejected isin due to country mismatch",
-                    extra={"symbol": symbol, "isin": resolved, "exchange": info.get("exchange")},
                 )
             return None
         except Exception:
@@ -369,134 +341,6 @@ class YFinanceMarketDataProvider:
         if value is None:
             return False
         return bool(cls._ISIN_RE.fullmatch(value.strip().upper()))
-
-    @staticmethod
-    def _normalize_name_for_query(value: str | None) -> str | None:
-        if value is None:
-            return None
-        normalized = " ".join(str(value).split()).strip()
-        return normalized or None
-
-    @staticmethod
-    def _expected_isin_country_prefix(symbol: str, info: dict[str, Any]) -> str | None:
-        if symbol.upper().endswith(".DE"):
-            return "DE"
-        if str(info.get("exchange") or "").upper() == "GER":
-            return "DE"
-        return None
-
-    @classmethod
-    def _is_country_consistent_isin(
-        cls,
-        value: str | None,
-        *,
-        symbol: str,
-        info: dict[str, Any],
-    ) -> bool:
-        if not cls._is_valid_isin(value):
-            return False
-        expected_prefix = cls._expected_isin_country_prefix(symbol, info)
-        if expected_prefix is None:
-            return True
-        return str(value).strip().upper().startswith(expected_prefix)
-
-    def _build_isin_query_candidates(self, *, symbol: str, info: dict[str, Any]) -> list[str]:
-        candidates = [
-            self._normalize_name_for_query(info.get("shortName")),
-            self._normalize_name_for_query(info.get("longName")),
-            self._normalize_name_for_query(info.get("displayName")),
-            symbol.strip().upper(),
-        ]
-        result: list[str] = []
-        seen: set[str] = set()
-        for candidate in candidates:
-            if not candidate:
-                continue
-            key = candidate.upper()
-            if key in seen:
-                continue
-            seen.add(key)
-            result.append(candidate)
-        return result
-
-    def _extract_isin_from_businessinsider_payload(
-        self,
-        payload: str,
-        *,
-        expected_symbols: list[str],
-    ) -> str | None:
-        try:
-            if not isinstance(payload, str) or not payload:
-                return None
-
-            for expected_symbol in expected_symbols:
-                marker = f'"{expected_symbol.upper()}|'
-                marker_index = payload.find(marker)
-                if marker_index == -1:
-                    continue
-                start = marker_index + len(marker)
-                end = payload.find('"', start)
-                if end == -1:
-                    continue
-                segment = payload[start:end]
-                first_field = segment.split("|", 1)[0].strip().upper()
-                if self._is_valid_isin(first_field):
-                    return first_field
-
-            expected_symbol_set = {str(symbol).upper() for symbol in expected_symbols}
-            for segment in payload.split('"'):
-                if "|" not in segment:
-                    continue
-                parts = segment.split("|")
-                if not parts:
-                    continue
-                if parts[0].strip().upper() not in expected_symbol_set:
-                    continue
-                for value in parts[1:]:
-                    normalized = value.strip().upper()
-                    if self._is_valid_isin(normalized):
-                        return normalized
-        except Exception:
-            return None
-        return None
-
-    def _resolve_isin_via_businessinsider(self, *, symbol: str, info: dict[str, Any]) -> str | None:
-        logger = logging.getLogger(__name__)
-        expected_symbols = [symbol.upper()]
-        queries = self._build_isin_query_candidates(symbol=symbol, info=info)
-        for query in queries:
-            url = (
-                "https://markets.businessinsider.com/ajax/SearchController_Suggest"
-                f"?max_results=25&query={urlencode(query)}"
-            )
-            try:
-                response = self._session.get(url, timeout=self.timeout_seconds)
-            except Exception:
-                continue
-            if response is None:
-                continue
-            status_code = getattr(response, "status_code", None)
-            if status_code != 200:
-                continue
-            payload = getattr(response, "text", "") or ""
-            try:
-                resolved = self._extract_isin_from_businessinsider_payload(
-                    payload,
-                    expected_symbols=expected_symbols,
-                )
-            except Exception:
-                continue
-            if resolved is not None:
-                logger.debug(
-                    "marketdata isin fallback resolved",
-                    extra={"symbol": symbol, "isin": resolved},
-                )
-                return resolved
-        logger.debug(
-            "marketdata isin fallback unresolved",
-            extra={"symbol": symbol},
-        )
-        return None
 
     @staticmethod
     def _normalize_optional_identifier(value: Any) -> str | None:

@@ -6,6 +6,7 @@ from pathlib import Path
 
 import mongomock
 import pytest
+from datetime import UTC, date, datetime
 
 ROOT = Path(__file__).resolve().parents[3]
 SHARED_SRC = ROOT / "shared" / "src"
@@ -27,12 +28,103 @@ from app.dependencies import (
     get_selection_cache_repository,
 )
 from app.main import app
+from app.models import (
+    BenchmarkOption,
+    DataInterval,
+    DataRange,
+    FundamentalsBlock,
+    InstrumentDataBlocksResponse,
+    InstrumentFullResponse,
+    InstrumentSearchItem,
+    InstrumentSelectionDetailsResponse,
+    InstrumentSummary,
+    MetricsBlock,
+    PricePoint,
+    RiskBlock,
+    SnapshotBlock,
+)
+
+
+class FakeApiProvider:
+    def get_instrument_summary(self, symbol: str) -> InstrumentSummary | None:
+        if symbol == "NONE":
+            return None
+        return InstrumentSummary(symbol=symbol, company_name="Apple Inc.", exchange="NMS", currency="USD")
+
+    def get_price_series(
+        self, symbol: str, data_range: DataRange, interval: DataInterval
+    ) -> list[PricePoint] | None:
+        if symbol == "NONE":
+            return None
+        count = 63 if interval == DataInterval.ONE_DAY else 13
+        return [PricePoint(date=date(2026, 1, 1), close=100.0 + i) for i in range(count)]
+
+    def get_instrument_blocks(self, symbol: str) -> InstrumentDataBlocksResponse | None:
+        if symbol == "NONE":
+            return None
+        return InstrumentDataBlocksResponse(
+            symbol=symbol,
+            snapshot=SnapshotBlock(last_price=100.0, change_1d_pct=1.0, volume=1000),
+            fundamentals=FundamentalsBlock(),
+            metrics=MetricsBlock(),
+            risk=RiskBlock(),
+        )
+
+    def get_instrument_full(self, symbol: str) -> InstrumentFullResponse | None:
+        blocks = self.get_instrument_blocks(symbol)
+        if blocks is None:
+            return None
+        return InstrumentFullResponse(
+            summary=InstrumentSummary(symbol=symbol, company_name="Microsoft Corporation", exchange="NMS", currency="USD"),
+            snapshot=blocks.snapshot,
+            fundamentals=blocks.fundamentals,
+            metrics=blocks.metrics,
+            risk=blocks.risk,
+        )
+
+    def get_instrument_selection_details(self, symbol: str) -> InstrumentSelectionDetailsResponse | None:
+        if symbol == "NONE":
+            return None
+        return InstrumentSelectionDetailsResponse(
+            symbol=symbol,
+            company_name="Microsoft Corporation",
+            exchange="NMS",
+            currency="USD",
+            last_price=120.0,
+            change_1d_pct=0.5,
+            volume=1500,
+            as_of=datetime.now(UTC),
+        )
+
+    def search_instruments(self, query: str, limit: int) -> list[InstrumentSearchItem]:
+        if query == "does-not-exist":
+            return []
+        return [InstrumentSearchItem(symbol="MSFT", company_name="Microsoft Corporation")]
+
+    def list_benchmark_options(self) -> list[BenchmarkOption]:
+        return [
+            BenchmarkOption(benchmark_id="sp500", symbol="^GSPC", label="S&P 500", region="US", asset_class="equity"),
+            BenchmarkOption(benchmark_id="msci_world", symbol="URTH", label="MSCI World ETF Proxy", region="Global", asset_class="equity"),
+            BenchmarkOption(benchmark_id="dax", symbol="^GDAXI", label="DAX", region="DE", asset_class="equity"),
+        ]
+
+    def get_instrument_hydration_payload(self, symbol: str) -> dict[str, object] | None:
+        return {
+            "identity": {"symbol": symbol},
+            "summary": {"symbol": symbol},
+            "snapshot": {"last_price": 120.0},
+            "fundamentals": {},
+            "metrics": {},
+            "risk": {},
+            "provider_raw": {"provider": "fake"},
+        }
 
 
 @pytest.fixture(autouse=True)
 def reset_singletons(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("MARKETDATA_PROVIDER", "inmemory")
+    monkeypatch.setenv("MARKETDATA_PROVIDER", "yfinance")
     monkeypatch.setattr(marketdata_dependencies, "MongoClient", mongomock.MongoClient)
+    monkeypatch.setattr(marketdata_dependencies, "get_provider", lambda: FakeApiProvider())
     get_settings.cache_clear()
     get_marketdata_service.cache_clear()
     get_provider.cache_clear()

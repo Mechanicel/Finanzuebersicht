@@ -29,7 +29,7 @@ def test_upsert_normalizes_lookup_and_get_returns_identity() -> None:
             company_name="Commerzbank AG",
             isin=" de000cbk1001 ",
             figi=" bbg000test ",
-            provider="openfigi",
+            provider="fmp",
         )
     )
 
@@ -52,7 +52,7 @@ def test_get_without_exchange_matches_none_exchange_entries() -> None:
             exchange=None,
             company_name="iShares MSCI World ETF",
             isin="US4642863926",
-            provider="openfigi",
+            provider="fmp",
         )
     )
 

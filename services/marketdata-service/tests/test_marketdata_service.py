@@ -42,7 +42,6 @@ from app.repositories import InstrumentSelectionCacheRepository
 from app.repositories import InstrumentHydratedRepository
 from app.repositories import SecurityIdentityRepository
 from app.service import MarketDataService
-from app.identity import OpenFigiIdentifierResolver
 
 
 class FakeProvider:
@@ -202,100 +201,6 @@ class FakeIdentifierResolver:
         if self._should_raise:
             raise RuntimeError("resolver failed")
         return self._result
-
-
-def test_openfigi_resolver_retries_documented_ticker_candidates_for_dotted_symbol() -> None:
-    class FakeOpenFigiClient:
-        def __init__(self) -> None:
-            self.calls: list[tuple[str, str | None, str | None]] = []
-
-        def map_instrument(
-            self,
-            *,
-            symbol: str,
-            exchange_code: str | None = None,
-            company_name: str | None = None,
-        ) -> list[dict[str, object]]:
-            self.calls.append((symbol, exchange_code, company_name))
-            if symbol == "CBK" and exchange_code is None:
-                return [
-                    {
-                        "ticker": "CBK",
-                        "exchCode": "US",
-                        "name": "COMMERZBANK AG",
-                        "isin": "DE000CBK1001",
-                        "figi": "BBG000TEST",
-                    }
-                ]
-            return []
-
-    fake_client = FakeOpenFigiClient()
-    resolver = OpenFigiIdentifierResolver(client=fake_client)
-
-    result = resolver.resolve(symbol="CBK.DE", exchange="GER", company_name="Commerzbank AG")
-
-    assert result is not None
-    assert result.identity.symbol == "CBK.DE"
-    assert result.identity.exchange == "GER"
-    assert result.identity.isin == "DE000CBK1001"
-    assert fake_client.calls == [
-        ("CBK.DE", "GER", "Commerzbank AG"),
-        ("CBK.DE", None, "Commerzbank AG"),
-        ("CBK", "GER", "Commerzbank AG"),
-        ("CBK", None, "Commerzbank AG"),
-    ]
-
-
-def test_selection_resolver_fallback_persists_identity_under_original_requested_key() -> None:
-    provider = FakeProvider()
-    provider.selection_response = InstrumentSelectionDetailsResponse(
-        symbol="CBK.DE",
-        isin=None,
-        wkn=None,
-        company_name="Commerzbank AG",
-        display_name="Commerzbank",
-        exchange="GER",
-        currency="EUR",
-        quote_type="equity",
-        asset_type="stock",
-        last_price=20.5,
-    )
-    provider.search_results = []
-
-    class FakeOpenFigiClient:
-        def __init__(self) -> None:
-            self.calls: list[tuple[str, str | None, str | None]] = []
-
-        def map_instrument(
-            self,
-            *,
-            symbol: str,
-            exchange_code: str | None = None,
-            company_name: str | None = None,
-        ) -> list[dict[str, object]]:
-            self.calls.append((symbol, exchange_code, company_name))
-            if symbol == "CBK" and exchange_code is None:
-                return [
-                    {
-                        "ticker": "CBK",
-                        "exchCode": "US",
-                        "name": "COMMERZBANK AG",
-                        "isin": "DE000CBK1001",
-                        "figi": "BBG000TEST",
-                    }
-                ]
-            return []
-
-    client = mongomock.MongoClient()
-    identity_repo = SecurityIdentityRepository(collection=client["finanzuebersicht"]["identity_test"])
-    resolver = OpenFigiIdentifierResolver(client=FakeOpenFigiClient())
-    service = build_service(provider, security_identity_repository=identity_repo, identifier_resolver=resolver)
-
-    response = service.get_instrument_selection_details("CBK.DE")
-
-    assert response.isin == "DE000CBK1001"
-    assert identity_repo.get("CBK.DE", "GER") is not None
-    assert identity_repo.get("CBK.DE", "GER").isin == "DE000CBK1001"
 
 
 def test_summary_uses_summary_provider_path() -> None:
@@ -624,7 +529,7 @@ def test_selection_enriches_missing_isin_from_search_result() -> None:
     assert response.isin == "DE000CBK1001"
 
 
-def test_selection_without_resolver_keeps_working_without_openfigi() -> None:
+def test_selection_without_identifier_resolver_keeps_working() -> None:
     provider = FakeProvider()
     provider.selection_response = InstrumentSelectionDetailsResponse(
         symbol="ABC",
@@ -670,7 +575,7 @@ def test_selection_uses_locally_cached_identity_without_resolver_call() -> None:
             exchange="XNAS",
             isin="US5949181045",
             wkn="870747",
-            provider="openfigi",
+            provider="fmp",
         )
     )
     resolver = FakeIdentifierResolver(result=None)
@@ -702,14 +607,14 @@ def test_selection_uses_resolver_hit_and_persists_local_identity() -> None:
     identity_repo = SecurityIdentityRepository(collection=client["finanzuebersicht"]["identity_test"])
     resolver = FakeIdentifierResolver(
         result=IdentifierResolutionResult(
-            provider="openfigi",
+            provider="fmp",
             confidence="high",
             identity=InstrumentIdentity(
                 symbol="MSFT",
                 exchange="XNAS",
                 isin="US5949181045",
                 wkn="870747",
-                provider="openfigi",
+                provider="fmp",
             ),
         )
     )

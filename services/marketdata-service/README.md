@@ -7,7 +7,6 @@ Neu aufgesetzter Market-Data-Service für die Zielarchitektur mit **api-gateway*
 - Flask-Legacy ist vollständig ersetzt durch FastAPI-Struktur unter `services/marketdata-service/app`.
 - Einheitliche Versionierung unter `/api/v1/marketdata/...`.
 - Provider-Abstraktion ist aktiv (`MarketDataProvider`), Standard ist `yfinance` (Yahoo als Upstream).
-- `InMemoryMarketDataProvider` bleibt für lokale Tests/Fallback verfügbar (`MARKETDATA_PROVIDER=inmemory`).
 - Service-Layer (`MarketDataService`) kapselt Fachlogik.
 - Caching ist vorbereitet (TTL-In-Memory-Cache, konfigurierbar).
 - Strukturierte Fehlerantworten (`not_found`, `bad_request`, `validation_error`).
@@ -193,7 +192,7 @@ Die folgenden Legacy-Muster gelten als **entfallen** und sollen nicht mehr durch
 Umgebungsvariablen:
 
 - `CACHE_ENABLED` (default `true`)
-- `MARKETDATA_PROVIDER` (default `yfinance`, Alternative `inmemory`)
+- `MARKETDATA_PROVIDER` (default `yfinance`)
 - `MARKETDATA_REQUEST_TIMEOUT_SECONDS` (default `8.0`)
 - `MARKETDATA_REQUEST_RETRIES` (default `2`)
 - `MARKETDATA_REQUEST_BACKOFF_FACTOR` (default `0.3`)
