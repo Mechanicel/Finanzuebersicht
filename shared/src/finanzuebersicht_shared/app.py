@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from finanzuebersicht_shared.config import ServiceSettings
+from finanzuebersicht_shared.config import ServiceSettings, log_explicit_env_overrides
 from finanzuebersicht_shared.errors import register_error_handlers
 from finanzuebersicht_shared.health import build_health_response
 from finanzuebersicht_shared.logging import configure_logging
@@ -12,6 +12,7 @@ from finanzuebersicht_shared.request_context import RequestContextMiddleware
 
 def create_app(*, settings: ServiceSettings, api_router: APIRouter | None = None) -> FastAPI:
     configure_logging(settings.log_level)
+    log_explicit_env_overrides(settings)
 
     app = FastAPI(title=settings.app_name, version=settings.app_version)
     app.add_middleware(
