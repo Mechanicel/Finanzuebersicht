@@ -5,8 +5,7 @@ from functools import lru_cache
 from pymongo import MongoClient
 
 from app.config import get_settings
-from app.identifiers import IdentifierResolver, NoopIdentifierResolver, OpenFigiIdentifierResolver
-from app.openfigi_client import OpenFigiClient
+from app.identity import IdentifierResolver, NoopIdentifierResolver, OpenFigiClient, OpenFigiIdentifierResolver
 from app.providers import InMemoryMarketDataProvider, MarketDataProvider, YFinanceMarketDataProvider
 from app.repositories import (
     InstrumentHydratedRepository,

@@ -23,7 +23,7 @@ from app.models import (
     PriceSeriesResponse,
     SeriesPoint,
 )
-from app.identifiers import IdentifierResolver
+from app.identity import IdentifierResolver
 from app.providers import MarketDataProvider
 from app.repositories import (
     InstrumentHydratedRepository,

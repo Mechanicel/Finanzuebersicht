@@ -89,7 +89,7 @@ def test_get_ticker_uses_yfinance_without_session(monkeypatch: pytest.MonkeyPatc
         def __init__(self, symbol: str):
             captured.append(symbol)
 
-    monkeypatch.setattr("app.providers.yf.Ticker", StableTicker)
+    monkeypatch.setattr("app.providers.yfinance_provider.yf.Ticker", StableTicker)
 
     provider._get_ticker("AAPL")
 
@@ -109,7 +109,7 @@ def test_selection_details_works_with_sessionless_ticker(monkeypatch: pytest.Mon
             assert (period, interval) == ("1y", "1d")
             return history_1y
 
-    monkeypatch.setattr("app.providers.yf.Ticker", StableTicker)
+    monkeypatch.setattr("app.providers.yfinance_provider.yf.Ticker", StableTicker)
 
     result = provider.get_instrument_selection_details("AAPL")
     summary = provider.get_instrument_summary("AAPL")
@@ -130,7 +130,7 @@ def test_search_ranking_symbol_isin_wkn_company(monkeypatch: pytest.MonkeyPatch)
                 {"symbol": "AAPL", "shortname": "Apple", "longname": "Apple Inc.", "isin": "US0378331005"},
             ]
 
-    monkeypatch.setattr("app.providers.yf.Search", FakeSearch)
+    monkeypatch.setattr("app.providers.yfinance_provider.yf.Search", FakeSearch)
 
     symbol_results = provider.search_instruments("AAPL", limit=5)
     isin_results = provider.search_instruments("US0378331005", limit=5)
@@ -149,7 +149,7 @@ def test_search_by_company_name_and_wkn_best_effort(monkeypatch: pytest.MonkeyPa
                 {"symbol": "MSFT", "shortname": "Microsoft", "longname": "Microsoft Corp."},
             ]
 
-    monkeypatch.setattr("app.providers.yf.Search", FakeSearch)
+    monkeypatch.setattr("app.providers.yfinance_provider.yf.Search", FakeSearch)
 
     by_name = provider.search_instruments("Apple", limit=5)
     by_wkn = provider.search_instruments("865985", limit=5)
@@ -166,7 +166,7 @@ def test_search_uses_stable_yfinance_search_signature(monkeypatch: pytest.Monkey
         def __init__(self, *, query: str, max_results: int):
             self.quotes = [{"symbol": "AAPL", "shortname": "Apple", "longname": "Apple Inc."}]
 
-    monkeypatch.setattr("app.providers.yf.Search", StableSearch)
+    monkeypatch.setattr("app.providers.yfinance_provider.yf.Search", StableSearch)
 
     result = provider.search_instruments("AAPL", limit=5)
 
@@ -182,7 +182,7 @@ def test_search_non_upstream_exception_degrades_to_empty(
         def __init__(self, *, query: str, max_results: int):
             raise ValueError("parser issue")
 
-    monkeypatch.setattr("app.providers.yf.Search", BoomSearch)
+    monkeypatch.setattr("app.providers.yfinance_provider.yf.Search", BoomSearch)
     caplog.set_level("ERROR")
 
     result = provider.search_instruments("com", limit=5)
@@ -198,7 +198,7 @@ def test_search_upstream_error_is_wrapped(monkeypatch: pytest.MonkeyPatch) -> No
         def __init__(self, *, query: str, max_results: int):
             raise requests.ConnectionError("yahoo down")
 
-    monkeypatch.setattr("app.providers.yf.Search", BoomSearch)
+    monkeypatch.setattr("app.providers.yfinance_provider.yf.Search", BoomSearch)
 
     with pytest.raises(UpstreamServiceError):
         provider.search_instruments("AAPL", limit=5)
