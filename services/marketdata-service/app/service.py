@@ -134,9 +134,11 @@ class MarketDataService:
         if cached is not None:
             return cached
 
+        cached_payload: InstrumentSelectionDetailsResponse | None = None
         db_cached = self.selection_cache_repository.get(normalized)
         if db_cached is not None:
             payload, fetched_at = db_cached
+            cached_payload = payload
             if self._is_selection_cache_fresh(fetched_at):
                 self._cache_set(self.selection_memory_cache, cache_key, payload)
                 return payload
@@ -145,12 +147,39 @@ class MarketDataService:
         if selection is None:
             raise NotFoundError(f"Instrument '{normalized}' not found")
         selection = self._enrich_selection_details(selection)
+        if cached_payload is not None:
+            selection = self._merge_selection_details(cached_payload, selection)
 
         persisted_at = self.selection_cache_repository.upsert(normalized, selection)
         if selection.as_of is None:
             selection = selection.model_copy(update={"as_of": persisted_at})
         self._cache_set(self.selection_memory_cache, cache_key, selection)
         return selection
+
+    def _merge_selection_details(
+        self,
+        cached: InstrumentSelectionDetailsResponse,
+        fresh: InstrumentSelectionDetailsResponse,
+    ) -> InstrumentSelectionDetailsResponse:
+        identity_fields = (
+            "isin",
+            "wkn",
+            "company_name",
+            "display_name",
+            "exchange",
+            "currency",
+            "quote_type",
+            "asset_type",
+        )
+        updates: dict[str, str | None] = {}
+        for field_name in identity_fields:
+            fresh_value = getattr(fresh, field_name)
+            if self._is_blank_value(fresh_value):
+                updates[field_name] = getattr(cached, field_name)
+
+        if not updates:
+            return fresh
+        return fresh.model_copy(update=updates)
 
     def _enrich_selection_details(
         self, selection: InstrumentSelectionDetailsResponse
