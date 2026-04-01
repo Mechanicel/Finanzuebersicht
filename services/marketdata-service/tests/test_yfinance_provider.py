@@ -185,6 +185,88 @@ def test_search_maps_wkn_price_and_change(monkeypatch: pytest.MonkeyPatch) -> No
     assert result[0].change_1d_pct == -1.25
 
 
+def test_search_prefers_german_equity_over_structured_product_for_company_query(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = YFinanceMarketDataProvider(timeout_seconds=3)
+
+    class FakeSearch:
+        def __init__(self, *, query: str, max_results: int, timeout: float):
+            self.quotes = [
+                {
+                    "symbol": "CERT1.DE",
+                    "shortname": "Commerzbank Turbo Zertifikat",
+                    "longname": "Commerzbank Turbo Zertifikat",
+                    "quoteType": "WARRANT",
+                    "typeDisp": "Warrant",
+                    "exchange": "GER",
+                    "isin": "DE000CERT001",
+                },
+                {
+                    "symbol": "CBK.DE",
+                    "shortname": "Commerzbank",
+                    "longname": "Commerzbank AG",
+                    "quoteType": "EQUITY",
+                    "typeDisp": "Stock",
+                    "exchange": "XETRA",
+                    "isin": "DE000CBK1001",
+                },
+            ]
+
+    monkeypatch.setattr("app.providers.yf.Search", FakeSearch)
+
+    result = provider.search_instruments("Commerzbank", limit=5)
+
+    assert result[0].symbol == "CBK.DE"
+    assert result[1].symbol == "CERT1.DE"
+
+
+def test_search_prefers_german_equity_listing_over_foreign_duplicate_for_german_company_query(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = YFinanceMarketDataProvider(timeout_seconds=3)
+
+    class FakeSearch:
+        def __init__(self, *, query: str, max_results: int, timeout: float):
+            self.quotes = [
+                {
+                    "symbol": "VWAGY",
+                    "shortname": "Volkswagen ADR",
+                    "longname": "Volkswagen AG ADR",
+                    "quoteType": "EQUITY",
+                    "typeDisp": "Stock",
+                    "exchange": "NYSE",
+                    "isin": "US9286623034",
+                },
+                {
+                    "symbol": "CERT2.DE",
+                    "shortname": "Volkswagen Turbo Zertifikat",
+                    "longname": "Volkswagen Turbo Zertifikat",
+                    "quoteType": "WARRANT",
+                    "typeDisp": "Warrant",
+                    "exchange": "GER",
+                    "isin": "DE000CERT002",
+                },
+                {
+                    "symbol": "VOW3.DE",
+                    "shortname": "Volkswagen Vz",
+                    "longname": "Volkswagen AG",
+                    "quoteType": "EQUITY",
+                    "typeDisp": "Stock",
+                    "exchange": "XETRA",
+                    "isin": "DE0007664039",
+                },
+            ]
+
+    monkeypatch.setattr("app.providers.yf.Search", FakeSearch)
+
+    result = provider.search_instruments("Volkswagen", limit=5)
+
+    assert result[0].symbol == "VOW3.DE"
+    assert result[1].symbol == "VWAGY"
+    assert result[2].symbol == "CERT2.DE"
+
+
 def test_search_uses_stable_yfinance_search_signature(monkeypatch: pytest.MonkeyPatch) -> None:
     provider = YFinanceMarketDataProvider(timeout_seconds=3)
 
