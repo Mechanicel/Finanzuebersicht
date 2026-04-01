@@ -614,6 +614,51 @@ async def test_gateway_marketdata_forwarding_success(monkeypatch: pytest.MonkeyP
 
 
 @pytest.mark.anyio
+async def test_gateway_marketdata_selection_uses_longer_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    observed_timeouts: list[float] = []
+
+    class FakeAsyncClient:
+        def __init__(self, timeout: float) -> None:
+            observed_timeouts.append(timeout)
+
+        async def __aenter__(self) -> "FakeAsyncClient":
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb) -> None:
+            return None
+
+        async def request(self, method: str, url: str, json: dict | None = None, params: dict | None = None):
+            class Response:
+                status_code = 200
+                text = ""
+
+                @staticmethod
+                def json() -> dict:
+                    return {"data": {"symbol": "CBK.DE"}}
+
+            assert method == "GET"
+            assert url.endswith("/api/v1/marketdata/instruments/CBK.DE/selection")
+            return Response()
+
+    monkeypatch.setattr("httpx.AsyncClient", FakeAsyncClient)
+
+    service = GatewayService(
+        analytics_base_url="http://analytics",
+        person_base_url="http://localhost:8002",
+        masterdata_base_url="http://localhost:8001",
+        account_base_url="http://localhost:8003",
+        portfolio_base_url="http://localhost:8004",
+        marketdata_base_url="http://localhost:8005",
+        timeout_seconds=1.0,
+    )
+
+    selection = await service.get_marketdata_selection("CBK.DE")
+
+    assert selection["symbol"] == "CBK.DE"
+    assert observed_timeouts == [20.0]
+
+
+@pytest.mark.anyio
 async def test_gateway_marketdata_404_is_forwarded(monkeypatch: pytest.MonkeyPatch) -> None:
     async def fake_request(self, method: str, url: str, json: dict | None = None, params: dict | None = None):
         class Response:

@@ -54,6 +54,7 @@ class GatewayService:
         self._portfolio_base_url = portfolio_base_url.rstrip("/")
         self._marketdata_base_url = marketdata_base_url.rstrip("/")
         self._timeout = timeout_seconds
+        self._marketdata_selection_timeout = max(timeout_seconds, 20.0)
 
     async def list_persons(self, **kwargs) -> PersonListReadModel:
         payload = await self._request_person_service("GET", "/api/v1/persons", params=kwargs)
@@ -176,7 +177,7 @@ class GatewayService:
         return await self._request_marketdata_service("GET", f"/api/v1/marketdata/instruments/{symbol}/full")
 
     async def get_marketdata_selection(self, symbol: str) -> dict:
-        return await self._request_marketdata_service("GET", f"/api/v1/marketdata/instruments/{symbol}/selection")
+        return await self._request_marketdata_service("GET", f"/api/v1/marketdata/instruments/{symbol}/selection", timeout_seconds=self._marketdata_selection_timeout)
 
     async def _try_get_marketdata_selection(self, symbol: str) -> dict | None:
         try:
@@ -223,13 +224,30 @@ class GatewayService:
     async def _request_portfolio_service(self, method: str, path: str, **kwargs) -> dict:
         return await self._request_json(f"{self._portfolio_base_url}{path}", method, error_label="Portfolio-Service", **kwargs)
 
-    async def _request_marketdata_service(self, method: str, path: str, **kwargs) -> dict:
-        return await self._request_json(f"{self._marketdata_base_url}{path}", method, error_label="Marketdata-Service", **kwargs)
+    async def _request_marketdata_service(self, method: str, path: str, *, timeout_seconds: float | None = None, **kwargs) -> dict:
+        return await self._request_json(
+            f"{self._marketdata_base_url}{path}",
+            method,
+            error_label="Marketdata-Service",
+            timeout_seconds=timeout_seconds,
+            **kwargs,
+        )
 
-    async def _request_json(self, url: str, method: str, *, json: dict | None = None, params: dict | None = None, expect_no_content: bool = False, error_label: str | None = None) -> dict | list[dict]:
+    async def _request_json(
+        self,
+        url: str,
+        method: str,
+        *,
+        json: dict | None = None,
+        params: dict | None = None,
+        expect_no_content: bool = False,
+        error_label: str | None = None,
+        timeout_seconds: float | None = None,
+    ) -> dict | list[dict]:
         query = {k: v for k, v in (params or {}).items() if v is not None}
+        resolved_timeout = timeout_seconds if timeout_seconds is not None else self._timeout
         try:
-            async with httpx.AsyncClient(timeout=self._timeout) as client:
+            async with httpx.AsyncClient(timeout=resolved_timeout) as client:
                 response = await client.request(method, url, json=json, params=query)
         except httpx.RequestError as exc:
             if error_label:
