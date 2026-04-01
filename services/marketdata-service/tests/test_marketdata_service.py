@@ -277,6 +277,160 @@ def test_selection_cache_miss_loads_from_provider_and_inserts_db() -> None:
     assert persisted["payload"]["symbol"] == "DUM"
 
 
+def test_selection_merge_keeps_cached_isin_and_wkn_when_refresh_returns_null() -> None:
+    provider = FakeProvider()
+    provider.selection_response = InstrumentSelectionDetailsResponse(
+        symbol="DUM",
+        isin=None,
+        wkn=None,
+        company_name="Fresh Corp",
+        display_name="Fresh",
+        exchange="XETRA",
+        currency="EUR",
+        quote_type="equity",
+        asset_type="stock",
+        last_price=321.0,
+    )
+    provider.search_results = []
+    client = mongomock.MongoClient()
+    collection = client["finanzuebersicht"]["selection_cache_test"]
+    repository = InstrumentSelectionCacheRepository(collection=collection)
+    stale = InstrumentSelectionDetailsResponse(
+        symbol="DUM",
+        isin="US0000000001",
+        wkn="ABC123",
+        company_name="Cached Corp",
+        display_name="Cached",
+        exchange="XETRA",
+        currency="EUR",
+        quote_type="equity",
+        asset_type="stock",
+        last_price=100.0,
+    )
+    collection.insert_one(
+        {
+            "symbol": "DUM",
+            "payload": stale.model_dump(mode="json"),
+            "fetched_at": datetime.now(UTC) - timedelta(seconds=120),
+        }
+    )
+    service = build_service(provider, repository, cache_enabled=False, selection_ttl_seconds=30)
+
+    response = service.get_instrument_selection_details("DUM")
+
+    assert response.isin == "US0000000001"
+    assert response.wkn == "ABC123"
+    persisted = collection.find_one({"symbol": "DUM"})
+    assert persisted is not None
+    assert persisted["payload"]["isin"] == "US0000000001"
+    assert persisted["payload"]["wkn"] == "ABC123"
+
+
+def test_selection_merge_uses_fresh_price_and_keeps_cached_identity_fields() -> None:
+    provider = FakeProvider()
+    provider.selection_response = InstrumentSelectionDetailsResponse(
+        symbol="DUM",
+        isin=None,
+        wkn=None,
+        company_name="",
+        display_name="",
+        exchange="",
+        currency="",
+        quote_type=None,
+        asset_type=None,
+        last_price=250.5,
+        change_1d_pct=2.2,
+        volume=8888,
+    )
+    provider.search_results = []
+    client = mongomock.MongoClient()
+    collection = client["finanzuebersicht"]["selection_cache_test"]
+    repository = InstrumentSelectionCacheRepository(collection=collection)
+    stale = InstrumentSelectionDetailsResponse(
+        symbol="DUM",
+        isin="US0000000001",
+        wkn="ABC123",
+        company_name="Cached Corp",
+        display_name="Cached Display",
+        exchange="XETRA",
+        currency="EUR",
+        quote_type="equity",
+        asset_type="stock",
+        last_price=100.0,
+        change_1d_pct=0.1,
+        volume=1000,
+    )
+    collection.insert_one(
+        {
+            "symbol": "DUM",
+            "payload": stale.model_dump(mode="json"),
+            "fetched_at": datetime.now(UTC) - timedelta(seconds=120),
+        }
+    )
+    service = build_service(provider, repository, cache_enabled=False, selection_ttl_seconds=30)
+
+    response = service.get_instrument_selection_details("DUM")
+
+    assert response.last_price == 250.5
+    assert response.change_1d_pct == 2.2
+    assert response.volume == 8888
+    assert response.company_name == "Cached Corp"
+    assert response.display_name == "Cached Display"
+    assert response.exchange == "XETRA"
+    assert response.currency == "EUR"
+
+
+def test_selection_merge_ignores_whitespace_identity_updates() -> None:
+    provider = FakeProvider()
+    provider.selection_response = InstrumentSelectionDetailsResponse(
+        symbol="DUM",
+        isin="   ",
+        wkn="\t",
+        company_name="   ",
+        display_name="  ",
+        exchange=" ",
+        currency=" ",
+        quote_type=" ",
+        asset_type=" ",
+        last_price=200.0,
+    )
+    provider.search_results = []
+    client = mongomock.MongoClient()
+    collection = client["finanzuebersicht"]["selection_cache_test"]
+    repository = InstrumentSelectionCacheRepository(collection=collection)
+    stale = InstrumentSelectionDetailsResponse(
+        symbol="DUM",
+        isin="US0000000001",
+        wkn="ABC123",
+        company_name="Cached Corp",
+        display_name="Cached Display",
+        exchange="XETRA",
+        currency="EUR",
+        quote_type="equity",
+        asset_type="stock",
+        last_price=100.0,
+    )
+    collection.insert_one(
+        {
+            "symbol": "DUM",
+            "payload": stale.model_dump(mode="json"),
+            "fetched_at": datetime.now(UTC) - timedelta(seconds=120),
+        }
+    )
+    service = build_service(provider, repository, cache_enabled=False, selection_ttl_seconds=30)
+
+    response = service.get_instrument_selection_details("DUM")
+
+    assert response.isin == "US0000000001"
+    assert response.wkn == "ABC123"
+    assert response.company_name == "Cached Corp"
+    assert response.display_name == "Cached Display"
+    assert response.exchange == "XETRA"
+    assert response.currency == "EUR"
+    assert response.quote_type == "equity"
+    assert response.asset_type == "stock"
+
+
 def test_selection_response_contains_positive_last_price() -> None:
     provider = FakeProvider()
     service = build_service(provider)
