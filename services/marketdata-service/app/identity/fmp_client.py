@@ -36,9 +36,6 @@ class FmpClient:
         }
         if self._api_key:
             params["apikey"] = self._api_key
-        if exchange and exchange.strip():
-            params["exchange"] = exchange.strip()
-
         self._logger.debug(
             "fmp search request",
             extra={"symbol": symbol, "exchange": exchange, "company_name": company_name},
@@ -46,7 +43,7 @@ class FmpClient:
 
         try:
             response = self._session.get(
-                f"{self._base_url}/search-ticker",
+                f"{self._base_url}/search-symbol",
                 params=params,
                 timeout=self._timeout_seconds,
             )
