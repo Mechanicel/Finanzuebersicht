@@ -18,10 +18,12 @@ from app.models import (
     InstrumentSelectionDetailsResponse,
     InstrumentSearchResponse,
     InstrumentSummary,
+    InstrumentIdentity,
     NotFoundError,
     PriceSeriesResponse,
     SeriesPoint,
 )
+from app.identifiers import IdentifierResolver
 from app.providers import MarketDataProvider
 from app.repositories import (
     InstrumentHydratedRepository,
@@ -44,8 +46,8 @@ class MarketDataService:
         selection_cache_repository: InstrumentSelectionCacheRepository,
         hydrated_repository: InstrumentHydratedRepository,
         selection_cache_ttl_seconds: int,
+        identifier_resolver: IdentifierResolver | None = None,
         security_identity_repository: SecurityIdentityRepository | None = None,
-        identifier_resolver: object | None = None,
     ) -> None:
         self._logger = logging.getLogger(__name__)
         self.provider = provider
@@ -73,6 +75,80 @@ class MarketDataService:
         self.selection_memory_cache: TTLMemoryCache[object] | None = (
             TTLMemoryCache(ttl_seconds=selection_cache_ttl_seconds) if cache_enabled else None
         )
+
+
+    def _resolve_identity_for_selection(
+        self,
+        *,
+        symbol: str,
+        exchange: str | None,
+        company_name: str | None,
+    ) -> InstrumentIdentity | None:
+        if self.security_identity_repository is not None:
+            try:
+                cached_identity = self.security_identity_repository.get(symbol, exchange)
+                if cached_identity is not None:
+                    self._logger.debug(
+                        "selection identity local cache hit",
+                        extra={"symbol": symbol, "exchange": exchange},
+                    )
+                    return cached_identity
+            except Exception:
+                self._logger.debug(
+                    "selection identity local lookup failed",
+                    exc_info=True,
+                    extra={"symbol": symbol, "exchange": exchange},
+                )
+
+        if self.identifier_resolver is None:
+            self._logger.debug(
+                "selection identity resolver unavailable",
+                extra={"symbol": symbol, "exchange": exchange},
+            )
+            return None
+
+        self._logger.debug(
+            "selection identity resolver fallback",
+            extra={"symbol": symbol, "exchange": exchange},
+        )
+
+        try:
+            resolution = self.identifier_resolver.resolve(
+                symbol=symbol,
+                exchange=exchange,
+                company_name=company_name,
+            )
+        except Exception:
+            self._logger.debug(
+                "selection identity resolver failed",
+                exc_info=True,
+                extra={"symbol": symbol, "exchange": exchange},
+            )
+            return None
+
+        identity = resolution.identity if resolution is not None else None
+        if identity is None or self._is_blank_value(identity.isin):
+            self._logger.debug(
+                "selection identity not found",
+                extra={"symbol": symbol, "exchange": exchange},
+            )
+            return None
+
+        if self.security_identity_repository is not None:
+            try:
+                self.security_identity_repository.upsert(identity)
+            except Exception:
+                self._logger.debug(
+                    "selection identity persist failed",
+                    exc_info=True,
+                    extra={"symbol": symbol, "exchange": exchange},
+                )
+
+        self._logger.debug(
+            "selection identity resolved",
+            extra={"symbol": symbol, "exchange": exchange, "provider": identity.provider},
+        )
+        return identity
 
     def get_instrument_summary(self, symbol: str) -> InstrumentSummary:
         normalized = self._normalize_symbol(symbol)
@@ -162,6 +238,20 @@ class MarketDataService:
         if cached_payload is not None:
             selection = self._merge_selection_details(cached_payload, selection)
 
+        identity = self._resolve_identity_for_selection(
+            symbol=selection.symbol,
+            exchange=selection.exchange,
+            company_name=selection.company_name,
+        )
+        if identity is not None:
+            updates: dict[str, str] = {}
+            if self._is_blank_value(selection.isin) and not self._is_blank_value(identity.isin):
+                updates["isin"] = identity.isin
+            if self._is_blank_value(selection.wkn) and not self._is_blank_value(identity.wkn):
+                updates["wkn"] = identity.wkn
+            if updates:
+                selection = selection.model_copy(update=updates)
+
         persisted_at = self.selection_cache_repository.upsert(normalized, selection)
         if selection.as_of is None:
             selection = selection.model_copy(update={"as_of": persisted_at})
@@ -174,6 +264,29 @@ class MarketDataService:
             payload = self.provider.get_instrument_hydration_payload(normalized)
             if payload is None:
                 return
+
+            payload_identity = payload.get("identity")
+            identity_exchange = None
+            identity_company_name = None
+            if isinstance(payload_identity, dict):
+                identity_exchange = self._to_optional_text(payload_identity.get("exchange"))
+                identity_company_name = self._to_optional_text(payload_identity.get("company_name"))
+
+            identity = self._resolve_identity_for_selection(
+                symbol=normalized,
+                exchange=identity_exchange,
+                company_name=identity_company_name,
+            )
+            if identity is not None:
+                identity_payload = payload_identity if isinstance(payload_identity, dict) else {}
+                payload["identity"] = {
+                    **identity_payload,
+                    "isin": identity.isin or identity_payload.get("isin"),
+                    "wkn": identity.wkn or identity_payload.get("wkn"),
+                    "figi": identity.figi or identity_payload.get("figi"),
+                    "provider": identity.provider or identity_payload.get("provider"),
+                }
+
             self.hydrated_repository.upsert(normalized, payload)
         except Exception:
             self._logger.exception("marketdata background hydration failed", extra={"symbol": normalized})
@@ -227,6 +340,13 @@ class MarketDataService:
     @staticmethod
     def _is_blank_value(value: str | None) -> bool:
         return value is None or value.strip() == ""
+
+    @staticmethod
+    def _to_optional_text(value: object) -> str | None:
+        if isinstance(value, str):
+            stripped = value.strip()
+            return stripped or None
+        return None
 
     def list_benchmark_options(self) -> BenchmarkOptionsResponse:
         cache_key = "benchmarks:options"
