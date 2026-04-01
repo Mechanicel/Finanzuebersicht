@@ -19,6 +19,7 @@
 - **account-service**: Konten-Fachdaten (Service-Skeleton vorhanden).
 - **portfolio-service**: Depot/Holdings/Snapshots.
 - **marketdata-service**: Marktdaten.
+  - yfinance für Marketdata, OpenFIGI (optional) für Identifier-Resolution (`isin`/`figi`), siehe `docs/architecture/marketdata-identifier-layer.md`.
 - **analytics-service**: KPIs, Zeitreihen, Allokation, Forecast-nahe Daten.
 
 ## Kommunikation

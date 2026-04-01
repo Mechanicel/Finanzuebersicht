@@ -22,6 +22,7 @@ from app.models import (
     AccountUpdatePayload,
     AllowanceUpsertPayload,
     BankCreatePayload,
+    HoldingCreatePayload,
     PortfolioCreatePayload,
     PersonCreatePayload,
     PersonUpdatePayload,
@@ -725,3 +726,109 @@ async def test_gateway_portfolio_404_and_502(monkeypatch: pytest.MonkeyPatch) ->
     with pytest.raises(HTTPException) as upstream:
         await service.list_portfolios(UUID("00000000-0000-0000-0000-000000000101"))
     assert upstream.value.status_code == 502
+
+
+@pytest.mark.anyio
+async def test_gateway_holding_create_enriches_missing_identifiers_from_selection(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[str, str, dict | None]] = []
+
+    async def fake_request(self, method: str, url: str, json: dict | None = None, params: dict | None = None):
+        calls.append((method, url, json))
+
+        class Response:
+            status_code = 200
+
+            @staticmethod
+            def json() -> dict:
+                if "/marketdata/instruments/" in url and url.endswith("/selection"):
+                    return {
+                        "data": {
+                            "symbol": "MSFT",
+                            "isin": "us5949181045",
+                            "wkn": "870747",
+                        }
+                    }
+                return {
+                    "data": {
+                        "holding_id": "30000000-0000-0000-0000-000000000001",
+                        "portfolio_id": "20000000-0000-0000-0000-000000000001",
+                        **(json or {}),
+                        "created_at": "2026-01-01T00:00:00+00:00",
+                        "updated_at": "2026-01-01T00:00:00+00:00",
+                    }
+                }
+
+            text = ""
+
+        return Response()
+
+    monkeypatch.setattr("httpx.AsyncClient.request", fake_request)
+    service = GatewayService("http://analytics", "http://person", "http://master", "http://account", "http://portfolio", "http://market", 1.0)
+
+    payload = HoldingCreatePayload(
+        symbol="MSFT",
+        quantity=2,
+        acquisition_price=123.4,
+        currency="EUR",
+        buy_date="2026-03-01",
+    )
+    holding = await service.create_holding(UUID("20000000-0000-0000-0000-000000000001"), payload)
+
+    assert holding.isin == "US5949181045"
+    assert holding.wkn == "870747"
+    assert calls[0][1].endswith("/api/v1/marketdata/instruments/MSFT/selection")
+    assert calls[1][1].endswith("/api/v1/portfolios/20000000-0000-0000-0000-000000000001/holdings")
+    assert calls[1][2] is not None
+    assert calls[1][2]["isin"] == "US5949181045"
+
+
+@pytest.mark.anyio
+async def test_gateway_holding_create_continues_without_identifier_resolution(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[str, str, dict | None]] = []
+
+    async def fake_request(self, method: str, url: str, json: dict | None = None, params: dict | None = None):
+        calls.append((method, url, json))
+
+        class Response:
+            status_code = 404 if "/marketdata/instruments/" in url and url.endswith("/selection") else 200
+
+            @staticmethod
+            def json() -> dict:
+                if "/marketdata/instruments/" in url and url.endswith("/selection"):
+                    return {"detail": "Instrument nicht gefunden"}
+                return {
+                    "data": {
+                        "holding_id": "30000000-0000-0000-0000-000000000001",
+                        "portfolio_id": "20000000-0000-0000-0000-000000000001",
+                        **(json or {}),
+                        "created_at": "2026-01-01T00:00:00+00:00",
+                        "updated_at": "2026-01-01T00:00:00+00:00",
+                    }
+                }
+
+            text = ""
+
+        return Response()
+
+    monkeypatch.setattr("httpx.AsyncClient.request", fake_request)
+    service = GatewayService("http://analytics", "http://person", "http://master", "http://account", "http://portfolio", "http://market", 1.0)
+
+    payload = HoldingCreatePayload(
+        symbol="SAP",
+        quantity=1,
+        acquisition_price=100.0,
+        currency="EUR",
+        buy_date="2026-03-01",
+    )
+    holding = await service.create_holding(UUID("20000000-0000-0000-0000-000000000001"), payload)
+
+    assert holding.isin is None
+    assert calls[0][1].endswith("/api/v1/marketdata/instruments/SAP/selection")
+    assert calls[1][1].endswith("/api/v1/portfolios/20000000-0000-0000-0000-000000000001/holdings")
+    assert calls[1][2] == {
+        "symbol": "SAP",
+        "quantity": 1.0,
+        "acquisition_price": 100.0,
+        "currency": "EUR",
+        "buy_date": "2026-03-01",
+    }
