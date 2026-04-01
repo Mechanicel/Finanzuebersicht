@@ -29,6 +29,7 @@ class Settings(ServiceSettings):
     marketdata_cache_series_ttl_seconds: int = 30
     marketdata_cache_benchmark_ttl_seconds: int = 900
     marketdata_cache_selection_ttl_seconds: int = 60
+    marketdata_hydrated_freshness_ttl_seconds: int = 21600
     mongo_uri: str | None = Field(default=None, alias="MONGO_URI")
     mongo_host: str = Field(default="localhost", alias="MONGO_HOST")
     mongo_port: int = Field(default=27017, alias="MONGO_PORT")

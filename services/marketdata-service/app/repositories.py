@@ -75,5 +75,17 @@ class InstrumentHydratedRepository:
         )
         return hydrated_at
 
+    def get_hydrated_at(self, symbol: str) -> datetime | None:
+        document = self._collection.find_one({"symbol": symbol}, {"hydrated_at": 1})
+        if document is None:
+            return None
+
+        hydrated_at = document.get("hydrated_at")
+        if not isinstance(hydrated_at, datetime):
+            return None
+        if hydrated_at.tzinfo is None:
+            hydrated_at = hydrated_at.replace(tzinfo=UTC)
+        return hydrated_at
+
     def _initialize(self) -> None:
         self._collection.create_index([("symbol", ASCENDING)], unique=True)

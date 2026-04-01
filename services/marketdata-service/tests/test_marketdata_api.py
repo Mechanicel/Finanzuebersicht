@@ -183,6 +183,68 @@ def test_selection_endpoint_triggers_background_hydration_and_persists_full_docu
     assert persisted["snapshot"]["last_price"] > 0
 
 
+def test_selection_endpoint_skips_background_hydration_for_fresh_hydrated_document(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = create_test_client(app)
+    hydrated_repository = get_hydrated_repository()
+    hydrated_repository._collection.insert_one(
+        {
+            "symbol": "MSFT",
+            "hydrated_at": datetime.now(UTC) - timedelta(minutes=5),
+            "identity": {"symbol": "MSFT"},
+        }
+    )
+    provider = get_provider()
+    hydration_calls = 0
+
+    def _track_hydration(symbol: str):
+        nonlocal hydration_calls
+        hydration_calls += 1
+        return {
+            "identity": {"symbol": symbol},
+            "summary": {"symbol": symbol},
+            "snapshot": {"last_price": 100.0},
+        }
+
+    monkeypatch.setattr(provider, "get_instrument_hydration_payload", _track_hydration)
+    response = client.get("/api/v1/marketdata/instruments/MSFT/selection")
+
+    assert response.status_code == 200
+    assert hydration_calls == 0
+
+
+def test_selection_endpoint_triggers_background_hydration_for_stale_hydrated_document(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = create_test_client(app)
+    hydrated_repository = get_hydrated_repository()
+    hydrated_repository._collection.insert_one(
+        {
+            "symbol": "MSFT",
+            "hydrated_at": datetime.now(UTC) - timedelta(hours=8),
+            "identity": {"symbol": "MSFT"},
+        }
+    )
+    provider = get_provider()
+    hydration_calls = 0
+
+    def _track_hydration(symbol: str):
+        nonlocal hydration_calls
+        hydration_calls += 1
+        return {
+            "identity": {"symbol": symbol},
+            "summary": {"symbol": symbol},
+            "snapshot": {"last_price": 100.0},
+        }
+
+    monkeypatch.setattr(provider, "get_instrument_hydration_payload", _track_hydration)
+    response = client.get("/api/v1/marketdata/instruments/MSFT/selection")
+
+    assert response.status_code == 200
+    assert hydration_calls == 1
+
+
 def test_selection_endpoint_ignores_legacy_non_openfigi_cache_entry() -> None:
     client = create_test_client(app)
     repository = get_selection_cache_repository()
