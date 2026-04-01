@@ -366,7 +366,14 @@ class YFinanceMarketDataProvider:
         try:
             # Architectural guardrail: instrument search is OpenFIGI-only.
             # yfinance remains reserved for market/price/selection detail paths.
-            openfigi_records = self._collect_openfigi_candidates(query=query, limit=limit)
+            query_type = self._classify_openfigi_query(query)
+            openfigi_records = self._collect_openfigi_candidates(query=query, limit=limit, query_type=query_type)
+            if query_type in {"isin", "wkn"}:
+                openfigi_records = self._canonicalize_exact_identifier_records(
+                    records=openfigi_records,
+                    query_type=query_type,
+                    normalized_query=query.strip().upper(),
+                )
             deduped_by_key: dict[str, InstrumentSearchItem] = {}
             for record in openfigi_records:
                 item = self._map_openfigi_item(record)
@@ -384,11 +391,10 @@ class YFinanceMarketDataProvider:
             logger.exception("marketdata openfigi search parsing failed", extra={"query": query})
             return []
 
-    def _collect_openfigi_candidates(self, *, query: str, limit: int) -> list[dict[str, Any]]:
+    def _collect_openfigi_candidates(self, *, query: str, limit: int, query_type: str) -> list[dict[str, Any]]:
         normalized_query = query.strip().upper()
         max_results = min(max(limit * 3, 10), self._openfigi_search_result_limit)
         records: list[dict[str, Any]] = []
-        query_type = self._classify_openfigi_query(query)
 
         if query_type in {"name", "symbol"}:
             search_hits = self._openfigi_client.search(query=query, start=0)
@@ -410,6 +416,87 @@ class YFinanceMarketDataProvider:
                     records.extend(item for item in (entry.get("data") or []) if isinstance(item, dict))
 
         return records[:max_results]
+
+    def _canonicalize_exact_identifier_records(
+        self,
+        *,
+        records: list[dict[str, Any]],
+        query_type: str,
+        normalized_query: str,
+    ) -> list[dict[str, Any]]:
+        identifier_key = "isin" if query_type == "isin" else "wkn"
+        exact_matches = [
+            record
+            for record in records
+            if self._normalize_optional_identifier(record.get(identifier_key)) == normalized_query
+        ]
+        if not exact_matches:
+            return []
+
+        grouped: dict[str, list[dict[str, Any]]] = {}
+        for record in exact_matches:
+            primary = self._normalize_optional_identifier(record.get(identifier_key))
+            composite_figi = self._normalize_optional_identifier(record.get("compositeFIGI"))
+            figi = self._normalize_optional_identifier(record.get("figi"))
+            if primary:
+                group_key = f"{identifier_key}:{primary}"
+            elif composite_figi:
+                group_key = f"composite:{composite_figi}"
+            elif figi:
+                group_key = f"figi:{figi}"
+            else:
+                group_key = f"symbol:{self._normalize_optional_identifier(record.get('ticker')) or ''}"
+            grouped.setdefault(group_key, []).append(record)
+
+        canonical_groups: list[tuple[str, dict[str, Any]]] = []
+        for group_key, group_records in grouped.items():
+            canonical_groups.append((group_key, min(group_records, key=self._canonical_listing_sort_key)))
+
+        canonical_groups.sort(key=lambda value: (self._canonical_listing_sort_key(value[1]), value[0]))
+        return [canonical_groups[0][1]]
+
+    def _canonical_listing_sort_key(self, record: dict[str, Any]) -> tuple[int, int, int, int, str]:
+        symbol = self._normalize_openfigi_symbol(record) or ""
+        has_yf_suffix = int(not ("." in symbol and bool(self._openfigi_yf_suffix(record))))
+        has_exchange = int(not bool(self._openfigi_primary_market(record)))
+        has_composite_figi = int(not bool(self._normalize_optional_identifier(record.get("compositeFIGI"))))
+        return (
+            has_yf_suffix,
+            has_exchange,
+            self._preferred_market_rank(record),
+            has_composite_figi,
+            symbol,
+        )
+
+    def _preferred_market_rank(self, record: dict[str, Any]) -> int:
+        preferred_markets = (
+            "XETR",
+            "XFRA",
+            "GER",
+            "XPAR",
+            "EPA",
+            "PAR",
+            "XAMS",
+            "AEX",
+            "AMS",
+            "XLON",
+            "LSE",
+            "LON",
+        )
+        market = self._openfigi_primary_market(record)
+        if market is None:
+            return len(preferred_markets)
+        try:
+            return preferred_markets.index(market)
+        except ValueError:
+            return len(preferred_markets)
+
+    def _openfigi_primary_market(self, record: dict[str, Any]) -> str | None:
+        for key in ("micCode", "exchCode", "exchange", "market", "marketSector"):
+            normalized = self._normalize_exchange_key(record.get(key))
+            if normalized:
+                return normalized
+        return None
 
     def _build_openfigi_mapping_job(self, *, id_type: str, id_value: str) -> dict[str, Any]:
         job: dict[str, Any] = {"idType": id_type, "idValue": id_value}
