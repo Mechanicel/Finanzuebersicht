@@ -421,16 +421,17 @@ class YFinanceMarketDataProvider:
         return str(value).strip().upper().startswith(expected_prefix)
 
     def _build_isin_query_candidates(self, *, symbol: str, info: dict[str, Any]) -> list[str]:
+        aliases = self._build_symbol_aliases(symbol)
         candidates = [
-            self._normalize_name_for_query(info.get("shortName")),
             self._normalize_name_for_query(info.get("longName")),
+            self._normalize_name_for_query(info.get("shortName")),
             self._normalize_name_for_query(info.get("displayName")),
-            symbol.strip().upper(),
+            *aliases,
         ]
         result: list[str] = []
         seen: set[str] = set()
         for candidate in candidates:
-            if not candidate:
+            if not self._is_meaningful_query_candidate(candidate):
                 continue
             key = candidate.upper()
             if key in seen:
@@ -438,6 +439,19 @@ class YFinanceMarketDataProvider:
             seen.add(key)
             result.append(candidate)
         return result
+
+    @staticmethod
+    def _is_meaningful_query_candidate(value: str | None) -> bool:
+        if not value:
+            return False
+        normalized = value.strip()
+        if len(normalized) < 2:
+            return False
+        if normalized.upper() == normalized and len(normalized) <= 8:
+            return any(char.isalnum() for char in normalized)
+        if len(normalized) <= 4 and normalized.isalpha():
+            return False
+        return any(char.isalnum() for char in normalized)
 
     @staticmethod
     def _build_symbol_aliases(symbol: str) -> list[str]:

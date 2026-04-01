@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from app.cache import TTLMemoryCache
 from datetime import UTC, datetime, timedelta
 
@@ -28,6 +29,10 @@ from app.repositories import InstrumentHydratedRepository, InstrumentSelectionCa
 
 
 class MarketDataService:
+    _STRUCTURED_PRODUCT_RE = re.compile(
+        r"\b(oe|track|turbo|call|put|mini|knock-?out|warrant|zertifikat)\b",
+        re.IGNORECASE,
+    )
     def __init__(
         self,
         provider: MarketDataProvider,
@@ -265,20 +270,35 @@ class MarketDataService:
 
     def _enrich_search_items(self, items: list[InstrumentSearchItem]) -> list[InstrumentSearchItem]:
         enriched: list[InstrumentSearchItem] = []
-        max_enriched = 5
+        max_enriched = 3
         enriched_count = 0
         for item in items:
-            if enriched_count >= max_enriched or not self._requires_search_enrichment(item):
+            if (
+                enriched_count >= max_enriched
+                or not self._requires_search_enrichment(item)
+                or self._should_skip_search_enrichment(item)
+            ):
                 enriched.append(item)
                 continue
             try:
                 details = self.get_instrument_selection_details(item.symbol)
             except Exception:
+                self._logger.exception(
+                    "marketdata search enrichment failed",
+                    extra={"symbol": item.symbol},
+                )
                 enriched.append(item)
                 continue
             enriched.append(self._merge_search_item(item, details))
             enriched_count += 1
         return enriched
+
+    @classmethod
+    def _should_skip_search_enrichment(cls, item: InstrumentSearchItem) -> bool:
+        label = f"{item.company_name or ''} {item.display_name or ''}".strip()
+        if not label:
+            return False
+        return bool(cls._STRUCTURED_PRODUCT_RE.search(label))
 
     @staticmethod
     def _requires_search_enrichment(item: InstrumentSearchItem) -> bool:
