@@ -41,3 +41,27 @@ class InstrumentSelectionCacheRepository:
 
     def _initialize(self) -> None:
         self._collection.create_index([("symbol", ASCENDING)], unique=True)
+
+
+class InstrumentHydratedRepository:
+    def __init__(self, collection: Collection) -> None:
+        self._collection = collection
+        self._initialize()
+
+    def upsert(self, symbol: str, payload: dict[str, object]) -> datetime:
+        hydrated_at = datetime.now(UTC)
+        self._collection.update_one(
+            {"symbol": symbol},
+            {
+                "$set": {
+                    "symbol": symbol,
+                    **payload,
+                    "hydrated_at": hydrated_at,
+                }
+            },
+            upsert=True,
+        )
+        return hydrated_at
+
+    def _initialize(self) -> None:
+        self._collection.create_index([("symbol", ASCENDING)], unique=True)

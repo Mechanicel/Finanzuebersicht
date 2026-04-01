@@ -40,6 +40,7 @@ class MarketDataProvider(Protocol):
     def get_instrument_full(self, symbol: str) -> InstrumentFullResponse | None: ...
 
     def get_instrument_selection_details(self, symbol: str) -> InstrumentSelectionDetailsResponse | None: ...
+    def get_instrument_hydration_payload(self, symbol: str) -> dict[str, object] | None: ...
 
     def search_instruments(self, query: str, limit: int) -> list[InstrumentSearchItem]: ...
 
@@ -174,6 +175,43 @@ class YFinanceMarketDataProvider:
             as_of=datetime.now(UTC),
         )
 
+    def get_instrument_hydration_payload(self, symbol: str) -> dict[str, object] | None:
+        ticker = self._get_ticker(symbol)
+        info = self._safe_info(ticker)
+        if not self._seems_known_instrument(symbol, info):
+            return None
+
+        history_1y = self._safe_history_fallback(ticker, period="1y", interval="1d")
+        summary = self._map_summary(symbol=symbol, info=info)
+        snapshot = self._build_snapshot(ticker=ticker, info=info, history_1y=history_1y)
+        fundamentals = self._build_fundamentals(info)
+        metrics = self._build_metrics(history_1y)
+        risk = self._build_risk(info=info, history_1y=history_1y)
+        fast_info = self._safe_fast_info(ticker)
+
+        return {
+            "identity": {
+                "symbol": summary.symbol,
+                "isin": summary.isin,
+                "wkn": summary.wkn,
+                "company_name": summary.company_name,
+                "display_name": summary.display_name,
+                "exchange": summary.exchange,
+                "currency": summary.currency,
+                "quote_type": summary.quote_type,
+                "asset_type": summary.asset_type,
+            },
+            "summary": summary.model_dump(mode="json"),
+            "snapshot": snapshot.model_dump(mode="json"),
+            "fundamentals": fundamentals.model_dump(mode="json"),
+            "metrics": metrics.model_dump(mode="json"),
+            "risk": risk.model_dump(mode="json"),
+            "provider_raw": {
+                "info": info,
+                "fast_info": fast_info,
+            },
+        }
+
     def search_instruments(self, query: str, limit: int) -> list[InstrumentSearchItem]:
         logger = logging.getLogger(__name__)
         max_results = min(max(limit * 3, 10), 40)
@@ -271,6 +309,12 @@ class YFinanceMarketDataProvider:
             return ticker.history(period=period, interval=interval, timeout=self.timeout_seconds)
         except Exception as exc:  # pragma: no cover - library/network behaviour
             raise UpstreamServiceError() from exc
+
+    def _safe_history_fallback(self, ticker, *, period: str, interval: str):
+        try:
+            return self._safe_history(ticker, period=period, interval=interval)
+        except UpstreamServiceError:
+            return None
 
     @staticmethod
     def _seems_known_instrument(symbol: str, info: dict[str, Any]) -> bool:
@@ -721,6 +765,30 @@ class InMemoryMarketDataProvider:
             volume=snapshot.volume,
             as_of=datetime.now(UTC),
         )
+
+    def get_instrument_hydration_payload(self, symbol: str) -> dict[str, object] | None:
+        full = self.get_instrument_full(symbol)
+        if full is None:
+            return None
+        return {
+            "identity": {
+                "symbol": full.summary.symbol,
+                "isin": full.summary.isin,
+                "wkn": full.summary.wkn,
+                "company_name": full.summary.company_name,
+                "display_name": full.summary.display_name,
+                "exchange": full.summary.exchange,
+                "currency": full.summary.currency,
+                "quote_type": full.summary.quote_type,
+                "asset_type": full.summary.asset_type,
+            },
+            "summary": full.summary.model_dump(mode="json"),
+            "snapshot": full.snapshot.model_dump(mode="json"),
+            "fundamentals": full.fundamentals.model_dump(mode="json"),
+            "metrics": full.metrics.model_dump(mode="json"),
+            "risk": full.risk.model_dump(mode="json"),
+            "provider_raw": {"source": "inmemory"},
+        }
 
     def search_instruments(self, query: str, limit: int) -> list[InstrumentSearchItem]:
         normalized = query.strip().lower()
