@@ -62,4 +62,5 @@ def get_marketdata_service() -> MarketDataService:
         selection_cache_repository=get_selection_cache_repository(),
         hydrated_repository=get_hydrated_repository(),
         selection_cache_ttl_seconds=settings.marketdata_cache_selection_ttl_seconds,
+        hydrated_freshness_ttl_seconds=settings.marketdata_hydrated_freshness_ttl_seconds,
     )

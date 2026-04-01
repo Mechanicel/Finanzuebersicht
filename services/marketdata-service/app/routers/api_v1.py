@@ -69,7 +69,8 @@ async def instrument_selection_details(
     service: MarketDataService = Depends(get_marketdata_service),
 ) -> ApiResponse[InstrumentSelectionDetailsResponse]:
     payload = service.get_instrument_selection_details(symbol)
-    background_tasks.add_task(service.hydrate_instrument_in_background, symbol)
+    if service.should_trigger_background_hydration(symbol):
+        background_tasks.add_task(service.hydrate_instrument_in_background, symbol)
     return ApiResponse(data=payload)
 
 

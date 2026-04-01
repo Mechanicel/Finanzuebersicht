@@ -166,6 +166,7 @@ def build_service(
     *,
     cache_enabled: bool = True,
     selection_ttl_seconds: int = 60,
+    hydrated_freshness_ttl_seconds: int = 21600,
 ) -> MarketDataService:
     if repository is None:
         client = mongomock.MongoClient()
@@ -184,6 +185,7 @@ def build_service(
         selection_cache_repository=repository,
         hydrated_repository=hydrated_repository,
         selection_cache_ttl_seconds=selection_ttl_seconds,
+        hydrated_freshness_ttl_seconds=hydrated_freshness_ttl_seconds,
     )
 
 
@@ -791,3 +793,56 @@ def test_background_hydration_errors_do_not_raise() -> None:
     service.hydrate_instrument_in_background("dum")
 
     assert provider.hydration_calls == 1
+
+
+def test_selection_triggers_hydration_when_hydrated_document_missing() -> None:
+    provider = FakeProvider()
+    service = build_service(provider)
+
+    should_hydrate = service.should_trigger_background_hydration("DUM")
+
+    assert should_hydrate is True
+
+
+def test_selection_does_not_trigger_hydration_when_hydrated_document_is_fresh() -> None:
+    provider = FakeProvider()
+    client = mongomock.MongoClient()
+    hydrated_collection = client["finanzuebersicht"]["hydrated_test"]
+    hydrated_repository = InstrumentHydratedRepository(collection=hydrated_collection)
+    hydrated_collection.insert_one(
+        {
+            "symbol": "DUM",
+            "hydrated_at": datetime.now(UTC) - timedelta(minutes=5),
+        }
+    )
+    service = build_service(
+        provider,
+        hydrated_repository=hydrated_repository,
+        hydrated_freshness_ttl_seconds=3600,
+    )
+
+    should_hydrate = service.should_trigger_background_hydration("DUM")
+
+    assert should_hydrate is False
+
+
+def test_selection_triggers_hydration_when_hydrated_document_is_stale() -> None:
+    provider = FakeProvider()
+    client = mongomock.MongoClient()
+    hydrated_collection = client["finanzuebersicht"]["hydrated_test"]
+    hydrated_repository = InstrumentHydratedRepository(collection=hydrated_collection)
+    hydrated_collection.insert_one(
+        {
+            "symbol": "DUM",
+            "hydrated_at": datetime.now(UTC) - timedelta(hours=2),
+        }
+    )
+    service = build_service(
+        provider,
+        hydrated_repository=hydrated_repository,
+        hydrated_freshness_ttl_seconds=1800,
+    )
+
+    should_hydrate = service.should_trigger_background_hydration("DUM")
+
+    assert should_hydrate is True

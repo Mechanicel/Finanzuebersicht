@@ -31,6 +31,7 @@ from app.repositories import InstrumentHydratedRepository, InstrumentSelectionCa
 class MarketDataService:
     _SEARCH_CACHE_PREFIX = "search:openfigi:v1"
     _SELECTION_MEMORY_CACHE_PREFIX = "selection:openfigi:v1"
+    _HYDRATED_FRESHNESS_TTL_SECONDS = 60 * 60 * 6
     def __init__(
         self,
         provider: MarketDataProvider,
@@ -44,6 +45,7 @@ class MarketDataService:
         selection_cache_repository: InstrumentSelectionCacheRepository,
         hydrated_repository: InstrumentHydratedRepository,
         selection_cache_ttl_seconds: int,
+        hydrated_freshness_ttl_seconds: int = _HYDRATED_FRESHNESS_TTL_SECONDS,
     ) -> None:
         self._logger = logging.getLogger(__name__)
         self.provider = provider
@@ -66,6 +68,7 @@ class MarketDataService:
         self.selection_cache_repository = selection_cache_repository
         self.hydrated_repository = hydrated_repository
         self.selection_cache_ttl_seconds = selection_cache_ttl_seconds
+        self.hydrated_freshness_ttl_seconds = hydrated_freshness_ttl_seconds
         self.selection_memory_cache: TTLMemoryCache[object] | None = (
             TTLMemoryCache(ttl_seconds=selection_cache_ttl_seconds) if cache_enabled else None
         )
@@ -173,6 +176,13 @@ class MarketDataService:
             self.hydrated_repository.upsert(normalized, payload)
         except Exception:
             self._logger.exception("marketdata background hydration failed", extra={"symbol": normalized})
+
+    def should_trigger_background_hydration(self, symbol: str) -> bool:
+        normalized = self._normalize_symbol(symbol)
+        hydrated_at = self.hydrated_repository.get_hydrated_at(normalized)
+        if hydrated_at is None:
+            return True
+        return not self._is_hydrated_document_fresh(hydrated_at)
 
     def _merge_selection_details(
         self,
@@ -311,6 +321,11 @@ class MarketDataService:
         if fetched_at.tzinfo is None:
             fetched_at = fetched_at.replace(tzinfo=UTC)
         return datetime.now(UTC) - fetched_at < timedelta(seconds=self.selection_cache_ttl_seconds)
+
+    def _is_hydrated_document_fresh(self, hydrated_at: datetime) -> bool:
+        if hydrated_at.tzinfo is None:
+            hydrated_at = hydrated_at.replace(tzinfo=UTC)
+        return datetime.now(UTC) - hydrated_at < timedelta(seconds=self.hydrated_freshness_ttl_seconds)
 
     @staticmethod
     def _normalize_symbol(symbol: str) -> str:
