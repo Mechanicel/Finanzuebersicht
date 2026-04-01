@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import logging
+import re
 from datetime import UTC, date, datetime, timedelta
 from statistics import pstdev
 from typing import Any, Protocol
+from urllib.parse import quote as urlencode
 
 import requests
 import yfinance as yf
@@ -48,6 +50,7 @@ class MarketDataProvider(Protocol):
 
 
 class YFinanceMarketDataProvider:
+    _ISIN_RE = re.compile(r"^[A-Z]{2}[A-Z0-9]{9}[0-9]$")
     _RANGE_MAP: dict[DataRange, str] = {
         DataRange.ONE_MONTH: "1mo",
         DataRange.THREE_MONTHS: "3mo",
@@ -330,7 +333,7 @@ class YFinanceMarketDataProvider:
     def _map_summary(self, *, symbol: str, ticker, info: dict[str, Any]) -> InstrumentSummary:
         return InstrumentSummary(
             symbol=str(info.get("symbol") or symbol).upper(),
-            isin=self._safe_isin(ticker),
+            isin=self._safe_isin(ticker, symbol=symbol, info=info),
             company_name=str(info.get("longName") or info.get("shortName") or symbol),
             display_name=info.get("shortName") or info.get("displayName"),
             wkn=None,
@@ -343,15 +346,113 @@ class YFinanceMarketDataProvider:
             industry=info.get("industry"),
         )
 
-    def _safe_isin(self, ticker) -> str | None:
+    def _safe_isin(self, ticker, *, symbol: str, info: dict[str, Any]) -> str | None:
         try:
             isin = ticker.isin
         except Exception:
-            return None
+            isin = None
         normalized = self._normalize_optional_identifier(isin)
-        if normalized == "-":
+        if self._is_valid_isin(normalized):
+            return normalized
+        return self._resolve_isin_via_businessinsider(symbol=symbol, info=info)
+
+    @classmethod
+    def _is_valid_isin(cls, value: str | None) -> bool:
+        if value is None:
+            return False
+        return bool(cls._ISIN_RE.fullmatch(value.strip().upper()))
+
+    @staticmethod
+    def _normalize_name_for_query(value: str | None) -> str | None:
+        if value is None:
             return None
-        return normalized
+        normalized = " ".join(str(value).split()).strip()
+        return normalized or None
+
+    def _build_isin_query_candidates(self, *, symbol: str, info: dict[str, Any]) -> list[str]:
+        base_symbol = symbol.split(".", 1)[0].strip().upper()
+        candidates = [
+            self._normalize_name_for_query(info.get("shortName")),
+            self._normalize_name_for_query(info.get("longName")),
+            self._normalize_name_for_query(info.get("displayName")),
+            symbol.strip().upper(),
+            base_symbol,
+        ]
+        result: list[str] = []
+        seen: set[str] = set()
+        for candidate in candidates:
+            if not candidate:
+                continue
+            key = candidate.upper()
+            if key in seen:
+                continue
+            seen.add(key)
+            result.append(candidate)
+        return result
+
+    def _extract_isin_from_businessinsider_payload(
+        self,
+        payload: str,
+        *,
+        expected_symbols: list[str],
+    ) -> str | None:
+        if not payload:
+            return None
+
+        for expected_symbol in expected_symbols:
+            marker = f'"{expected_symbol.upper()}|'
+            marker_index = payload.find(marker)
+            if marker_index == -1:
+                continue
+            start = marker_index + len(marker)
+            end = payload.find('"', start)
+            if end == -1:
+                continue
+            segment = payload[start:end]
+            first_field = segment.split("|", 1)[0].strip().upper()
+            if self._is_valid_isin(first_field):
+                return first_field
+
+        expected_symbol_set = {symbol.upper() for symbol in expected_symbols}
+        for segment in payload.split('"'):
+            if "|" not in segment:
+                continue
+            parts = segment.split("|")
+            if not parts:
+                continue
+            if parts[0].strip().upper() not in expected_symbol_set:
+                continue
+            for value in parts[1:]:
+                normalized = value.strip().upper()
+                if self._is_valid_isin(normalized):
+                    return normalized
+        return None
+
+    def _resolve_isin_via_businessinsider(self, *, symbol: str, info: dict[str, Any]) -> str | None:
+        expected_symbols = [
+            symbol.upper(),
+            symbol.split(".", 1)[0].upper(),
+        ]
+        queries = self._build_isin_query_candidates(symbol=symbol, info=info)
+        for query in queries:
+            url = (
+                "https://markets.businessinsider.com/ajax/SearchController_Suggest"
+                f"?max_results=25&query={urlencode(query)}"
+            )
+            try:
+                response = self._session.get(url, timeout=self.timeout_seconds)
+            except Exception:
+                continue
+            if not response.ok:
+                continue
+            payload = response.text
+            resolved = self._extract_isin_from_businessinsider_payload(
+                payload,
+                expected_symbols=expected_symbols,
+            )
+            if resolved is not None:
+                return resolved
+        return None
 
     @staticmethod
     def _normalize_optional_identifier(value: Any) -> str | None:
