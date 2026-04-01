@@ -6,7 +6,11 @@ from pymongo import MongoClient
 
 from app.config import get_settings
 from app.providers import InMemoryMarketDataProvider, MarketDataProvider, YFinanceMarketDataProvider
-from app.repositories import InstrumentHydratedRepository, InstrumentSelectionCacheRepository
+from app.repositories import (
+    InstrumentHydratedRepository,
+    InstrumentSelectionCacheRepository,
+    SecurityIdentityRepository,
+)
 from app.service import MarketDataService
 
 
@@ -41,6 +45,20 @@ def get_hydrated_repository() -> InstrumentHydratedRepository:
     return InstrumentHydratedRepository(collection=collection)
 
 
+
+
+@lru_cache
+def get_security_identity_repository() -> SecurityIdentityRepository:
+    settings = get_settings()
+    client = MongoClient(settings.resolved_mongo_uri())
+    collection = client[settings.mongo_database][settings.marketdata_security_identity_collection]
+    return SecurityIdentityRepository(collection=collection)
+
+
+def get_identifier_resolver() -> None:
+    return None
+
+
 @lru_cache
 def get_marketdata_service() -> MarketDataService:
     settings = get_settings()
@@ -55,4 +73,6 @@ def get_marketdata_service() -> MarketDataService:
         selection_cache_repository=get_selection_cache_repository(),
         hydrated_repository=get_hydrated_repository(),
         selection_cache_ttl_seconds=settings.marketdata_cache_selection_ttl_seconds,
+        security_identity_repository=get_security_identity_repository(),
+        identifier_resolver=get_identifier_resolver(),
     )
