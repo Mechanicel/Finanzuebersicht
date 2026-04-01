@@ -340,6 +340,8 @@ class YFinanceMarketDataProvider:
     def search_instruments(self, query: str, limit: int) -> list[InstrumentSearchItem]:
         logger = logging.getLogger(__name__)
         try:
+            # Architectural guardrail: instrument search is OpenFIGI-only.
+            # yfinance remains reserved for market/price/selection detail paths.
             openfigi_records = self._collect_openfigi_candidates(query=query, limit=limit)
             deduped: list[InstrumentSearchItem] = []
             seen: set[str] = set()

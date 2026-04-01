@@ -215,6 +215,27 @@ def test_openfigi_search_upstream_error_is_wrapped(monkeypatch: pytest.MonkeyPat
         provider.search_instruments("AAPL", limit=5)
 
 
+def test_search_path_uses_openfigi_and_never_calls_yfinance_search(monkeypatch: pytest.MonkeyPatch) -> None:
+    provider = YFinanceMarketDataProvider(timeout_seconds=3)
+    openfigi_calls: list[tuple[str, int]] = []
+
+    def _openfigi_search(*, query: str, start: int = 0):
+        openfigi_calls.append((query, start))
+        return [{"ticker": "AAPL", "name": "Apple Inc"}]
+
+    def _unexpected_yahoo_search(*args, **kwargs):
+        raise AssertionError("yf.Search must not be used in the production search path")
+
+    monkeypatch.setattr(provider._openfigi_client, "search", _openfigi_search)
+    monkeypatch.setattr(provider._openfigi_client, "map", lambda *, payload: [])
+    monkeypatch.setattr("app.providers.yf.Search", _unexpected_yahoo_search, raising=False)
+
+    result = provider.search_instruments("Apple", limit=5)
+
+    assert len(result) == 1
+    assert openfigi_calls == [("Apple", 0)]
+
+
 def test_openfigi_search_parser_error_degrades_to_empty(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:

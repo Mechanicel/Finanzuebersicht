@@ -13,10 +13,10 @@ from app.service import MarketDataService
 @lru_cache
 def get_provider() -> MarketDataProvider:
     settings = get_settings()
-    provider_name = settings.marketdata_provider.strip().lower()
-    if provider_name == "inmemory":
+    marketdata_provider_name = settings.marketdata_provider.strip().lower()
+    if marketdata_provider_name == "inmemory":
         return InMemoryMarketDataProvider()
-    if provider_name == "yfinance":
+    if marketdata_provider_name == "yfinance":
         return YFinanceMarketDataProvider(
             timeout_seconds=settings.marketdata_request_timeout_seconds,
             retries=settings.marketdata_request_retries,

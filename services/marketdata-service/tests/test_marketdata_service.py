@@ -219,7 +219,7 @@ def test_search_empty_result_is_valid_response() -> None:
     assert response.items == []
 
 
-def test_search_cache_hit_avoids_second_provider_call() -> None:
+def test_search_cache_hit_avoids_repeating_openfigi_query() -> None:
     provider = FakeProvider()
     service = build_service(provider)
 
@@ -228,7 +228,8 @@ def test_search_cache_hit_avoids_second_provider_call() -> None:
 
     assert first.total == 1
     assert second.total == 1
-    assert provider.search_calls == 1
+    # 1x for primary search + 1x for selection enrichment on first request only.
+    assert provider.search_calls == 2
     assert service.search_cache is not None
     assert service.search_cache.get("search:dummy:10") is None
     assert service.search_cache.get("search:openfigi:v1:dummy:10") is not None
@@ -305,6 +306,19 @@ def test_search_enrichment_errors_keep_raw_item() -> None:
     assert response.items[0].symbol == "CBK.DE"
     assert response.items[0].last_price is None
     assert response.items[0].change_1d_pct is None
+
+
+def test_search_propagates_openfigi_upstream_outage() -> None:
+    provider = FakeProvider()
+    service = build_service(provider)
+
+    def _raise_upstream(_query: str, _limit: int) -> list[InstrumentSearchItem]:
+        raise UpstreamServiceError()
+
+    provider.search_instruments = _raise_upstream  # type: ignore[method-assign]
+
+    with pytest.raises(UpstreamServiceError):
+        service.search_instruments("commerzbank", limit=10)
 
 
 def test_selection_cache_hit_for_fresh_db_record() -> None:
@@ -580,7 +594,7 @@ def test_selection_cache_with_wrong_source_is_ignored() -> None:
     repository = InstrumentSelectionCacheRepository(collection=collection)
     stale = InstrumentSelectionDetailsResponse(
         symbol="DUM",
-        company_name="Yahoo Cached",
+        company_name="Legacy Cached",
         exchange="XETRA",
         currency="EUR",
         last_price=10.0,
@@ -588,7 +602,7 @@ def test_selection_cache_with_wrong_source_is_ignored() -> None:
     collection.insert_one(
         {
             "symbol": "DUM",
-            "identity_source": "yahoo_search_v1",
+            "identity_source": "legacy_search_v1",
             "payload": stale.model_dump(mode="json"),
             "fetched_at": datetime.now(UTC) - timedelta(seconds=10),
         }

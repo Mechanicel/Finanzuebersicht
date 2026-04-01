@@ -183,13 +183,13 @@ def test_selection_endpoint_triggers_background_hydration_and_persists_full_docu
     assert persisted["snapshot"]["last_price"] > 0
 
 
-def test_selection_endpoint_ignores_legacy_yahoo_cache_entry() -> None:
+def test_selection_endpoint_ignores_legacy_non_openfigi_cache_entry() -> None:
     client = create_test_client(app)
     repository = get_selection_cache_repository()
     repository._collection.insert_one(
         {
             "symbol": "MSFT",
-            "identity_source": "yahoo_search_v1",
+            "identity_source": "legacy_search_v1",
             "payload": InstrumentSelectionDetailsResponse(
                 symbol="MSFT",
                 isin="US0000000000",
@@ -212,6 +212,27 @@ def test_selection_endpoint_ignores_legacy_yahoo_cache_entry() -> None:
     assert response.json()["data"]["company_name"] != "Legacy Cached"
     stored = repository._collection.find_one({"symbol": "MSFT", "identity_source": OPENFIGI_IDENTITY_SOURCE})
     assert stored is not None
+
+
+def test_instrument_search_returns_503_when_openfigi_is_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
+    provider = get_provider()
+
+    def _raise_upstream(_query: str, _limit: int):
+        raise RuntimeError("should not be swallowed here")
+
+    def _raise_upstream_service_error(_query: str, _limit: int):
+        from app.models import UpstreamServiceError
+
+        raise UpstreamServiceError()
+
+    monkeypatch.setattr(provider, "search_instruments", _raise_upstream_service_error)
+    monkeypatch.setattr(provider, "get_instrument_selection_details", _raise_upstream)
+    client = create_test_client(app)
+
+    response = client.get("/api/v1/marketdata/instruments/search", params={"q": "micro"})
+
+    assert response.status_code == 503
+    assert response.json()["error"] == "upstream_unavailable"
 
 
 def test_selection_response_stays_ok_if_background_hydration_fails(monkeypatch: pytest.MonkeyPatch) -> None:

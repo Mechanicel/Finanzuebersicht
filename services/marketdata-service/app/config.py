@@ -10,10 +10,12 @@ from finanzuebersicht_shared.config import ServiceSettings
 class Settings(ServiceSettings):
     app_name: str = "marketdata-service"
     cache_enabled: bool = True
+    # yfinance remains the market-data provider (summary/prices/blocks/full/selection details).
     marketdata_provider: str = "yfinance"
     marketdata_request_timeout_seconds: float = 8.0
     marketdata_request_retries: int = 2
     marketdata_request_backoff_factor: float = 0.3
+    # Instrument search provider configuration (OpenFIGI only).
     openfigi_base_url: str = "https://api.openfigi.com/v3"
     openfigi_api_key: str | None = None
     openfigi_request_timeout_seconds: float = 6.0

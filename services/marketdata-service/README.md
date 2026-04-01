@@ -6,7 +6,8 @@ Neu aufgesetzter Market-Data-Service für die Zielarchitektur mit **api-gateway*
 
 - Flask-Legacy ist vollständig ersetzt durch FastAPI-Struktur unter `services/marketdata-service/app`.
 - Einheitliche Versionierung unter `/api/v1/marketdata/...`.
-- Provider-Abstraktion ist aktiv (`MarketDataProvider`), Standard ist `yfinance` (Yahoo als Upstream).
+- Provider-Abstraktion ist aktiv (`MarketDataProvider`), Standard ist `yfinance` für Markt-/Preisdaten.
+- Instrumentsuche läuft ausschließlich über OpenFIGI (`/search` + optionales `/mapping` bei ISIN-Queries).
 - `InMemoryMarketDataProvider` bleibt für lokale Tests/Fallback verfügbar (`MARKETDATA_PROVIDER=inmemory`).
 - Service-Layer (`MarketDataService`) kapselt Fachlogik.
 - Caching ist vorbereitet (TTL-In-Memory-Cache, konfigurierbar).
@@ -197,6 +198,13 @@ Umgebungsvariablen:
 - `MARKETDATA_REQUEST_TIMEOUT_SECONDS` (default `8.0`)
 - `MARKETDATA_REQUEST_RETRIES` (default `2`)
 - `MARKETDATA_REQUEST_BACKOFF_FACTOR` (default `0.3`)
+- `OPENFIGI_BASE_URL` (default `https://api.openfigi.com/v3`)
+- `OPENFIGI_API_KEY` (optional; empfohlen für produktive Limits/Rate-Limits)
+- `OPENFIGI_REQUEST_TIMEOUT_SECONDS` (default `6.0`)
+- `OPENFIGI_REQUEST_RETRIES` (default `2`)
+- `OPENFIGI_REQUEST_BACKOFF_FACTOR` (default `0.3`)
+- `OPENFIGI_SEARCH_RESULT_LIMIT` (default `20`)
+- `OPENFIGI_SEARCH_DEFAULT_MARKET_SEC_DES` (optional, z. B. `Equity`)
 - `MARKETDATA_CACHE_SEARCH_TTL_SECONDS` (default `60`)
 - `MARKETDATA_CACHE_SUMMARY_TTL_SECONDS` (default `120`)
 - `MARKETDATA_CACHE_PRICE_TTL_SECONDS` (default `45`)
@@ -226,13 +234,13 @@ uv run pytest services/marketdata-service/tests -q
 
 ## Datenqualität, Identifier und Caching
 
-- Der Service mappt Yahoo/yfinance bewusst nur auf eigene API-Modelle; rohe Yahoo-Responses werden nicht nach außen gereicht.
+- Die Instrumentsuche (`/api/v1/marketdata/instruments/search`) läuft ausschließlich über OpenFIGI; es gibt keinen produktiven Yahoo-Search-Fallback.
+- Der Service mappt yfinance bewusst nur auf eigene API-Modelle; rohe Provider-Responses werden nicht nach außen gereicht.
 - ISIN/WKN werden nur gesetzt, wenn der Provider das Feld plausibel liefert. Fehlende Werte bleiben `null` statt geraten zu werden.
-- WKN-Suche ist **best effort**: Treffer werden berücksichtigt, falls Yahoo/yfinance WKN im Suchtreffer liefert.
-- Die Instrumentsuche über `yfinance.Search` ist defensiv umgesetzt: zuerst mit Provider-Session, bei Fehlern automatischer Retry ohne explizite Session.
-- Suchfehler werden intern mit Query, Providernamen, Exception-Typ und Kurzmeldung geloggt; API-Responses bleiben dabei bewusst generisch.
-- Wenn beide Search-Varianten wegen lokaler/Parser-Probleme scheitern, degradiert die Suche kontrolliert zu `200` mit leerer Trefferliste (`items=[]`) statt hartem Fehler beim Tippen.
-- Echte Upstream-/Netzwerkprobleme (z. B. Connection/Timeout gegen Yahoo) werden weiterhin als `503 upstream_unavailable` gemeldet.
+- WKN/ISIN-Anreicherung in Selection nutzt OpenFIGI-Suchergebnisse als Identity-Quelle; Preis-/Snapshot-Werte kommen weiter aus yfinance.
+- Suchfehler werden intern strukturiert als OpenFIGI-Fehler geloggt; API-Responses bleiben dabei bewusst generisch.
+- Wenn OpenFIGI-Search wegen lokaler Parser-Probleme scheitert, degradiert die Suche kontrolliert zu `200` mit leerer Trefferliste (`items=[]`) statt hartem Fehler beim Tippen.
+- Echte Upstream-/Netzwerkprobleme (z. B. Connection/Timeout gegen OpenFIGI oder yfinance) werden weiterhin als `503 upstream_unavailable` gemeldet.
 - Zusätzlich zu internem yfinance-Caching nutzt der Service eigene TTL-Caches (Search, Summary, Snapshot/Blocks/Full, Serien, Benchmarks).
 
 - Der Selection-Cache ist ausschließlich Mongo-basiert; es gibt keine SQLite-/Datei-Konfiguration mehr.
