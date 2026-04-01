@@ -124,7 +124,7 @@ def test_search_ranking_symbol_isin_wkn_company(monkeypatch: pytest.MonkeyPatch)
     provider = YFinanceMarketDataProvider(timeout_seconds=3)
 
     class FakeSearch:
-        def __init__(self, *, query: str, max_results: int):
+        def __init__(self, *, query: str, max_results: int, timeout: float):
             self.quotes = [
                 {"symbol": "AAP", "shortname": "Other", "longname": "Other Corp", "isin": "US0000000001"},
                 {"symbol": "AAPL", "shortname": "Apple", "longname": "Apple Inc.", "isin": "US0378331005"},
@@ -143,7 +143,7 @@ def test_search_by_company_name_and_wkn_best_effort(monkeypatch: pytest.MonkeyPa
     provider = YFinanceMarketDataProvider(timeout_seconds=3)
 
     class FakeSearch:
-        def __init__(self, *, query: str, max_results: int):
+        def __init__(self, *, query: str, max_results: int, timeout: float):
             self.quotes = [
                 {"symbol": "AAPL", "shortname": "Apple", "longname": "Apple Inc.", "wkn": "865985"},
                 {"symbol": "MSFT", "shortname": "Microsoft", "longname": "Microsoft Corp."},
@@ -159,11 +159,37 @@ def test_search_by_company_name_and_wkn_best_effort(monkeypatch: pytest.MonkeyPa
     assert by_wkn[0].wkn == "865985"
 
 
+def test_search_maps_wkn_price_and_change(monkeypatch: pytest.MonkeyPatch) -> None:
+    provider = YFinanceMarketDataProvider(timeout_seconds=3)
+
+    class FakeSearch:
+        def __init__(self, *, query: str, max_results: int, timeout: float):
+            self.quotes = [
+                {
+                    "symbol": "CBK.DE",
+                    "shortname": "Commerzbank",
+                    "longname": "Commerzbank AG",
+                    "wkn": "CBK100",
+                    "regularMarketPrice": 18.35,
+                    "regularMarketChangePercent": -1.25,
+                }
+            ]
+
+    monkeypatch.setattr("app.providers.yf.Search", FakeSearch)
+
+    result = provider.search_instruments("Commerzbank", limit=5)
+
+    assert result[0].symbol == "CBK.DE"
+    assert result[0].wkn == "CBK100"
+    assert result[0].last_price == 18.35
+    assert result[0].change_1d_pct == -1.25
+
+
 def test_search_uses_stable_yfinance_search_signature(monkeypatch: pytest.MonkeyPatch) -> None:
     provider = YFinanceMarketDataProvider(timeout_seconds=3)
 
     class StableSearch:
-        def __init__(self, *, query: str, max_results: int):
+        def __init__(self, *, query: str, max_results: int, timeout: float):
             self.quotes = [{"symbol": "AAPL", "shortname": "Apple", "longname": "Apple Inc."}]
 
     monkeypatch.setattr("app.providers.yf.Search", StableSearch)
@@ -179,7 +205,7 @@ def test_search_non_upstream_exception_degrades_to_empty(
     provider = YFinanceMarketDataProvider(timeout_seconds=3)
 
     class BoomSearch:
-        def __init__(self, *, query: str, max_results: int):
+        def __init__(self, *, query: str, max_results: int, timeout: float):
             raise ValueError("parser issue")
 
     monkeypatch.setattr("app.providers.yf.Search", BoomSearch)
@@ -195,10 +221,32 @@ def test_search_upstream_error_is_wrapped(monkeypatch: pytest.MonkeyPatch) -> No
     provider = YFinanceMarketDataProvider(timeout_seconds=3)
 
     class BoomSearch:
-        def __init__(self, *, query: str, max_results: int):
+        def __init__(self, *, query: str, max_results: int, timeout: float):
             raise requests.ConnectionError("yahoo down")
 
     monkeypatch.setattr("app.providers.yf.Search", BoomSearch)
 
     with pytest.raises(UpstreamServiceError):
         provider.search_instruments("AAPL", limit=5)
+
+
+def test_businessinsider_isin_fallback_uses_symbol_aliases() -> None:
+    provider = YFinanceMarketDataProvider(timeout_seconds=3)
+
+    class FakeResponse:
+        def __init__(self) -> None:
+            self.status_code = 200
+            self.text = '"CBK|DE000CBK1001|X|Y"'
+
+    class FakeSession:
+        def get(self, url: str, timeout: float):
+            return FakeResponse()
+
+    provider._session = FakeSession()  # type: ignore[assignment]
+
+    resolved = provider._resolve_isin_via_businessinsider(
+        symbol="CBK.DE",
+        info={"shortName": "Commerzbank AG", "exchange": "GER"},
+    )
+
+    assert resolved == "DE000CBK1001"

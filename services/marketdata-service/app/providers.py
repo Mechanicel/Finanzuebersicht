@@ -259,12 +259,13 @@ class YFinanceMarketDataProvider:
                 company_name=name,
                 display_name=str(quote.get("shortname") or quote.get("longname") or name),
                 isin=isin,
-                wkn=None,
+                wkn=self._normalize_optional_identifier(quote.get("wkn")),
                 exchange=quote.get("exchDisp") or quote.get("exchange"),
                 currency=quote.get("currency"),
                 quote_type=quote.get("quoteType"),
                 asset_type=quote.get("typeDisp") or quote.get("quoteType"),
                 last_price=self._to_float(quote.get("regularMarketPrice")),
+                change_1d_pct=self._to_float(quote.get("regularMarketChangePercent")),
                 country=quote.get("region"),
                 sector=None,
             )
@@ -438,6 +439,18 @@ class YFinanceMarketDataProvider:
             result.append(candidate)
         return result
 
+    @staticmethod
+    def _build_symbol_aliases(symbol: str) -> list[str]:
+        normalized = symbol.strip().upper()
+        if not normalized:
+            return []
+        aliases = [normalized]
+        if "." in normalized:
+            base_symbol = normalized.split(".", 1)[0].strip()
+            if base_symbol and base_symbol not in aliases:
+                aliases.append(base_symbol)
+        return aliases
+
     def _extract_isin_from_businessinsider_payload(
         self,
         payload: str,
@@ -481,7 +494,7 @@ class YFinanceMarketDataProvider:
 
     def _resolve_isin_via_businessinsider(self, *, symbol: str, info: dict[str, Any]) -> str | None:
         logger = logging.getLogger(__name__)
-        expected_symbols = [symbol.upper()]
+        expected_symbols = self._build_symbol_aliases(symbol)
         queries = self._build_isin_query_candidates(symbol=symbol, info=info)
         for query in queries:
             url = (

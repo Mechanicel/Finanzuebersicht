@@ -49,6 +49,8 @@ class FakeProvider:
         self.selection_calls = 0
         self.last_interval: DataInterval | None = None
         self.selection_response: InstrumentSelectionDetailsResponse | None = None
+        self.selection_responses: dict[str, InstrumentSelectionDetailsResponse] = {}
+        self.selection_error_symbols: set[str] = set()
         self.search_results: list[InstrumentSearchItem] | None = None
         self.hydration_payload: dict[str, object] | None = None
         self.hydration_calls = 0
@@ -98,6 +100,10 @@ class FakeProvider:
         self.selection_calls += 1
         if symbol == "NONE":
             return None
+        if symbol in self.selection_error_symbols:
+            raise RuntimeError("selection failed")
+        if symbol in self.selection_responses:
+            return self.selection_responses[symbol]
         if self.selection_response is not None:
             return self.selection_response
         return InstrumentSelectionDetailsResponse(
@@ -222,6 +228,79 @@ def test_search_cache_hit_avoids_second_provider_call() -> None:
     assert first.total == 1
     assert second.total == 1
     assert provider.search_calls == 1
+
+
+def test_search_enriches_top_results_with_missing_fields() -> None:
+    provider = FakeProvider()
+    provider.search_results = [
+        InstrumentSearchItem(
+            symbol="CBK.DE",
+            company_name="Commerzbank AG",
+            display_name="Commerzbank",
+            isin=None,
+            wkn=None,
+            currency="EUR",
+            last_price=None,
+            change_1d_pct=None,
+        ),
+        InstrumentSearchItem(
+            symbol="AAPL",
+            company_name="Apple Inc.",
+            display_name="Apple",
+            isin="US0378331005",
+            wkn="865985",
+            currency="USD",
+            last_price=171.0,
+            change_1d_pct=0.8,
+        ),
+    ]
+    provider.selection_responses["CBK.DE"] = InstrumentSelectionDetailsResponse(
+        symbol="CBK.DE",
+        isin="DE000CBK1001",
+        wkn="CBK100",
+        company_name="Commerzbank AG",
+        display_name="Commerzbank AG",
+        exchange="XETRA",
+        currency="EUR",
+        quote_type="EQUITY",
+        asset_type="stock",
+        last_price=18.35,
+        change_1d_pct=-1.25,
+    )
+    service = build_service(provider)
+
+    response = service.search_instruments("commerzbank", limit=10)
+
+    assert response.items[0].symbol == "CBK.DE"
+    assert response.items[0].isin == "DE000CBK1001"
+    assert response.items[0].wkn == "CBK100"
+    assert response.items[0].last_price == 18.35
+    assert response.items[0].change_1d_pct == -1.25
+    assert response.items[1].isin == "US0378331005"
+    assert provider.selection_calls == 1
+
+
+def test_search_enrichment_errors_keep_raw_item() -> None:
+    provider = FakeProvider()
+    provider.search_results = [
+        InstrumentSearchItem(
+            symbol="CBK.DE",
+            company_name="Commerzbank AG",
+            display_name="Commerzbank",
+            currency="EUR",
+            last_price=None,
+            change_1d_pct=None,
+        )
+    ]
+    provider.selection_error_symbols.add("CBK.DE")
+    service = build_service(provider)
+
+    response = service.search_instruments("commerzbank", limit=10)
+
+    assert response.total == 1
+    assert response.items[0].symbol == "CBK.DE"
+    assert response.items[0].last_price is None
+    assert response.items[0].change_1d_pct is None
 
 
 def test_selection_cache_hit_for_fresh_db_record() -> None:
