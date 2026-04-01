@@ -37,70 +37,118 @@ class OpenFigiIdentifierResolver:
         exchange: str | None,
         company_name: str | None,
     ) -> IdentifierResolutionResult | None:
-        normalized_symbol = symbol.strip().upper()
-        exchange_input = _clean(exchange)
+        original_symbol = symbol.strip().upper()
+        original_exchange = _clean(exchange)
         company_name_input = _clean(company_name)
-        normalized_exchange = _normalize(exchange_input)
-        normalized_company_name = _normalize(company_name_input)
 
         self._logger.debug(
             "identifier resolver called",
-            extra={"symbol": normalized_symbol, "exchange": normalized_exchange},
+            extra={"symbol": original_symbol, "exchange": original_exchange},
         )
 
-        try:
-            matches = self._client.map_instrument(
-                symbol=normalized_symbol,
-                exchange_code=exchange_input,
-                company_name=company_name_input,
-            )
-        except Exception:
-            self._logger.debug("openfigi client failed", exc_info=True)
-            return None
+        lookup_candidates = _build_lookup_candidates(original_symbol, original_exchange)
 
-        if not matches:
-            self._logger.debug("openfigi no match", extra={"symbol": normalized_symbol})
-            return None
+        for lookup_symbol, lookup_exchange in lookup_candidates:
+            normalized_lookup_exchange = _normalize(lookup_exchange)
+            normalized_company_name = _normalize(company_name_input)
 
-        ranked = sorted(
-            ((_score_candidate(item, normalized_symbol, normalized_exchange, normalized_company_name), item) for item in matches),
-            key=lambda entry: entry[0],
-            reverse=True,
-        )
-
-        top_score, top_item = ranked[0]
-        if top_score <= 0:
-            self._logger.debug("openfigi no plausible match", extra={"symbol": normalized_symbol})
-            return None
-
-        if len(ranked) > 1 and ranked[1][0] == top_score:
             self._logger.debug(
-                "openfigi ambiguous matches dropped",
-                extra={"symbol": normalized_symbol, "top_score": top_score},
+                "openfigi resolver candidate lookup",
+                extra={"symbol": lookup_symbol, "exchange": lookup_exchange},
             )
-            return None
 
-        identity = InstrumentIdentity(
-            symbol=_extract_string(top_item, "ticker") or normalized_symbol,
-            exchange=_extract_string(top_item, "exchCode") or exchange_input,
-            company_name=_extract_string(top_item, "name") or company_name_input,
-            isin=_extract_string(top_item, "isin"),
-            wkn=None,
-            figi=_extract_string(top_item, "figi"),
-            provider="openfigi",
-            raw=dict(top_item),
+            try:
+                matches = self._client.map_instrument(
+                    symbol=lookup_symbol,
+                    exchange_code=lookup_exchange,
+                    company_name=company_name_input,
+                )
+            except Exception:
+                self._logger.debug("openfigi client failed", exc_info=True)
+                return None
+
+            if not matches:
+                self._logger.debug("openfigi no match", extra={"symbol": lookup_symbol})
+                continue
+
+            ranked = sorted(
+                (
+                    (
+                        _score_candidate(item, lookup_symbol, normalized_lookup_exchange, normalized_company_name),
+                        item,
+                    )
+                    for item in matches
+                ),
+                key=lambda entry: entry[0],
+                reverse=True,
+            )
+
+            top_score, top_item = ranked[0]
+            if top_score <= 0:
+                self._logger.debug("openfigi no plausible match", extra={"symbol": lookup_symbol})
+                continue
+
+            if len(ranked) > 1 and ranked[1][0] == top_score:
+                self._logger.debug(
+                    "openfigi ambiguous matches dropped",
+                    extra={"symbol": lookup_symbol, "top_score": top_score},
+                )
+                continue
+
+            identity = InstrumentIdentity(
+                symbol=original_symbol,
+                exchange=original_exchange,
+                company_name=_extract_string(top_item, "name") or company_name_input,
+                isin=_extract_string(top_item, "isin"),
+                wkn=None,
+                figi=_extract_string(top_item, "figi"),
+                provider="openfigi",
+                raw={
+                    "lookup_symbol": lookup_symbol,
+                    "lookup_exchange": lookup_exchange,
+                    "result": dict(top_item),
+                },
+            )
+            result = IdentifierResolutionResult(
+                identity=identity,
+                provider="openfigi",
+                confidence="high" if top_score >= 6 else "medium",
+                raw=dict(top_item),
+            )
+            self._logger.debug(
+                "openfigi resolved unique match",
+                extra={"symbol": lookup_symbol, "figi": identity.figi},
+            )
+            return result
+
+        return None
+
+
+def _build_lookup_candidates(symbol: str, exchange: str | None) -> list[tuple[str, str | None]]:
+    original_symbol = symbol.strip().upper()
+    original_exchange = _clean(exchange)
+    base_symbol = original_symbol.split(".", 1)[0]
+
+    candidates: list[tuple[str, str | None]] = [
+        (original_symbol, original_exchange),
+        (original_symbol, None),
+    ]
+    if base_symbol != original_symbol:
+        candidates.extend(
+            [
+                (base_symbol, original_exchange),
+                (base_symbol, None),
+            ]
         )
-        result = IdentifierResolutionResult(
-            identity=identity,
-            provider="openfigi",
-            confidence="high" if top_score >= 6 else "medium",
-            raw=dict(top_item),
-        )
-        self._logger.debug(
-            "openfigi resolved unique match",
-            extra={"symbol": normalized_symbol, "figi": identity.figi},
-        )
-        return result
+
+    deduped: list[tuple[str, str | None]] = []
+    seen: set[tuple[str, str | None]] = set()
+    for candidate in candidates:
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        deduped.append(candidate)
+    return deduped
 
 
 def _clean(value: str | None) -> str | None:
