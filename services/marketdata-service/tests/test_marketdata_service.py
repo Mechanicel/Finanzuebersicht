@@ -42,7 +42,7 @@ from app.repositories import InstrumentSelectionCacheRepository
 from app.repositories import InstrumentHydratedRepository
 from app.repositories import SecurityIdentityRepository
 from app.service import MarketDataService
-from app.identifiers import OpenFigiIdentifierResolver
+from app.identity import OpenFigiIdentifierResolver
 
 
 class FakeProvider:

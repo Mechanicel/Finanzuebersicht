@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import requests
 
-from app.openfigi_client import OpenFigiClient
+from app.identity import OpenFigiClient
 
 
 def test_openfigi_client_mapping_request_uses_only_documented_fields(monkeypatch) -> None:
