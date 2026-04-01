@@ -276,6 +276,28 @@ def test_selection_endpoint_ignores_legacy_non_openfigi_cache_entry() -> None:
     assert stored is not None
 
 
+def test_selection_endpoint_serializes_missing_last_price_as_null(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = create_test_client(app)
+    provider = get_provider()
+
+    def _selection(_symbol: str):
+        return InstrumentSelectionDetailsResponse(
+            symbol="NOPRICE",
+            company_name="No Price Inc.",
+            exchange="XNAS",
+            currency="USD",
+            last_price=None,
+        )
+
+    monkeypatch.setattr(provider, "get_instrument_selection_details", _selection)
+    response = client.get("/api/v1/marketdata/instruments/NOPRICE/selection")
+
+    assert response.status_code == 200
+    assert response.json()["data"]["last_price"] is None
+
+
 def test_instrument_search_returns_503_when_openfigi_is_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
     provider = get_provider()
 
