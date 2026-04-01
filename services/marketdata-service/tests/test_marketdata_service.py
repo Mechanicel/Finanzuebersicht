@@ -344,11 +344,42 @@ def test_search_enrichment_skips_structured_products_and_enriches_equity_first()
 
     response = service.search_instruments("commerzbank", limit=10)
 
-    assert response.items[0].symbol == "CERT1.DE"
-    assert response.items[0].isin is None
-    assert response.items[1].symbol == "CBK.DE"
-    assert response.items[1].isin == "DE000CBK1001"
+    assert response.items[0].symbol == "CBK.DE"
+    assert response.items[0].isin == "DE000CBK1001"
+    assert response.items[1].symbol == "CERT1.DE"
+    assert response.items[1].isin is None
     assert provider.selection_calls == 1
+
+
+def test_search_response_reorders_equity_like_hits_ahead_of_structured_products_for_plain_company_query() -> None:
+    provider = FakeProvider()
+    provider.search_results = [
+        InstrumentSearchItem(
+            symbol="CERT1.DE",
+            company_name="Commerzbank Turbo Zertifikat",
+            display_name="Turbo Zertifikat",
+            quote_type="WARRANT",
+            asset_type="WARRANT",
+            isin="DE000CERT001",
+            exchange="GER",
+            currency="EUR",
+        ),
+        InstrumentSearchItem(
+            symbol="CBK.DE",
+            company_name="Commerzbank AG",
+            display_name="Commerzbank",
+            quote_type="EQUITY",
+            asset_type="STOCK",
+            isin="DE000CBK1001",
+            exchange="XETRA",
+            currency="EUR",
+        ),
+    ]
+    service = build_service(provider)
+
+    response = service.search_instruments("commerzbank", limit=10)
+
+    assert [item.symbol for item in response.items] == ["CBK.DE", "CERT1.DE"]
 
 
 def test_selection_cache_hit_for_fresh_db_record() -> None:

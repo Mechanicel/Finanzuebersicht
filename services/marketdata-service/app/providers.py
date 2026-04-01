@@ -115,6 +115,20 @@ class YFinanceMarketDataProvider:
         DataInterval.ONE_MONTH: "1mo",
     }
     _SEARCH_PROVIDER_NAME = "yfinance"
+    _STRUCTURED_PRODUCT_HINTS = (
+        "zertifikat",
+        "certificate",
+        "warrant",
+        "turbo",
+        "knock",
+        "call",
+        "put",
+        "mini",
+        "discount",
+        "tracker",
+        "optionsschein",
+    )
+    _GERMAN_EXCHANGES = {"GER", "XETRA", "XFRA"}
 
     def __init__(
         self,
@@ -898,7 +912,54 @@ class YFinanceMarketDataProvider:
         elif lowered_query in company or lowered_query in display:
             score += 30
 
+        score += YFinanceMarketDataProvider._listing_quality_score(item)
+
         return score
+
+    @classmethod
+    def _listing_quality_score(cls, item: InstrumentSearchItem) -> int:
+        score = 0
+        if cls._is_structured_product_like(item):
+            score -= 220
+        if cls._is_equity_like(item):
+            score += 80
+        if cls._is_german_listing(item):
+            score += 60
+        if cls._is_foreign_duplicate_like(item):
+            score -= 25
+        return score
+
+    @classmethod
+    def _is_structured_product_like(cls, item: InstrumentSearchItem) -> bool:
+        haystack = " ".join(
+            (
+                item.company_name or "",
+                item.display_name or "",
+                item.quote_type or "",
+                item.asset_type or "",
+            )
+        ).lower()
+        return any(hint in haystack for hint in cls._STRUCTURED_PRODUCT_HINTS)
+
+    @staticmethod
+    def _is_equity_like(item: InstrumentSearchItem) -> bool:
+        quote_type = (item.quote_type or "").upper()
+        asset_type = (item.asset_type or "").upper()
+        return quote_type in {"EQUITY", "STOCK"} or asset_type in {"EQUITY", "STOCK"}
+
+    @classmethod
+    def _is_german_listing(cls, item: InstrumentSearchItem) -> bool:
+        symbol = item.symbol.upper()
+        exchange = (item.exchange or "").upper()
+        isin = (item.isin or "").upper()
+        return symbol.endswith(".DE") or exchange in cls._GERMAN_EXCHANGES or isin.startswith("DE")
+
+    @classmethod
+    def _is_foreign_duplicate_like(cls, item: InstrumentSearchItem) -> bool:
+        if cls._is_german_listing(item):
+            return False
+        haystack = " ".join((item.company_name or "", item.display_name or "", item.symbol or "")).upper()
+        return "ADR" in haystack
 
 
 class InMemoryMarketDataProvider:

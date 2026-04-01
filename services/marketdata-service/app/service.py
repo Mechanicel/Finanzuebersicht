@@ -33,6 +33,9 @@ class MarketDataService:
         r"\b(oe|track|turbo|call|put|mini|knock-?out|warrant|zertifikat)\b",
         re.IGNORECASE,
     )
+    _ISIN_RE = re.compile(r"^[A-Z]{2}[A-Z0-9]{9}[0-9]$")
+    _WKN_RE = re.compile(r"^[A-Z0-9]{6}$")
+    _SPECIAL_SYMBOL_RE = re.compile(r"[\^=]")
     def __init__(
         self,
         provider: MarketDataProvider,
@@ -262,11 +265,75 @@ class MarketDataService:
         cached = self._cache_get(self.search_cache, cache_key)
         if cached is None:
             items = self.provider.search_instruments(normalized_cache_query, bounded_limit)
+            items = self._reorder_search_items_for_company_queries(items, normalized_query)
             items = self._enrich_search_items(items)
             self._cache_set(self.search_cache, cache_key, items)
         else:
             items = cached
         return InstrumentSearchResponse(query=normalized_query, items=items, total=len(items))
+
+    def _reorder_search_items_for_company_queries(
+        self, items: list[InstrumentSearchItem], query: str
+    ) -> list[InstrumentSearchItem]:
+        if not self._is_plain_company_equity_query(query):
+            return items
+        ranked = sorted(
+            enumerate(items),
+            key=lambda pair: (self._company_query_listing_rank(pair[1]), -pair[0]),
+            reverse=True,
+        )
+        return [item for _, item in ranked]
+
+    @classmethod
+    def _is_plain_company_equity_query(cls, query: str) -> bool:
+        normalized = query.strip().upper()
+        if not normalized:
+            return False
+        if cls._ISIN_RE.fullmatch(normalized):
+            return False
+        if cls._WKN_RE.fullmatch(normalized):
+            return False
+        if cls._SPECIAL_SYMBOL_RE.search(normalized):
+            return False
+        return True
+
+    @classmethod
+    def _company_query_listing_rank(cls, item: InstrumentSearchItem) -> int:
+        score = 0
+        if cls._is_structured_product_hit(item):
+            score -= 200
+        if cls._is_equity_like_hit(item):
+            score += 80
+        if cls._is_german_listing_hit(item):
+            score += 60
+        if cls._is_adr_like_hit(item):
+            score -= 25
+        return score
+
+    @classmethod
+    def _is_structured_product_hit(cls, item: InstrumentSearchItem) -> bool:
+        label = f"{item.company_name or ''} {item.display_name or ''} {item.quote_type or ''} {item.asset_type or ''}"
+        return bool(cls._STRUCTURED_PRODUCT_RE.search(label))
+
+    @staticmethod
+    def _is_equity_like_hit(item: InstrumentSearchItem) -> bool:
+        quote_type = (item.quote_type or "").upper()
+        asset_type = (item.asset_type or "").upper()
+        return quote_type in {"EQUITY", "STOCK"} or asset_type in {"EQUITY", "STOCK"}
+
+    @staticmethod
+    def _is_german_listing_hit(item: InstrumentSearchItem) -> bool:
+        symbol = item.symbol.upper()
+        exchange = (item.exchange or "").upper()
+        isin = (item.isin or "").upper()
+        return symbol.endswith(".DE") or exchange in {"GER", "XETRA", "XFRA"} or isin.startswith("DE")
+
+    @classmethod
+    def _is_adr_like_hit(cls, item: InstrumentSearchItem) -> bool:
+        if cls._is_german_listing_hit(item):
+            return False
+        label = f"{item.company_name or ''} {item.display_name or ''} {item.symbol}"
+        return "ADR" in label.upper()
 
     def _enrich_search_items(self, items: list[InstrumentSearchItem]) -> list[InstrumentSearchItem]:
         enriched: list[InstrumentSearchItem] = []
