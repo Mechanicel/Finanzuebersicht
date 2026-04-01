@@ -75,6 +75,18 @@ class InstrumentSelectionDetailsResponse(BaseModel):
     as_of: datetime | None = None
 
 
+class InstrumentHydratedDocument(BaseModel):
+    symbol: str
+    identity: dict[str, str | None] = Field(default_factory=dict)
+    summary: dict[str, object | None] = Field(default_factory=dict)
+    snapshot: dict[str, object | None] = Field(default_factory=dict)
+    fundamentals: dict[str, object | None] = Field(default_factory=dict)
+    metrics: dict[str, object | None] = Field(default_factory=dict)
+    risk: dict[str, object | None] = Field(default_factory=dict)
+    provider_raw: dict[str, object | None] = Field(default_factory=dict)
+    hydrated_at: datetime | None = None
+
+
 class PricePoint(BaseModel):
     date: date
     close: float = Field(ge=0)

@@ -37,6 +37,7 @@ from app.models import (
     UpstreamServiceError,
 )
 from app.repositories import InstrumentSelectionCacheRepository
+from app.repositories import InstrumentHydratedRepository
 from app.service import MarketDataService
 
 
@@ -49,6 +50,9 @@ class FakeProvider:
         self.last_interval: DataInterval | None = None
         self.selection_response: InstrumentSelectionDetailsResponse | None = None
         self.search_results: list[InstrumentSearchItem] | None = None
+        self.hydration_payload: dict[str, object] | None = None
+        self.hydration_calls = 0
+        self.raise_on_hydration = False
 
     def get_instrument_summary(self, symbol: str) -> InstrumentSummary | None:
         self.summary_calls += 1
@@ -131,10 +135,27 @@ class FakeProvider:
     def list_benchmark_options(self):
         return []
 
+    def get_instrument_hydration_payload(self, symbol: str) -> dict[str, object] | None:
+        self.hydration_calls += 1
+        if self.raise_on_hydration:
+            raise RuntimeError("hydration failed")
+        if self.hydration_payload is not None:
+            return self.hydration_payload
+        return {
+            "identity": {"symbol": symbol},
+            "summary": {"symbol": symbol},
+            "snapshot": {"last_price": 100.0},
+            "fundamentals": {},
+            "metrics": {},
+            "risk": {},
+            "provider_raw": {"provider": "fake"},
+        }
+
 
 def build_service(
     provider: FakeProvider,
     repository: InstrumentSelectionCacheRepository | None = None,
+    hydrated_repository: InstrumentHydratedRepository | None = None,
     *,
     cache_enabled: bool = True,
     selection_ttl_seconds: int = 60,
@@ -142,6 +163,9 @@ def build_service(
     if repository is None:
         client = mongomock.MongoClient()
         repository = InstrumentSelectionCacheRepository(collection=client["finanzuebersicht"]["selection_cache_test"])
+    if hydrated_repository is None:
+        client = mongomock.MongoClient()
+        hydrated_repository = InstrumentHydratedRepository(collection=client["finanzuebersicht"]["hydrated_test"])
     return MarketDataService(
         provider=provider,
         cache_enabled=cache_enabled,
@@ -151,6 +175,7 @@ def build_service(
         cache_series_ttl_seconds=60,
         cache_benchmark_ttl_seconds=60,
         selection_cache_repository=repository,
+        hydrated_repository=hydrated_repository,
         selection_cache_ttl_seconds=selection_ttl_seconds,
     )
 
@@ -567,3 +592,28 @@ def test_upstream_service_error_is_mapped_to_structured_503() -> None:
     body = response.json()
     assert body["error"] == "upstream_unavailable"
     assert body["details"][0]["code"] == "upstream_unavailable"
+
+
+def test_background_hydration_persists_full_document() -> None:
+    provider = FakeProvider()
+    client = mongomock.MongoClient()
+    hydrated_collection = client["finanzuebersicht"]["hydrated_test"]
+    hydrated_repository = InstrumentHydratedRepository(collection=hydrated_collection)
+    service = build_service(provider, hydrated_repository=hydrated_repository)
+
+    service.hydrate_instrument_in_background("dum")
+
+    persisted = hydrated_collection.find_one({"symbol": "DUM"})
+    assert persisted is not None
+    assert persisted["identity"]["symbol"] == "DUM"
+    assert "hydrated_at" in persisted
+
+
+def test_background_hydration_errors_do_not_raise() -> None:
+    provider = FakeProvider()
+    provider.raise_on_hydration = True
+    service = build_service(provider)
+
+    service.hydrate_instrument_in_background("dum")
+
+    assert provider.hydration_calls == 1

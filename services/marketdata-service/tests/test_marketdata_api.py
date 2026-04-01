@@ -20,7 +20,12 @@ from finanzuebersicht_shared.testing import assert_standard_health_payload, crea
 
 from app.config import get_settings
 import app.dependencies as marketdata_dependencies
-from app.dependencies import get_marketdata_service, get_provider, get_selection_cache_repository
+from app.dependencies import (
+    get_hydrated_repository,
+    get_marketdata_service,
+    get_provider,
+    get_selection_cache_repository,
+)
 from app.main import app
 
 
@@ -32,6 +37,7 @@ def reset_singletons(monkeypatch: pytest.MonkeyPatch) -> None:
     get_marketdata_service.cache_clear()
     get_provider.cache_clear()
     get_selection_cache_repository.cache_clear()
+    get_hydrated_repository.cache_clear()
 
 
 def test_selection_cache_repository_uses_mongo_collection_from_settings(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -155,3 +161,34 @@ def test_instrument_search_empty_result() -> None:
     payload = response.json()["data"]
     assert payload["total"] == 0
     assert payload["items"] == []
+
+
+def test_selection_endpoint_triggers_background_hydration_and_persists_full_document() -> None:
+    client = create_test_client(app)
+
+    response = client.get("/api/v1/marketdata/instruments/MSFT/selection")
+
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["symbol"] == "MSFT"
+
+    hydrated_repository = get_hydrated_repository()
+    persisted = hydrated_repository._collection.find_one({"symbol": "MSFT"})
+    assert persisted is not None
+    assert persisted["identity"]["symbol"] == "MSFT"
+    assert persisted["snapshot"]["last_price"] > 0
+
+
+def test_selection_response_stays_ok_if_background_hydration_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    provider = get_provider()
+
+    def _raise_hydration(_symbol: str):
+        raise RuntimeError("failed in background")
+
+    monkeypatch.setattr(provider, "get_instrument_hydration_payload", _raise_hydration)
+    client = create_test_client(app)
+
+    response = client.get("/api/v1/marketdata/instruments/MSFT/selection")
+
+    assert response.status_code == 200
+    assert response.json()["data"]["symbol"] == "MSFT"

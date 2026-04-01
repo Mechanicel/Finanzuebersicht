@@ -31,6 +31,10 @@ class Settings(ServiceSettings):
         default="marketdata_selection_cache",
         alias="MARKETDATA_SELECTION_CACHE_COLLECTION",
     )
+    marketdata_hydrated_collection: str = Field(
+        default="marketdata_hydrated_instruments",
+        alias="MARKETDATA_HYDRATED_COLLECTION",
+    )
 
     def resolved_mongo_uri(self) -> str:
         if self.mongo_uri and self.mongo_uri.strip():

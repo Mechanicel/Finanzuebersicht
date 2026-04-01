@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from app.cache import TTLMemoryCache
 from datetime import UTC, datetime, timedelta
 
@@ -22,7 +23,7 @@ from app.models import (
     SeriesPoint,
 )
 from app.providers import MarketDataProvider
-from app.repositories import InstrumentSelectionCacheRepository
+from app.repositories import InstrumentHydratedRepository, InstrumentSelectionCacheRepository
 
 
 class MarketDataService:
@@ -37,8 +38,10 @@ class MarketDataService:
         cache_series_ttl_seconds: int,
         cache_benchmark_ttl_seconds: int,
         selection_cache_repository: InstrumentSelectionCacheRepository,
+        hydrated_repository: InstrumentHydratedRepository,
         selection_cache_ttl_seconds: int,
     ) -> None:
+        self._logger = logging.getLogger(__name__)
         self.provider = provider
         self.cache_enabled = cache_enabled
         self.summary_cache: TTLMemoryCache[object] | None = (
@@ -57,6 +60,7 @@ class MarketDataService:
             TTLMemoryCache(ttl_seconds=cache_benchmark_ttl_seconds) if cache_enabled else None
         )
         self.selection_cache_repository = selection_cache_repository
+        self.hydrated_repository = hydrated_repository
         self.selection_cache_ttl_seconds = selection_cache_ttl_seconds
         self.selection_memory_cache: TTLMemoryCache[object] | None = (
             TTLMemoryCache(ttl_seconds=selection_cache_ttl_seconds) if cache_enabled else None
@@ -155,6 +159,16 @@ class MarketDataService:
             selection = selection.model_copy(update={"as_of": persisted_at})
         self._cache_set(self.selection_memory_cache, cache_key, selection)
         return selection
+
+    def hydrate_instrument_in_background(self, symbol: str) -> None:
+        normalized = self._normalize_symbol(symbol)
+        try:
+            payload = self.provider.get_instrument_hydration_payload(normalized)
+            if payload is None:
+                return
+            self.hydrated_repository.upsert(normalized, payload)
+        except Exception:
+            self._logger.exception("marketdata background hydration failed", extra={"symbol": normalized})
 
     def _merge_selection_details(
         self,

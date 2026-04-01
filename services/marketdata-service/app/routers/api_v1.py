@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, Query
 from finanzuebersicht_shared.models import ApiResponse
 
 from app.dependencies import get_marketdata_service
@@ -65,9 +65,12 @@ async def instrument_blocks(
 )
 async def instrument_selection_details(
     symbol: str,
+    background_tasks: BackgroundTasks,
     service: MarketDataService = Depends(get_marketdata_service),
 ) -> ApiResponse[InstrumentSelectionDetailsResponse]:
-    return ApiResponse(data=service.get_instrument_selection_details(symbol))
+    payload = service.get_instrument_selection_details(symbol)
+    background_tasks.add_task(service.hydrate_instrument_in_background, symbol)
+    return ApiResponse(data=payload)
 
 
 @router.get("/marketdata/instruments/{symbol}/full", response_model=ApiResponse[InstrumentFullResponse])
