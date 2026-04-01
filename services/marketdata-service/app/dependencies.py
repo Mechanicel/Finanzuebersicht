@@ -5,6 +5,8 @@ from functools import lru_cache
 from pymongo import MongoClient
 
 from app.config import get_settings
+from app.identifiers import IdentifierResolver, NoopIdentifierResolver, OpenFigiIdentifierResolver
+from app.openfigi_client import OpenFigiClient
 from app.providers import InMemoryMarketDataProvider, MarketDataProvider, YFinanceMarketDataProvider
 from app.repositories import (
     InstrumentHydratedRepository,
@@ -55,8 +57,23 @@ def get_security_identity_repository() -> SecurityIdentityRepository:
     return SecurityIdentityRepository(collection=collection)
 
 
-def get_identifier_resolver() -> None:
-    return None
+@lru_cache
+def get_identifier_resolver() -> IdentifierResolver:
+    settings = get_settings()
+    resolver_name = settings.identifier_resolver.strip().lower()
+    openfigi_enabled = settings.openfigi_enabled and resolver_name in {"openfigi", "auto"}
+    if not openfigi_enabled:
+        return NoopIdentifierResolver()
+
+    if not settings.openfigi_api_key:
+        return NoopIdentifierResolver()
+
+    client = OpenFigiClient(
+        base_url=settings.openfigi_base_url,
+        api_key=settings.openfigi_api_key,
+        timeout_seconds=settings.openfigi_request_timeout_seconds,
+    )
+    return OpenFigiIdentifierResolver(client=client)
 
 
 @lru_cache
