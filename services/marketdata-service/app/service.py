@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import re
 from app.cache import TTLMemoryCache
 from datetime import UTC, datetime, timedelta
 
@@ -21,6 +20,7 @@ from app.models import (
     InstrumentSearchResponse,
     InstrumentSummary,
     NotFoundError,
+    OPENFIGI_IDENTITY_SOURCE,
     PriceSeriesResponse,
     SeriesPoint,
 )
@@ -29,13 +29,8 @@ from app.repositories import InstrumentHydratedRepository, InstrumentSelectionCa
 
 
 class MarketDataService:
-    _STRUCTURED_PRODUCT_RE = re.compile(
-        r"\b(oe|track|turbo|call|put|mini|knock-?out|warrant|zertifikat)\b",
-        re.IGNORECASE,
-    )
-    _ISIN_RE = re.compile(r"^[A-Z]{2}[A-Z0-9]{9}[0-9]$")
-    _WKN_RE = re.compile(r"^[A-Z0-9]{6}$")
-    _SPECIAL_SYMBOL_RE = re.compile(r"[\^=]")
+    _SEARCH_CACHE_PREFIX = "search:openfigi:v1"
+    _SELECTION_MEMORY_CACHE_PREFIX = "selection:openfigi:v1"
     def __init__(
         self,
         provider: MarketDataProvider,
@@ -141,14 +136,14 @@ class MarketDataService:
 
     def get_instrument_selection_details(self, symbol: str) -> InstrumentSelectionDetailsResponse:
         normalized = self._normalize_symbol(symbol)
-        cache_key = f"selection:{normalized}"
+        cache_key = f"{self._SELECTION_MEMORY_CACHE_PREFIX}:{normalized}"
 
         cached = self._cache_get(self.selection_memory_cache, cache_key)
         if cached is not None:
             return cached
 
         cached_payload: InstrumentSelectionDetailsResponse | None = None
-        db_cached = self.selection_cache_repository.get(normalized)
+        db_cached = self.selection_cache_repository.get(normalized, OPENFIGI_IDENTITY_SOURCE)
         if db_cached is not None:
             payload, fetched_at = db_cached
             cached_payload = payload
@@ -163,7 +158,7 @@ class MarketDataService:
         if cached_payload is not None:
             selection = self._merge_selection_details(cached_payload, selection)
 
-        persisted_at = self.selection_cache_repository.upsert(normalized, selection)
+        persisted_at = self.selection_cache_repository.upsert(normalized, selection, OPENFIGI_IDENTITY_SOURCE)
         if selection.as_of is None:
             selection = selection.model_copy(update={"as_of": persisted_at})
         self._cache_set(self.selection_memory_cache, cache_key, selection)
@@ -261,79 +256,15 @@ class MarketDataService:
 
         bounded_limit = min(max(1, limit), 25)
         normalized_cache_query = normalized_query.lower()
-        cache_key = f"search:{normalized_cache_query}:{bounded_limit}"
+        cache_key = f"{self._SEARCH_CACHE_PREFIX}:{normalized_cache_query}:{bounded_limit}"
         cached = self._cache_get(self.search_cache, cache_key)
         if cached is None:
             items = self.provider.search_instruments(normalized_cache_query, bounded_limit)
-            items = self._reorder_search_items_for_company_queries(items, normalized_query)
             items = self._enrich_search_items(items)
             self._cache_set(self.search_cache, cache_key, items)
         else:
             items = cached
         return InstrumentSearchResponse(query=normalized_query, items=items, total=len(items))
-
-    def _reorder_search_items_for_company_queries(
-        self, items: list[InstrumentSearchItem], query: str
-    ) -> list[InstrumentSearchItem]:
-        if not self._is_plain_company_equity_query(query):
-            return items
-        ranked = sorted(
-            enumerate(items),
-            key=lambda pair: (self._company_query_listing_rank(pair[1]), -pair[0]),
-            reverse=True,
-        )
-        return [item for _, item in ranked]
-
-    @classmethod
-    def _is_plain_company_equity_query(cls, query: str) -> bool:
-        normalized = query.strip().upper()
-        if not normalized:
-            return False
-        if cls._ISIN_RE.fullmatch(normalized):
-            return False
-        if cls._WKN_RE.fullmatch(normalized):
-            return False
-        if cls._SPECIAL_SYMBOL_RE.search(normalized):
-            return False
-        return True
-
-    @classmethod
-    def _company_query_listing_rank(cls, item: InstrumentSearchItem) -> int:
-        score = 0
-        if cls._is_structured_product_hit(item):
-            score -= 200
-        if cls._is_equity_like_hit(item):
-            score += 80
-        if cls._is_german_listing_hit(item):
-            score += 60
-        if cls._is_adr_like_hit(item):
-            score -= 25
-        return score
-
-    @classmethod
-    def _is_structured_product_hit(cls, item: InstrumentSearchItem) -> bool:
-        label = f"{item.company_name or ''} {item.display_name or ''} {item.quote_type or ''} {item.asset_type or ''}"
-        return bool(cls._STRUCTURED_PRODUCT_RE.search(label))
-
-    @staticmethod
-    def _is_equity_like_hit(item: InstrumentSearchItem) -> bool:
-        quote_type = (item.quote_type or "").upper()
-        asset_type = (item.asset_type or "").upper()
-        return quote_type in {"EQUITY", "STOCK"} or asset_type in {"EQUITY", "STOCK"}
-
-    @staticmethod
-    def _is_german_listing_hit(item: InstrumentSearchItem) -> bool:
-        symbol = item.symbol.upper()
-        exchange = (item.exchange or "").upper()
-        isin = (item.isin or "").upper()
-        return symbol.endswith(".DE") or exchange in {"GER", "XETRA", "XFRA"} or isin.startswith("DE")
-
-    @classmethod
-    def _is_adr_like_hit(cls, item: InstrumentSearchItem) -> bool:
-        if cls._is_german_listing_hit(item):
-            return False
-        label = f"{item.company_name or ''} {item.display_name or ''} {item.symbol}"
-        return "ADR" in label.upper()
 
     def _enrich_search_items(self, items: list[InstrumentSearchItem]) -> list[InstrumentSearchItem]:
         enriched: list[InstrumentSearchItem] = []
@@ -343,7 +274,6 @@ class MarketDataService:
             if (
                 enriched_count >= max_enriched
                 or not self._requires_search_enrichment(item)
-                or self._should_skip_search_enrichment(item)
             ):
                 enriched.append(item)
                 continue
@@ -359,13 +289,6 @@ class MarketDataService:
             enriched.append(self._merge_search_item(item, details))
             enriched_count += 1
         return enriched
-
-    @classmethod
-    def _should_skip_search_enrichment(cls, item: InstrumentSearchItem) -> bool:
-        label = f"{item.company_name or ''} {item.display_name or ''}".strip()
-        if not label:
-            return False
-        return bool(cls._STRUCTURED_PRODUCT_RE.search(label))
 
     @staticmethod
     def _requires_search_enrichment(item: InstrumentSearchItem) -> bool:

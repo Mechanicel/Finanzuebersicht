@@ -6,6 +6,7 @@ from pathlib import Path
 
 import mongomock
 import pytest
+from datetime import UTC, datetime, timedelta
 
 ROOT = Path(__file__).resolve().parents[3]
 SHARED_SRC = ROOT / "shared" / "src"
@@ -27,6 +28,7 @@ from app.dependencies import (
     get_selection_cache_repository,
 )
 from app.models import InstrumentSearchItem
+from app.models import InstrumentSelectionDetailsResponse, OPENFIGI_IDENTITY_SOURCE
 from app.main import app
 
 
@@ -179,6 +181,37 @@ def test_selection_endpoint_triggers_background_hydration_and_persists_full_docu
     assert persisted is not None
     assert persisted["identity"]["symbol"] == "MSFT"
     assert persisted["snapshot"]["last_price"] > 0
+
+
+def test_selection_endpoint_ignores_legacy_yahoo_cache_entry() -> None:
+    client = create_test_client(app)
+    repository = get_selection_cache_repository()
+    repository._collection.insert_one(
+        {
+            "symbol": "MSFT",
+            "identity_source": "yahoo_search_v1",
+            "payload": InstrumentSelectionDetailsResponse(
+                symbol="MSFT",
+                isin="US0000000000",
+                wkn="LEGACY",
+                company_name="Legacy Cached",
+                display_name="Legacy Cached",
+                exchange="XETRA",
+                currency="EUR",
+                quote_type="equity",
+                asset_type="stock",
+                last_price=1.0,
+            ).model_dump(mode="json"),
+            "fetched_at": datetime.now(UTC) - timedelta(seconds=10),
+        }
+    )
+
+    response = client.get("/api/v1/marketdata/instruments/MSFT/selection")
+
+    assert response.status_code == 200
+    assert response.json()["data"]["company_name"] != "Legacy Cached"
+    stored = repository._collection.find_one({"symbol": "MSFT", "identity_source": OPENFIGI_IDENTITY_SOURCE})
+    assert stored is not None
 
 
 def test_selection_response_stays_ok_if_background_hydration_fails(monkeypatch: pytest.MonkeyPatch) -> None:
