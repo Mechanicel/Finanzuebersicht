@@ -47,6 +47,10 @@ uv run python scripts/dev.py run-service api-gateway
 
 Weitere Details: `docs/architecture/local-development.md`.
 
+Hinweis zu Mongo:
+- `person-service` benötigt MongoDB für persistente CRUD-Daten.
+- `marketdata-service` kann auch ohne MongoDB laufen; Mongo wird dort nur für persistente Selection-/Hydration-Caches verwendet.
+
 ## Lokale Integrationsdefaults
 
 - Frontend API-Basis: `http://127.0.0.1:8000/api/v1` (`frontend-web/src/api/http.ts`)

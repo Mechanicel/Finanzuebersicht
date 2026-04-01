@@ -39,6 +39,7 @@ from app.models import (
 )
 from app.repositories import InstrumentSelectionCacheRepository
 from app.repositories import InstrumentHydratedRepository
+from app.repositories import NoOpInstrumentHydratedRepository, NoOpInstrumentSelectionCacheRepository
 from app.service import MarketDataService
 
 
@@ -639,6 +640,33 @@ def test_selection_response_contains_positive_last_price() -> None:
     response = service.get_instrument_selection_details("DUM")
 
     assert response.last_price > 0
+
+
+def test_selection_works_with_noop_selection_cache_repository() -> None:
+    provider = FakeProvider()
+    service = build_service(
+        provider,
+        repository=NoOpInstrumentSelectionCacheRepository(),
+        hydrated_repository=NoOpInstrumentHydratedRepository(),
+    )
+
+    response = service.get_instrument_selection_details("DUM")
+
+    assert response.symbol == "DUM"
+    assert provider.selection_calls == 1
+
+
+def test_background_hydration_with_noop_repository_does_not_break_flow() -> None:
+    provider = FakeProvider()
+    service = build_service(
+        provider,
+        repository=NoOpInstrumentSelectionCacheRepository(),
+        hydrated_repository=NoOpInstrumentHydratedRepository(),
+    )
+
+    assert service.should_trigger_background_hydration("DUM") is True
+    service.hydrate_instrument_in_background("DUM")
+    assert provider.hydration_calls == 1
 
 
 def test_selection_enriches_missing_isin_from_search_result() -> None:
