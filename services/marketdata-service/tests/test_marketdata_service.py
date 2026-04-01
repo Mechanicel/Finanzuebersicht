@@ -303,6 +303,54 @@ def test_search_enrichment_errors_keep_raw_item() -> None:
     assert response.items[0].change_1d_pct is None
 
 
+def test_search_enrichment_skips_structured_products_and_enriches_equity_first() -> None:
+    provider = FakeProvider()
+    provider.search_results = [
+        InstrumentSearchItem(
+            symbol="CERT1.DE",
+            company_name="Commerzbank Turbo Zertifikat",
+            display_name="Turbo Zertifikat",
+            isin=None,
+            wkn=None,
+            currency="EUR",
+            last_price=None,
+            change_1d_pct=None,
+        ),
+        InstrumentSearchItem(
+            symbol="CBK.DE",
+            company_name="Commerzbank AG",
+            display_name="Commerzbank",
+            isin=None,
+            wkn=None,
+            currency="EUR",
+            last_price=None,
+            change_1d_pct=None,
+        ),
+    ]
+    provider.selection_responses["CBK.DE"] = InstrumentSelectionDetailsResponse(
+        symbol="CBK.DE",
+        isin="DE000CBK1001",
+        wkn="CBK100",
+        company_name="Commerzbank AG",
+        display_name="Commerzbank AG",
+        exchange="XETRA",
+        currency="EUR",
+        quote_type="EQUITY",
+        asset_type="stock",
+        last_price=18.35,
+        change_1d_pct=1.2,
+    )
+    service = build_service(provider)
+
+    response = service.search_instruments("commerzbank", limit=10)
+
+    assert response.items[0].symbol == "CERT1.DE"
+    assert response.items[0].isin is None
+    assert response.items[1].symbol == "CBK.DE"
+    assert response.items[1].isin == "DE000CBK1001"
+    assert provider.selection_calls == 1
+
+
 def test_selection_cache_hit_for_fresh_db_record() -> None:
     provider = FakeProvider()
     client = mongomock.MongoClient()

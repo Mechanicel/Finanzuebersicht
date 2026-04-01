@@ -250,3 +250,20 @@ def test_businessinsider_isin_fallback_uses_symbol_aliases() -> None:
     )
 
     assert resolved == "DE000CBK1001"
+
+
+def test_isin_query_candidates_prefer_names_and_include_symbol_aliases() -> None:
+    provider = YFinanceMarketDataProvider(timeout_seconds=3)
+
+    candidates = provider._build_isin_query_candidates(
+        symbol="CBK.DE",
+        info={
+            "longName": "Commerzbank AG                I",
+            "shortName": "Commerzbank AG",
+            "displayName": "Commerzbank",
+        },
+    )
+
+    assert candidates[0] == "Commerzbank AG I"
+    assert "CBK.DE" in candidates
+    assert "CBK" in candidates
