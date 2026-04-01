@@ -132,7 +132,25 @@ class GatewayService:
         return PortfolioDetailReadModel.model_validate(await self._request_portfolio_service("GET", f"/api/v1/portfolios/{portfolio_id}"))
 
     async def create_holding(self, portfolio_id: UUID, payload: HoldingCreatePayload) -> HoldingReadModel:
-        data = await self._request_portfolio_service("POST", f"/api/v1/portfolios/{portfolio_id}/holdings", json=payload.model_dump(exclude_none=True))
+        resolved_payload = payload
+        if payload.isin is None or payload.wkn is None:
+            selection = await self._try_get_marketdata_selection(payload.symbol)
+            if selection:
+                updates: dict[str, str] = {}
+                selection_isin = selection.get("isin")
+                if payload.isin is None and isinstance(selection_isin, str) and selection_isin.strip():
+                    updates["isin"] = selection_isin.strip().upper()
+                selection_wkn = selection.get("wkn")
+                if payload.wkn is None and isinstance(selection_wkn, str) and selection_wkn.strip():
+                    updates["wkn"] = selection_wkn.strip().upper()
+                if updates:
+                    resolved_payload = payload.model_copy(update=updates)
+
+        data = await self._request_portfolio_service(
+            "POST",
+            f"/api/v1/portfolios/{portfolio_id}/holdings",
+            json=resolved_payload.model_dump(exclude_none=True),
+        )
         return HoldingReadModel.model_validate(data)
 
     async def update_holding(self, portfolio_id: UUID, holding_id: UUID, payload: HoldingUpdatePayload) -> HoldingReadModel:
@@ -159,6 +177,14 @@ class GatewayService:
 
     async def get_marketdata_selection(self, symbol: str) -> dict:
         return await self._request_marketdata_service("GET", f"/api/v1/marketdata/instruments/{symbol}/selection")
+
+    async def _try_get_marketdata_selection(self, symbol: str) -> dict | None:
+        try:
+            return await self.get_marketdata_selection(symbol)
+        except HTTPException as exc:
+            if exc.status_code < 500:
+                return None
+            return None
 
     async def get_analytics_overview(self, person_id: UUID) -> dict:
         return await self._get_analytics_payload(person_id, "overview")

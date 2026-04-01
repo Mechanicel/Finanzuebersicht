@@ -119,3 +119,28 @@ def test_not_found_and_validation() -> None:
         },
     )
     assert invalid_holding.status_code in {404, 422}
+
+
+def test_holding_create_allows_missing_optional_identifiers() -> None:
+    client = create_test_client(app)
+    person_id = str(uuid4())
+    created = client.post("/api/v1/portfolios", json={"person_id": person_id, "display_name": "Core Depot"})
+    assert created.status_code == 201
+    portfolio_id = created.json()["data"]["portfolio_id"]
+
+    add_holding = client.post(
+        f"/api/v1/portfolios/{portfolio_id}/holdings",
+        json={
+            "symbol": "MSFT",
+            "quantity": 1,
+            "acquisition_price": 100.0,
+            "currency": "eur",
+            "buy_date": "2026-03-12",
+        },
+    )
+
+    assert add_holding.status_code == 201
+    payload = add_holding.json()["data"]
+    assert payload["symbol"] == "MSFT"
+    assert payload["isin"] is None
+    assert payload["wkn"] is None

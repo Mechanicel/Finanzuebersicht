@@ -29,6 +29,8 @@ from app.models import (
     InstrumentSearchItem,
     InstrumentSelectionDetailsResponse,
     InstrumentSummary,
+    InstrumentIdentity,
+    IdentifierResolutionResult,
     MetricsBlock,
     NotFoundError,
     PricePoint,
@@ -38,6 +40,7 @@ from app.models import (
 )
 from app.repositories import InstrumentSelectionCacheRepository
 from app.repositories import InstrumentHydratedRepository
+from app.repositories import SecurityIdentityRepository
 from app.service import MarketDataService
 
 
@@ -156,6 +159,8 @@ def build_service(
     provider: FakeProvider,
     repository: InstrumentSelectionCacheRepository | None = None,
     hydrated_repository: InstrumentHydratedRepository | None = None,
+    security_identity_repository: SecurityIdentityRepository | None = None,
+    identifier_resolver: object | None = None,
     *,
     cache_enabled: bool = True,
     selection_ttl_seconds: int = 60,
@@ -166,6 +171,9 @@ def build_service(
     if hydrated_repository is None:
         client = mongomock.MongoClient()
         hydrated_repository = InstrumentHydratedRepository(collection=client["finanzuebersicht"]["hydrated_test"])
+    if security_identity_repository is None:
+        client = mongomock.MongoClient()
+        security_identity_repository = SecurityIdentityRepository(collection=client["finanzuebersicht"]["identity_test"])
     return MarketDataService(
         provider=provider,
         cache_enabled=cache_enabled,
@@ -177,7 +185,22 @@ def build_service(
         selection_cache_repository=repository,
         hydrated_repository=hydrated_repository,
         selection_cache_ttl_seconds=selection_ttl_seconds,
+        security_identity_repository=security_identity_repository,
+        identifier_resolver=identifier_resolver,
     )
+
+
+class FakeIdentifierResolver:
+    def __init__(self, result: IdentifierResolutionResult | None = None, *, should_raise: bool = False) -> None:
+        self._result = result
+        self._should_raise = should_raise
+        self.calls = 0
+
+    def resolve(self, symbol: str, exchange: str | None, company_name: str | None) -> IdentifierResolutionResult | None:
+        self.calls += 1
+        if self._should_raise:
+            raise RuntimeError("resolver failed")
+        return self._result
 
 
 def test_summary_uses_summary_provider_path() -> None:
@@ -222,6 +245,16 @@ def test_search_cache_hit_avoids_second_provider_call() -> None:
     assert first.total == 1
     assert second.total == 1
     assert provider.search_calls == 1
+
+
+def test_search_works_without_identifier_resolver() -> None:
+    provider = FakeProvider()
+    service = build_service(provider, identifier_resolver=None)
+
+    response = service.search_instruments("dummy", limit=5)
+
+    assert response.total == 1
+    assert response.items[0].symbol == "DUM"
 
 
 def test_selection_cache_hit_for_fresh_db_record() -> None:
@@ -494,6 +527,131 @@ def test_selection_enriches_missing_isin_from_search_result() -> None:
     response = service.get_instrument_selection_details("CBK.DE")
 
     assert response.isin == "DE000CBK1001"
+
+
+def test_selection_without_resolver_keeps_working_without_openfigi() -> None:
+    provider = FakeProvider()
+    provider.selection_response = InstrumentSelectionDetailsResponse(
+        symbol="ABC",
+        isin=None,
+        wkn=None,
+        company_name="ABC Corp",
+        display_name="ABC",
+        exchange="XETRA",
+        currency="EUR",
+        quote_type="equity",
+        asset_type="stock",
+        last_price=20.5,
+    )
+    provider.search_results = []
+    service = build_service(provider, identifier_resolver=None)
+
+    response = service.get_instrument_selection_details("ABC")
+
+    assert response.symbol == "ABC"
+    assert response.isin is None
+
+
+def test_selection_uses_locally_cached_identity_without_resolver_call() -> None:
+    provider = FakeProvider()
+    provider.selection_response = InstrumentSelectionDetailsResponse(
+        symbol="MSFT",
+        isin=None,
+        wkn=None,
+        company_name="Microsoft Corporation",
+        display_name="Microsoft",
+        exchange="XNAS",
+        currency="USD",
+        quote_type="equity",
+        asset_type="stock",
+        last_price=123.0,
+    )
+    provider.search_results = []
+    client = mongomock.MongoClient()
+    identity_repo = SecurityIdentityRepository(collection=client["finanzuebersicht"]["identity_test"])
+    identity_repo.upsert(
+        InstrumentIdentity(
+            symbol="MSFT",
+            exchange="XNAS",
+            isin="US5949181045",
+            wkn="870747",
+            provider="openfigi",
+        )
+    )
+    resolver = FakeIdentifierResolver(result=None)
+    service = build_service(provider, security_identity_repository=identity_repo, identifier_resolver=resolver)
+
+    response = service.get_instrument_selection_details("MSFT")
+
+    assert response.isin == "US5949181045"
+    assert response.wkn == "870747"
+    assert resolver.calls == 0
+
+
+def test_selection_uses_resolver_hit_and_persists_local_identity() -> None:
+    provider = FakeProvider()
+    provider.selection_response = InstrumentSelectionDetailsResponse(
+        symbol="MSFT",
+        isin=None,
+        wkn=None,
+        company_name="Microsoft Corporation",
+        display_name="Microsoft",
+        exchange="XNAS",
+        currency="USD",
+        quote_type="equity",
+        asset_type="stock",
+        last_price=123.0,
+    )
+    provider.search_results = []
+    client = mongomock.MongoClient()
+    identity_repo = SecurityIdentityRepository(collection=client["finanzuebersicht"]["identity_test"])
+    resolver = FakeIdentifierResolver(
+        result=IdentifierResolutionResult(
+            provider="openfigi",
+            confidence="high",
+            identity=InstrumentIdentity(
+                symbol="MSFT",
+                exchange="XNAS",
+                isin="US5949181045",
+                wkn="870747",
+                provider="openfigi",
+            ),
+        )
+    )
+    service = build_service(provider, security_identity_repository=identity_repo, identifier_resolver=resolver)
+
+    response = service.get_instrument_selection_details("MSFT")
+
+    assert response.isin == "US5949181045"
+    assert response.wkn == "870747"
+    assert resolver.calls == 1
+    cached = identity_repo.get("MSFT", "XNAS")
+    assert cached is not None
+    assert cached.isin == "US5949181045"
+
+
+def test_selection_resolver_error_does_not_raise_5xx_path() -> None:
+    provider = FakeProvider()
+    provider.selection_response = InstrumentSelectionDetailsResponse(
+        symbol="MSFT",
+        isin=None,
+        wkn=None,
+        company_name="Microsoft Corporation",
+        display_name="Microsoft",
+        exchange="XNAS",
+        currency="USD",
+        quote_type="equity",
+        asset_type="stock",
+        last_price=123.0,
+    )
+    provider.search_results = []
+    resolver = FakeIdentifierResolver(should_raise=True)
+    service = build_service(provider, identifier_resolver=resolver)
+
+    response = service.get_instrument_selection_details("MSFT")
+
+    assert response.symbol == "MSFT"
+    assert response.last_price == 123.0
 
 
 def test_selection_enriches_missing_wkn_from_search_result() -> None:
