@@ -233,10 +233,24 @@ async function searchInstrument() {
   }
 }
 
+function hasValue<T>(value: T | null | undefined) {
+  if (value == null) return false
+  if (typeof value === 'string') return value.trim().length > 0
+  return true
+}
+
+function mergeInstrumentData(searchItem: InstrumentSearchItem, selectionDetails: InstrumentSelectionDetail) {
+  const merged = { ...searchItem }
+  for (const [key, value] of Object.entries(selectionDetails) as [keyof InstrumentSelectionDetail, InstrumentSelectionDetail[keyof InstrumentSelectionDetail]][]) {
+    if (hasValue(value)) {
+      merged[key as keyof InstrumentSearchItem] = value as never
+    }
+  }
+  return merged
+}
+
 function buildDraftHoldingFromInstrument(item: InstrumentSearchItem | InstrumentSelectionDetail) {
-  const fallbackPrice = selectedInstrument.value?.last_price
-  const selectionPrice = item.last_price
-  const acquisitionPrice = selectionPrice ?? fallbackPrice ?? 0
+  const acquisitionPrice = item.last_price ?? 0
   return {
     symbol: item.symbol,
     isin: item.isin,
@@ -248,7 +262,7 @@ function buildDraftHoldingFromInstrument(item: InstrumentSearchItem | Instrument
     asset_type: item.asset_type,
     quantity: 1,
     acquisition_price: acquisitionPrice,
-    currency: item.currency ?? selectedInstrument.value?.currency ?? 'EUR',
+    currency: item.currency ?? 'EUR',
     buy_date: new Date().toISOString().slice(0, 10),
     notes: null,
   }
@@ -260,8 +274,9 @@ async function selectInstrument(item: InstrumentSearchItem) {
   errorMessage.value = null
   try {
     const selectionDetails = await apiClient.marketdataSelection(item.symbol)
-    selectedInstrument.value = { ...item, ...selectionDetails }
-    draftHolding.value = buildDraftHoldingFromInstrument(selectionDetails)
+    const mergedInstrument = mergeInstrumentData(item, selectionDetails)
+    selectedInstrument.value = mergedInstrument
+    draftHolding.value = buildDraftHoldingFromInstrument(mergedInstrument)
   } catch (e) {
     errorMessage.value = e instanceof Error ? e.message : 'Instrumentdetails konnten nicht geladen werden.'
     draftHolding.value = buildDraftHoldingFromInstrument(item)
