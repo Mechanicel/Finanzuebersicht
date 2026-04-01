@@ -22,6 +22,10 @@ class Settings(ServiceSettings):
     marketdata_cache_selection_ttl_seconds: int = 60
     identifier_resolver: str = "none"
     openfigi_enabled: bool = False
+    fmp_enabled: bool = False
+    fmp_base_url: str = "https://financialmodelingprep.com/stable"
+    fmp_api_key: str | None = None
+    fmp_request_timeout_seconds: float = 5.0
     openfigi_base_url: str = "https://api.openfigi.com/v3"
     openfigi_api_key: str | None = None
     openfigi_request_timeout_seconds: float = 5.0
