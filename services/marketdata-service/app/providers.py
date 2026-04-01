@@ -102,7 +102,7 @@ class YFinanceMarketDataProvider:
         info = self._safe_info(ticker)
         if not self._seems_known_instrument(symbol, info):
             return None
-        return self._map_summary(symbol=symbol, info=info)
+        return self._map_summary(symbol=symbol, ticker=ticker, info=info)
 
     def get_price_series(
         self, symbol: str, data_range: DataRange, interval: DataInterval
@@ -143,7 +143,7 @@ class YFinanceMarketDataProvider:
 
         history_1y = self._safe_history(ticker, period="1y", interval="1d")
         return InstrumentFullResponse(
-            summary=self._map_summary(symbol=symbol, info=info),
+            summary=self._map_summary(symbol=symbol, ticker=ticker, info=info),
             snapshot=self._build_snapshot(ticker=ticker, info=info, history_1y=history_1y),
             fundamentals=self._build_fundamentals(info),
             metrics=self._build_metrics(history_1y),
@@ -158,7 +158,7 @@ class YFinanceMarketDataProvider:
 
         history_1y = self._safe_history(ticker, period="1y", interval="1d")
         snapshot = self._build_snapshot(ticker=ticker, info=info, history_1y=history_1y)
-        summary = self._map_summary(symbol=symbol, info=info)
+        summary = self._map_summary(symbol=symbol, ticker=ticker, info=info)
         return InstrumentSelectionDetailsResponse(
             symbol=summary.symbol,
             isin=summary.isin,
@@ -182,7 +182,7 @@ class YFinanceMarketDataProvider:
             return None
 
         history_1y = self._safe_history_fallback(ticker, period="1y", interval="1d")
-        summary = self._map_summary(symbol=symbol, info=info)
+        summary = self._map_summary(symbol=symbol, ticker=ticker, info=info)
         snapshot = self._build_snapshot(ticker=ticker, info=info, history_1y=history_1y)
         fundamentals = self._build_fundamentals(info)
         metrics = self._build_metrics(history_1y)
@@ -217,7 +217,12 @@ class YFinanceMarketDataProvider:
         max_results = min(max(limit * 3, 10), 40)
 
         try:
-            search = yf.Search(query=query, max_results=max_results)
+            search = yf.Search(
+                query=query,
+                max_results=max_results,
+                session=self._session,
+                timeout=self.timeout_seconds,
+            )
             raw_quotes = list(search.quotes or [])
         except Exception as exc:  # pragma: no cover - library/network behaviour
             logger.error(
@@ -246,14 +251,13 @@ class YFinanceMarketDataProvider:
                 continue
             name = str(quote.get("longname") or quote.get("shortname") or quote.get("name") or symbol)
             isin = self._normalize_optional_identifier(quote.get("isin"))
-            wkn = self._normalize_optional_identifier(quote.get("wkn"))
 
             item = InstrumentSearchItem(
                 symbol=symbol,
                 company_name=name,
                 display_name=str(quote.get("shortname") or quote.get("longname") or name),
                 isin=isin,
-                wkn=wkn,
+                wkn=None,
                 exchange=quote.get("exchDisp") or quote.get("exchange"),
                 currency=quote.get("currency"),
                 quote_type=quote.get("quoteType"),
@@ -282,7 +286,7 @@ class YFinanceMarketDataProvider:
         return list(self._benchmarks)
 
     def _get_ticker(self, symbol: str):
-        return yf.Ticker(symbol)
+        return yf.Ticker(symbol, session=self._session)
 
     @staticmethod
     def _build_session(*, retries: int, backoff_factor: float) -> requests.Session:
@@ -324,13 +328,13 @@ class YFinanceMarketDataProvider:
         short_name = str(info.get("shortName") or info.get("longName") or "")
         return info_symbol == symbol.upper() or bool(short_name)
 
-    def _map_summary(self, *, symbol: str, info: dict[str, Any]) -> InstrumentSummary:
+    def _map_summary(self, *, symbol: str, ticker, info: dict[str, Any]) -> InstrumentSummary:
         return InstrumentSummary(
             symbol=str(info.get("symbol") or symbol).upper(),
-            isin=self._normalize_optional_identifier(info.get("isin")),
+            isin=self._safe_isin(ticker),
             company_name=str(info.get("longName") or info.get("shortName") or symbol),
             display_name=info.get("shortName") or info.get("displayName"),
-            wkn=self._normalize_optional_identifier(info.get("wkn")),
+            wkn=None,
             exchange=str(info.get("exchange") or info.get("fullExchangeName") or "UNKNOWN"),
             currency=str(info.get("currency") or "UNKNOWN"),
             quote_type=info.get("quoteType"),
@@ -339,6 +343,16 @@ class YFinanceMarketDataProvider:
             sector=info.get("sector"),
             industry=info.get("industry"),
         )
+
+    def _safe_isin(self, ticker) -> str | None:
+        try:
+            isin = ticker.isin
+        except Exception:
+            return None
+        normalized = self._normalize_optional_identifier(isin)
+        if normalized == "-":
+            return None
+        return normalized
 
     @staticmethod
     def _normalize_optional_identifier(value: Any) -> str | None:
