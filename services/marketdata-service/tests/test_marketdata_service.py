@@ -47,6 +47,8 @@ class FakeProvider:
         self.search_calls = 0
         self.selection_calls = 0
         self.last_interval: DataInterval | None = None
+        self.selection_response: InstrumentSelectionDetailsResponse | None = None
+        self.search_results: list[InstrumentSearchItem] | None = None
 
     def get_instrument_summary(self, symbol: str) -> InstrumentSummary | None:
         self.summary_calls += 1
@@ -92,6 +94,8 @@ class FakeProvider:
         self.selection_calls += 1
         if symbol == "NONE":
             return None
+        if self.selection_response is not None:
+            return self.selection_response
         return InstrumentSelectionDetailsResponse(
             symbol=symbol,
             isin="US0000000001",
@@ -110,6 +114,8 @@ class FakeProvider:
 
     def search_instruments(self, query: str, limit: int) -> list[InstrumentSearchItem]:
         self.search_calls += 1
+        if self.search_results is not None:
+            return self.search_results[:limit]
         if query == "empty":
             return []
         return [
@@ -278,6 +284,101 @@ def test_selection_response_contains_positive_last_price() -> None:
     response = service.get_instrument_selection_details("DUM")
 
     assert response.last_price > 0
+
+
+def test_selection_enriches_missing_isin_from_search_result() -> None:
+    provider = FakeProvider()
+    provider.selection_response = InstrumentSelectionDetailsResponse(
+        symbol="CBK.DE",
+        isin=None,
+        wkn="CBK123",
+        company_name="Commerzbank AG",
+        display_name="Commerzbank",
+        exchange="XETRA",
+        currency="EUR",
+        quote_type="equity",
+        asset_type="stock",
+        last_price=20.5,
+        change_1d_pct=1.3,
+        volume=123456,
+    )
+    provider.search_results = [
+        InstrumentSearchItem(
+            symbol="CBK.DE",
+            company_name="Commerzbank AG",
+            display_name="Commerzbank AG",
+            isin="DE000CBK1001",
+        )
+    ]
+    service = build_service(provider)
+
+    response = service.get_instrument_selection_details("CBK.DE")
+
+    assert response.isin == "DE000CBK1001"
+
+
+def test_selection_enriches_missing_wkn_from_search_result() -> None:
+    provider = FakeProvider()
+    provider.selection_response = InstrumentSelectionDetailsResponse(
+        symbol="CBK.DE",
+        isin="DE000CBK1001",
+        wkn=None,
+        company_name="Commerzbank AG",
+        display_name="Commerzbank",
+        exchange="XETRA",
+        currency="EUR",
+        quote_type="equity",
+        asset_type="stock",
+        last_price=20.5,
+        change_1d_pct=1.3,
+        volume=123456,
+    )
+    provider.search_results = [
+        InstrumentSearchItem(
+            symbol="CBK.DE",
+            company_name="Commerzbank AG",
+            wkn="CBK100",
+        )
+    ]
+    service = build_service(provider)
+
+    response = service.get_instrument_selection_details("CBK.DE")
+
+    assert response.wkn == "CBK100"
+
+
+def test_selection_keeps_snapshot_price_and_ignores_search_price() -> None:
+    provider = FakeProvider()
+    provider.selection_response = InstrumentSelectionDetailsResponse(
+        symbol="CBK.DE",
+        isin=None,
+        wkn=None,
+        company_name="Commerzbank AG",
+        display_name="Commerzbank",
+        exchange="XETRA",
+        currency="EUR",
+        quote_type="equity",
+        asset_type="stock",
+        last_price=99.9,
+        change_1d_pct=2.5,
+        volume=777,
+    )
+    provider.search_results = [
+        InstrumentSearchItem(
+            symbol="CBK.DE",
+            company_name="Commerzbank AG",
+            isin="DE000CBK1001",
+            wkn="CBK100",
+            last_price=10.0,
+        )
+    ]
+    service = build_service(provider)
+
+    response = service.get_instrument_selection_details("CBK.DE")
+
+    assert response.last_price == 99.9
+    assert response.change_1d_pct == 2.5
+    assert response.volume == 777
 
 
 @pytest.mark.parametrize(

@@ -144,12 +144,38 @@ class MarketDataService:
         selection = self.provider.get_instrument_selection_details(normalized)
         if selection is None:
             raise NotFoundError(f"Instrument '{normalized}' not found")
+        selection = self._enrich_selection_details(selection)
 
         persisted_at = self.selection_cache_repository.upsert(normalized, selection)
         if selection.as_of is None:
             selection = selection.model_copy(update={"as_of": persisted_at})
         self._cache_set(self.selection_memory_cache, cache_key, selection)
         return selection
+
+    def _enrich_selection_details(
+        self, selection: InstrumentSelectionDetailsResponse
+    ) -> InstrumentSelectionDetailsResponse:
+        candidates = self.provider.search_instruments(selection.symbol, limit=10)
+        best_match = next((item for item in candidates if item.symbol.upper() == selection.symbol.upper()), None)
+        if best_match is None and candidates:
+            best_match = candidates[0]
+        if best_match is None:
+            return selection
+
+        updates: dict[str, str] = {}
+        for field_name in ("isin", "wkn", "display_name", "exchange", "quote_type", "asset_type"):
+            current_value = getattr(selection, field_name)
+            candidate_value = getattr(best_match, field_name)
+            if self._is_blank_value(current_value) and not self._is_blank_value(candidate_value):
+                updates[field_name] = candidate_value
+
+        if not updates:
+            return selection
+        return selection.model_copy(update=updates)
+
+    @staticmethod
+    def _is_blank_value(value: str | None) -> bool:
+        return value is None or value.strip() == ""
 
     def list_benchmark_options(self) -> BenchmarkOptionsResponse:
         cache_key = "benchmarks:options"
