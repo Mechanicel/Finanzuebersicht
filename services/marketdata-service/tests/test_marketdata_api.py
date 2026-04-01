@@ -250,8 +250,9 @@ def test_selection_response_stays_ok_if_background_hydration_fails(monkeypatch: 
     assert response.json()["data"]["symbol"] == "MSFT"
 
 
-def test_instrument_search_stays_200_when_partial_enrichment_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_instrument_search_does_not_call_selection_path(monkeypatch: pytest.MonkeyPatch) -> None:
     provider = get_provider()
+    selection_calls = 0
 
     def _search(_query: str, _limit: int):
         return [
@@ -259,12 +260,10 @@ def test_instrument_search_stays_200_when_partial_enrichment_fails(monkeypatch: 
             InstrumentSearchItem(symbol="MSFT", company_name="Microsoft"),
         ]
 
-    original_selection = provider.get_instrument_selection_details
-
-    def _selection(symbol: str):
-        if symbol == "BAD":
-            raise RuntimeError("upstream flaky")
-        return original_selection(symbol)
+    def _selection(_symbol: str):
+        nonlocal selection_calls
+        selection_calls += 1
+        raise RuntimeError("selection should not be called from search")
 
     monkeypatch.setattr(provider, "search_instruments", _search)
     monkeypatch.setattr(provider, "get_instrument_selection_details", _selection)
@@ -276,3 +275,4 @@ def test_instrument_search_stays_200_when_partial_enrichment_fails(monkeypatch: 
     payload = response.json()["data"]
     assert payload["total"] == 2
     assert payload["items"][0]["symbol"] == "BAD"
+    assert selection_calls == 0
