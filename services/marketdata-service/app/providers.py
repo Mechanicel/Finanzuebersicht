@@ -106,6 +106,30 @@ class OpenFigiSearchClient:
 
 class YFinanceMarketDataProvider:
     _ISIN_RE = re.compile(r"^[A-Z]{2}[A-Z0-9]{9}[0-9]$")
+    _WKN_RE = re.compile(r"^[A-HJ-NPR-Z0-9]{6}$")
+    _SYMBOLISH_RE = re.compile(r"^[A-Z0-9][A-Z0-9.\-/:]{0,14}$")
+    _OPENFIGI_MIC_TO_YF_SUFFIX: dict[str, str] = {
+        "XETR": "DE",
+        "XFRA": "DE",
+        "GER": "DE",
+        "XPAR": "PA",
+        "EPA": "PA",
+        "PAR": "PA",
+        "XAMS": "AS",
+        "AEX": "AS",
+        "AMS": "AS",
+        "XLON": "L",
+        "LSE": "L",
+        "LON": "L",
+        "XMIL": "MI",
+        "XMAD": "MC",
+        "XSWX": "SW",
+        "XWBO": "VI",
+        "XHEL": "HE",
+        "XCSE": "CO",
+        "XOSL": "OL",
+        "XSTO": "ST",
+    }
     _EXCHANGE_TO_MIC: dict[str, str] = {
         "XETRA": "XETR",
         "GER": "XETR",
@@ -343,20 +367,16 @@ class YFinanceMarketDataProvider:
             # Architectural guardrail: instrument search is OpenFIGI-only.
             # yfinance remains reserved for market/price/selection detail paths.
             openfigi_records = self._collect_openfigi_candidates(query=query, limit=limit)
-            deduped: list[InstrumentSearchItem] = []
-            seen: set[str] = set()
+            deduped_by_key: dict[str, InstrumentSearchItem] = {}
             for record in openfigi_records:
                 item = self._map_openfigi_item(record)
                 if item is None:
                     continue
                 dedupe_key = self._openfigi_dedupe_key(record=record, item=item)
-                if dedupe_key in seen:
-                    continue
-                seen.add(dedupe_key)
-                deduped.append(item)
-                if len(deduped) >= limit:
-                    break
-            return deduped
+                current = deduped_by_key.get(dedupe_key)
+                if current is None or self._is_better_openfigi_item(candidate=item, current=current):
+                    deduped_by_key[dedupe_key] = item
+            return list(deduped_by_key.values())[:limit]
         except UpstreamServiceError:
             logger.error("marketdata openfigi search failed", extra={"query": query}, exc_info=True)
             raise
@@ -365,44 +385,127 @@ class YFinanceMarketDataProvider:
             return []
 
     def _collect_openfigi_candidates(self, *, query: str, limit: int) -> list[dict[str, Any]]:
+        normalized_query = query.strip().upper()
         max_results = min(max(limit * 3, 10), self._openfigi_search_result_limit)
         records: list[dict[str, Any]] = []
-        search_hits = self._openfigi_client.search(query=query, start=0)
-        records.extend(item for item in search_hits if isinstance(item, dict))
+        query_type = self._classify_openfigi_query(query)
 
-        query_upper = query.strip().upper()
-        if self._is_valid_isin(query_upper):
-            mapping_job: dict[str, Any] = {"idType": "ID_ISIN", "idValue": query_upper}
-            if self._openfigi_default_market_sec_des:
-                mapping_job["marketSecDes"] = self._openfigi_default_market_sec_des
-            mapping_response = self._openfigi_client.map(payload=[mapping_job])
+        if query_type in {"name", "symbol"}:
+            search_hits = self._openfigi_client.search(query=query, start=0)
+            records.extend(item for item in search_hits if isinstance(item, dict))
+
+        mapping_jobs: list[dict[str, Any]] = []
+        if query_type == "isin":
+            mapping_jobs.append(self._build_openfigi_mapping_job(id_type="ID_ISIN", id_value=normalized_query))
+        elif query_type == "wkn":
+            mapping_jobs.append(self._build_openfigi_mapping_job(id_type="ID_WERTPAPIER", id_value=normalized_query))
+        elif query_type == "symbol":
+            mapping_jobs.append(self._build_openfigi_mapping_job(id_type="TICKER", id_value=normalized_query))
+            mapping_jobs.append(self._build_openfigi_mapping_job(id_type="ID_EXCH_SYMBOL", id_value=normalized_query))
+
+        if mapping_jobs:
+            mapping_response = self._openfigi_client.map(payload=mapping_jobs)
             for entry in mapping_response:
                 if isinstance(entry, dict):
                     records.extend(item for item in (entry.get("data") or []) if isinstance(item, dict))
 
         return records[:max_results]
 
+    def _build_openfigi_mapping_job(self, *, id_type: str, id_value: str) -> dict[str, Any]:
+        job: dict[str, Any] = {"idType": id_type, "idValue": id_value}
+        if self._openfigi_default_market_sec_des:
+            job["marketSecDes"] = self._openfigi_default_market_sec_des
+        return job
+
+    @classmethod
+    def _classify_openfigi_query(cls, query: str) -> str:
+        normalized = query.strip().upper()
+        if cls._is_valid_isin(normalized):
+            return "isin"
+        if cls._is_valid_wkn(normalized):
+            return "wkn"
+        if cls._looks_like_symbol_query(normalized):
+            return "symbol"
+        return "name"
+
+    @classmethod
+    def _is_valid_wkn(cls, value: str | None) -> bool:
+        if value is None:
+            return False
+        return bool(cls._WKN_RE.fullmatch(value.strip().upper()))
+
+    @classmethod
+    def _looks_like_symbol_query(cls, value: str | None) -> bool:
+        if value is None:
+            return False
+        normalized = value.strip().upper()
+        if not normalized or " " in normalized:
+            return False
+        if cls._is_valid_isin(normalized):
+            return False
+        return bool(cls._SYMBOLISH_RE.fullmatch(normalized))
+
     def _map_openfigi_item(self, record: dict[str, Any]) -> InstrumentSearchItem | None:
-        symbol = self._normalize_optional_identifier(record.get("ticker"))
+        symbol = self._normalize_openfigi_symbol(record)
         if symbol is None:
             return None
-        company_name = str(record.get("name") or symbol).strip()
-        display_name = str(record.get("securityDescription") or company_name or symbol).strip()
+        company_name = self._normalize_name_for_query(record.get("name")) or symbol
+        display_name = self._normalize_name_for_query(record.get("securityDescription")) or company_name
+        exchange = (
+            self._normalize_optional_identifier(record.get("micCode"))
+            or self._normalize_optional_identifier(record.get("exchCode"))
+            or self._normalize_optional_identifier(record.get("marketSector"))
+        )
+        quote_type = self._normalize_name_for_query(record.get("marketSecDes"))
+        asset_type = self._normalize_name_for_query(record.get("securityType2") or record.get("securityType"))
+        country = self._normalize_optional_identifier(record.get("securityCountry"))
+        currency = self._normalize_optional_identifier(record.get("currency"))
         return InstrumentSearchItem(
             symbol=symbol,
             company_name=company_name or symbol,
             display_name=display_name or company_name or symbol,
             isin=self._normalize_optional_identifier(record.get("isin")),
             wkn=self._normalize_optional_identifier(record.get("wkn")),
-            exchange=record.get("exchCode") or record.get("micCode") or record.get("marketSector"),
-            currency=record.get("currency"),
-            quote_type=record.get("marketSecDes"),
-            asset_type=record.get("securityType2") or record.get("securityType") or record.get("marketSecDes"),
+            exchange=exchange,
+            currency=currency,
+            quote_type=quote_type,
+            asset_type=asset_type or quote_type,
             last_price=None,
             change_1d_pct=None,
-            country=record.get("securityCountry"),
+            country=country,
             sector=None,
         )
+
+    def _normalize_openfigi_symbol(self, record: dict[str, Any]) -> str | None:
+        logger = logging.getLogger(__name__)
+        raw_symbol = self._normalize_optional_identifier(record.get("ticker"))
+        if raw_symbol is None:
+            return None
+        if "." in raw_symbol:
+            return raw_symbol
+        suffix = self._openfigi_yf_suffix(record)
+        if not suffix:
+            return raw_symbol
+        normalized = f"{raw_symbol}.{suffix}"
+        logger.debug(
+            "marketdata normalized openfigi ticker to yfinance symbol",
+            extra={"raw_ticker": raw_symbol, "normalized_symbol": normalized, "mic": record.get("micCode")},
+        )
+        return normalized
+
+    @classmethod
+    def _openfigi_yf_suffix(cls, record: dict[str, Any]) -> str | None:
+        keys = ("micCode", "exchCode", "exchange", "market", "marketSector")
+        for key in keys:
+            normalized = cls._normalize_exchange_key(record.get(key))
+            if not normalized:
+                continue
+            if normalized in cls._OPENFIGI_MIC_TO_YF_SUFFIX:
+                return cls._OPENFIGI_MIC_TO_YF_SUFFIX[normalized]
+            mapped_mic = cls._EXCHANGE_TO_MIC.get(normalized)
+            if mapped_mic and mapped_mic in cls._OPENFIGI_MIC_TO_YF_SUFFIX:
+                return cls._OPENFIGI_MIC_TO_YF_SUFFIX[mapped_mic]
+        return None
 
     @staticmethod
     def _openfigi_dedupe_key(*, record: dict[str, Any], item: InstrumentSearchItem) -> str:
@@ -416,6 +519,15 @@ class YFinanceMarketDataProvider:
         if isin:
             return f"isin:{isin}"
         return f"symbol:{item.symbol.strip().upper()}"
+
+    @staticmethod
+    def _is_better_openfigi_item(*, candidate: InstrumentSearchItem, current: InstrumentSearchItem) -> bool:
+        def score(item: InstrumentSearchItem) -> tuple[int, int]:
+            has_suffix = int("." in item.symbol)
+            metadata_score = int(bool(item.exchange)) + int(bool(item.country))
+            return (has_suffix, metadata_score)
+
+        return score(candidate) > score(current)
 
     def list_benchmark_options(self) -> list[BenchmarkOption]:
         return list(self._benchmarks)
