@@ -173,7 +173,7 @@ def test_openfigi_mapping_to_instrument_search_item(monkeypatch: pytest.MonkeyPa
 
     item = provider.search_instruments("BMW", limit=1)[0]
 
-    assert item.symbol == "BMW"
+    assert item.symbol == "BMW.DE"
     assert item.company_name == "Bayerische Motoren Werke AG"
     assert item.isin == "DE0005190003"
     assert item.wkn == "519000"
@@ -200,6 +200,139 @@ def test_openfigi_search_deduplicates_results(monkeypatch: pytest.MonkeyPatch) -
     result = provider.search_instruments("AAPL", limit=5)
 
     assert len(result) == 1
+    assert result[0].symbol == "AAPL"
+
+
+def test_openfigi_name_search_maps_german_ticker_to_yfinance_symbol(monkeypatch: pytest.MonkeyPatch) -> None:
+    provider = YFinanceMarketDataProvider(timeout_seconds=3)
+    monkeypatch.setattr(
+        provider._openfigi_client,
+        "search",
+        lambda *, query, start=0: [
+            {
+                "ticker": "VOW3",
+                "name": "Volkswagen AG",
+                "securityDescription": "Volkswagen AG Vz",
+                "isin": "DE0007664039",
+                "micCode": "XETR",
+                "currency": "EUR",
+                "marketSecDes": "Equity",
+                "securityType2": "Common Stock",
+                "securityCountry": "DE",
+                "figi": "BBG000NN9V61",
+            }
+        ],
+    )
+    monkeypatch.setattr(provider._openfigi_client, "map", lambda *, payload: [])
+
+    result = provider.search_instruments("Volkswagen", limit=5)
+
+    assert len(result) == 1
+    assert result[0].symbol == "VOW3.DE"
+
+
+def test_openfigi_symbol_query_returns_yfinance_compatible_symbol_for_german_equity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = YFinanceMarketDataProvider(timeout_seconds=3)
+    monkeypatch.setattr(
+        provider._openfigi_client,
+        "search",
+        lambda *, query, start=0: [
+            {
+                "ticker": "VOW3",
+                "name": "Volkswagen AG",
+                "micCode": "XETR",
+                "isin": "DE0007664039",
+                "compositeFIGI": "BBG000NN9V61",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        provider._openfigi_client,
+        "map",
+        lambda *, payload: [
+            {
+                "data": [
+                    {
+                        "ticker": "VOW3",
+                        "name": "Volkswagen AG",
+                        "micCode": "XETR",
+                        "isin": "DE0007664039",
+                        "compositeFIGI": "BBG000NN9V61",
+                    }
+                ]
+            },
+            {"warning": "No identifier found."},
+        ],
+    )
+
+    result = provider.search_instruments("VOW3", limit=5)
+
+    assert any(item.symbol == "VOW3.DE" for item in result)
+    assert all(item.symbol != "VOW3" for item in result)
+
+
+def test_openfigi_wkn_query_uses_mapping_and_returns_yfinance_compatible_symbol(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = YFinanceMarketDataProvider(timeout_seconds=3)
+    mapping_payloads: list[list[dict[str, str]]] = []
+
+    monkeypatch.setattr(provider._openfigi_client, "search", lambda *, query, start=0: [])
+
+    def _map(*, payload):
+        mapping_payloads.append(payload)
+        return [
+            {
+                "data": [
+                    {
+                        "ticker": "VOW3",
+                        "name": "Volkswagen AG",
+                        "wkn": "766403",
+                        "isin": "DE0007664039",
+                        "micCode": "XETR",
+                        "securityCountry": "DE",
+                    }
+                ]
+            }
+        ]
+
+    monkeypatch.setattr(provider._openfigi_client, "map", _map)
+
+    result = provider.search_instruments("766403", limit=5)
+
+    assert len(mapping_payloads) == 1
+    assert mapping_payloads[0][0]["idType"] == "ID_WERTPAPIER"
+    assert result[0].symbol == "VOW3.DE"
+
+
+def test_openfigi_isin_query_still_works(monkeypatch: pytest.MonkeyPatch) -> None:
+    provider = YFinanceMarketDataProvider(timeout_seconds=3)
+    mapping_payloads: list[list[dict[str, str]]] = []
+    monkeypatch.setattr(provider._openfigi_client, "search", lambda *, query, start=0: [])
+
+    def _map(*, payload):
+        mapping_payloads.append(payload)
+        return [
+            {
+                "data": [
+                    {
+                        "ticker": "AAPL",
+                        "name": "Apple Inc",
+                        "isin": "US0378331005",
+                        "micCode": "XNAS",
+                    }
+                ]
+            }
+        ]
+
+    monkeypatch.setattr(provider._openfigi_client, "map", _map)
+
+    result = provider.search_instruments("US0378331005", limit=5)
+
+    assert len(mapping_payloads) == 1
+    assert mapping_payloads[0][0]["idType"] == "ID_ISIN"
     assert result[0].symbol == "AAPL"
 
 
@@ -234,6 +367,21 @@ def test_search_path_uses_openfigi_and_never_calls_yfinance_search(monkeypatch: 
 
     assert len(result) == 1
     assert openfigi_calls == [("Apple", 0)]
+
+
+def test_search_never_calls_yfinance_search(monkeypatch: pytest.MonkeyPatch) -> None:
+    provider = YFinanceMarketDataProvider(timeout_seconds=3)
+
+    def _unexpected_yahoo_search(*args, **kwargs):
+        raise AssertionError("yf.Search must not be used in the production search path")
+
+    monkeypatch.setattr(provider._openfigi_client, "search", lambda *, query, start=0: [{"ticker": "AAPL"}])
+    monkeypatch.setattr(provider._openfigi_client, "map", lambda *, payload: [])
+    monkeypatch.setattr("app.providers.yf.Search", _unexpected_yahoo_search, raising=False)
+
+    result = provider.search_instruments("AAPL", limit=5)
+
+    assert len(result) == 1
 
 
 def test_openfigi_search_parser_error_degrades_to_empty(
