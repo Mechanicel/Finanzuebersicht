@@ -119,6 +119,27 @@ def test_selection_details_works_with_sessionless_ticker(monkeypatch: pytest.Mon
     assert summary is not None
     assert summary.symbol == "AAPL"
 
+
+def test_selection_details_keeps_missing_price_as_null(monkeypatch: pytest.MonkeyPatch) -> None:
+    provider = YFinanceMarketDataProvider(timeout_seconds=3)
+    history_1y = _history([], volumes=[])
+
+    class StableTicker:
+        def __init__(self, symbol: str):
+            self.info = {"symbol": symbol, "shortName": "No Price Inc.", "currency": "USD", "exchange": "NMS"}
+            self.fast_info = {"lastPrice": None, "previousClose": None, "lastVolume": None}
+
+        def history(self, *, period: str, interval: str, timeout: float):
+            assert (period, interval) == ("1y", "1d")
+            return history_1y
+
+    monkeypatch.setattr("app.providers.yf.Ticker", StableTicker)
+
+    result = provider.get_instrument_selection_details("NOPRICE")
+
+    assert result is not None
+    assert result.last_price is None
+
 def test_openfigi_search_successful_freetext(monkeypatch: pytest.MonkeyPatch) -> None:
     provider = YFinanceMarketDataProvider(timeout_seconds=3)
 

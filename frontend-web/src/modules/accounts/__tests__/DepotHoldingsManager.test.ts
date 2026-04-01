@@ -217,7 +217,7 @@ describe('DepotHoldingsManager', () => {
     expect((wrapper.find('[data-testid="holding-acquisition-price"]').element as HTMLInputElement).value).toBe('415.25')
   })
 
-  it('keeps search price as fallback when selection detail has no price', async () => {
+  it('keeps acquisition price empty when search and selection have no market price', async () => {
     vi.mocked(apiClient.searchInstruments).mockResolvedValue({
       query: 'SAP',
       total: 1,
@@ -227,7 +227,7 @@ describe('DepotHoldingsManager', () => {
         isin: 'DE0007164600',
         wkn: '716460',
         currency: 'EUR',
-        last_price: 150.4
+        last_price: null
       }]
     })
     vi.mocked(apiClient.marketdataSelection).mockResolvedValue({
@@ -245,7 +245,7 @@ describe('DepotHoldingsManager', () => {
     await wrapper.find('ul.search-list button').trigger('click')
     await flushUi()
 
-    expect((wrapper.find('[data-testid="holding-acquisition-price"]').element as HTMLInputElement).value).toBe('150.4')
+    expect((wrapper.find('[data-testid="holding-acquisition-price"]').element as HTMLInputElement).value).toBe('')
     expect((wrapper.find('[data-testid="holding-isin"]').element as HTMLInputElement).value).toBe('DE0007164600')
   })
 
