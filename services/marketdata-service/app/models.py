@@ -209,6 +209,27 @@ class ProviderInstrumentData(BaseModel):
     risk: RiskBlock
 
 
+class InstrumentIdentity(BaseModel):
+    symbol: str
+    exchange: str | None = None
+    company_name: str | None = None
+    isin: str | None = None
+    wkn: str | None = None
+    figi: str | None = None
+    provider: str
+    confidence: str | None = None
+    resolved_at: datetime | None = None
+    raw: dict[str, object | None] = Field(default_factory=dict)
+
+
+class IdentifierResolutionResult(BaseModel):
+    identity: InstrumentIdentity | None = None
+    provider: str
+    confidence: str | None = None
+    raw: dict[str, object | None] = Field(default_factory=dict)
+
+
+
 class NotFoundError(Exception):
     def __init__(self, message: str) -> None:
         self.message = message

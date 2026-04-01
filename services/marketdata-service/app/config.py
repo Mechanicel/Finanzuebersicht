@@ -20,6 +20,15 @@ class Settings(ServiceSettings):
     marketdata_cache_series_ttl_seconds: int = 30
     marketdata_cache_benchmark_ttl_seconds: int = 900
     marketdata_cache_selection_ttl_seconds: int = 60
+    identifier_resolver: str = "none"
+    openfigi_enabled: bool = False
+    openfigi_base_url: str = "https://api.openfigi.com/v3"
+    openfigi_api_key: str | None = None
+    openfigi_request_timeout_seconds: float = 5.0
+    marketdata_security_identity_collection: str = Field(
+        default="marketdata_security_identity",
+        alias="MARKETDATA_SECURITY_IDENTITY_COLLECTION",
+    )
     mongo_uri: str | None = Field(default=None, alias="MONGO_URI")
     mongo_host: str = Field(default="localhost", alias="MONGO_HOST")
     mongo_port: int = Field(default=27017, alias="MONGO_PORT")

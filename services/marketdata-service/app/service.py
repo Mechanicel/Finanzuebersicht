@@ -23,7 +23,11 @@ from app.models import (
     SeriesPoint,
 )
 from app.providers import MarketDataProvider
-from app.repositories import InstrumentHydratedRepository, InstrumentSelectionCacheRepository
+from app.repositories import (
+    InstrumentHydratedRepository,
+    InstrumentSelectionCacheRepository,
+    SecurityIdentityRepository,
+)
 
 
 class MarketDataService:
@@ -40,6 +44,8 @@ class MarketDataService:
         selection_cache_repository: InstrumentSelectionCacheRepository,
         hydrated_repository: InstrumentHydratedRepository,
         selection_cache_ttl_seconds: int,
+        security_identity_repository: SecurityIdentityRepository | None = None,
+        identifier_resolver: object | None = None,
     ) -> None:
         self._logger = logging.getLogger(__name__)
         self.provider = provider
@@ -62,6 +68,8 @@ class MarketDataService:
         self.selection_cache_repository = selection_cache_repository
         self.hydrated_repository = hydrated_repository
         self.selection_cache_ttl_seconds = selection_cache_ttl_seconds
+        self.security_identity_repository = security_identity_repository
+        self.identifier_resolver = identifier_resolver
         self.selection_memory_cache: TTLMemoryCache[object] | None = (
             TTLMemoryCache(ttl_seconds=selection_cache_ttl_seconds) if cache_enabled else None
         )
