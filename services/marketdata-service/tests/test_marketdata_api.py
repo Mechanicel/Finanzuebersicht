@@ -7,6 +7,7 @@ from pathlib import Path
 import mongomock
 import pytest
 from datetime import UTC, datetime, timedelta
+from pymongo.errors import ServerSelectionTimeoutError
 
 ROOT = Path(__file__).resolve().parents[3]
 SHARED_SRC = ROOT / "shared" / "src"
@@ -30,7 +31,7 @@ from app.dependencies import (
 from app.models import InstrumentSearchItem
 from app.models import InstrumentSelectionDetailsResponse, OPENFIGI_IDENTITY_SOURCE
 from app.main import app
-from app.routers import api_v1
+from app.repositories import NoOpInstrumentHydratedRepository, NoOpInstrumentSelectionCacheRepository
 
 
 @pytest.fixture(autouse=True)
@@ -52,6 +53,33 @@ def test_selection_cache_repository_uses_mongo_collection_from_settings(monkeypa
 
     assert repository._collection.database.name == "finanzuebersicht_test"
     assert repository._collection.name == "marketdata_selection_cache_test"
+
+
+def test_repositories_fallback_to_noop_when_mongo_is_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MARKETDATA_MONGO_ENABLED", "false")
+
+    selection_repository = get_selection_cache_repository()
+    hydrated_repository = get_hydrated_repository()
+
+    assert isinstance(selection_repository, NoOpInstrumentSelectionCacheRepository)
+    assert isinstance(hydrated_repository, NoOpInstrumentHydratedRepository)
+
+
+def test_repositories_fallback_to_noop_when_mongo_is_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
+    class BrokenMongoClient:
+        def __init__(self, *args, **kwargs) -> None:
+            self.admin = self
+
+        def command(self, _command: str):
+            raise ServerSelectionTimeoutError("mongo unreachable")
+
+    monkeypatch.setattr(marketdata_dependencies, "MongoClient", BrokenMongoClient)
+
+    selection_repository = get_selection_cache_repository()
+    hydrated_repository = get_hydrated_repository()
+
+    assert isinstance(selection_repository, NoOpInstrumentSelectionCacheRepository)
+    assert isinstance(hydrated_repository, NoOpInstrumentHydratedRepository)
 
 
 def test_health_and_ready() -> None:
@@ -275,6 +303,28 @@ def test_selection_endpoint_ignores_legacy_non_openfigi_cache_entry() -> None:
     assert response.json()["data"]["company_name"] != "Legacy Cached"
     stored = repository._collection.find_one({"symbol": "MSFT", "identity_source": OPENFIGI_IDENTITY_SOURCE})
     assert stored is not None
+
+
+def test_selection_endpoint_serializes_missing_last_price_as_null(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = create_test_client(app)
+    provider = get_provider()
+
+    def _selection(_symbol: str):
+        return InstrumentSelectionDetailsResponse(
+            symbol="NOPRICE",
+            company_name="No Price Inc.",
+            exchange="XNAS",
+            currency="USD",
+            last_price=None,
+        )
+
+    monkeypatch.setattr(provider, "get_instrument_selection_details", _selection)
+    response = client.get("/api/v1/marketdata/instruments/NOPRICE/selection")
+
+    assert response.status_code == 200
+    assert response.json()["data"]["last_price"] is None
 
 
 def test_instrument_search_returns_503_when_openfigi_is_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:

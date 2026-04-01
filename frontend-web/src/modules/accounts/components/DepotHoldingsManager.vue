@@ -129,6 +129,7 @@ const feedbackBannerRef = ref<HTMLElement | null>(null)
 const editHoldingId = ref('')
 
 type HoldingDraftState = HoldingCreatePayload & {
+  acquisition_price: number | null
   exchange?: string | null
   quote_type?: string | null
   asset_type?: string | null
@@ -156,7 +157,7 @@ function createDefaultDraftHolding(): HoldingDraftState {
   return {
     symbol: '',
     quantity: 1,
-    acquisition_price: 0,
+    acquisition_price: null,
     currency: 'EUR',
     buy_date: new Date().toISOString().slice(0, 10),
     notes: null,
@@ -259,7 +260,6 @@ function changeClass(change: number | null | undefined) {
 }
 
 function buildDraftHoldingFromInstrument(item: InstrumentSearchItem | InstrumentSelectionDetail) {
-  const acquisitionPrice = item.last_price ?? 0
   return {
     symbol: item.symbol,
     isin: item.isin,
@@ -270,7 +270,7 @@ function buildDraftHoldingFromInstrument(item: InstrumentSearchItem | Instrument
     quote_type: item.quote_type,
     asset_type: item.asset_type,
     quantity: 1,
-    acquisition_price: acquisitionPrice,
+    acquisition_price: item.last_price ?? null,
     currency: item.currency ?? 'EUR',
     buy_date: new Date().toISOString().slice(0, 10),
     notes: null,
@@ -310,6 +310,11 @@ function scheduleSearch() {
 
 async function createHolding() {
   if (!selectedPortfolioId.value) return
+  const acquisitionPrice = Number(draftHolding.value.acquisition_price)
+  if (!Number.isFinite(acquisitionPrice) || acquisitionPrice <= 0) {
+    errorMessage.value = 'Bitte einen gültigen Kaufkurs eingeben.'
+    return
+  }
   saving.value = true
   errorMessage.value = null
   feedbackMessage.value = ''
@@ -321,7 +326,7 @@ async function createHolding() {
       display_name: cleanOptional(draftHolding.value.display_name),
       company_name: cleanOptional(draftHolding.value.company_name),
       quantity: Number(draftHolding.value.quantity),
-      acquisition_price: Number(draftHolding.value.acquisition_price),
+      acquisition_price: acquisitionPrice,
       currency: draftHolding.value.currency.trim().toUpperCase(),
       buy_date: draftHolding.value.buy_date,
       notes: cleanOptional(draftHolding.value.notes),

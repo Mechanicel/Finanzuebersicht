@@ -74,7 +74,7 @@ class InstrumentSelectionDetailsResponse(BaseModel):
     currency: str
     quote_type: str | None = None
     asset_type: str | None = None
-    last_price: float = Field(ge=0)
+    last_price: float | None = Field(default=None, ge=0)
     change_1d_pct: float | None = None
     volume: int | None = None
     as_of: datetime | None = None
@@ -167,7 +167,7 @@ class RiskBlock(BaseModel):
 
 
 class SnapshotBlock(BaseModel):
-    last_price: float
+    last_price: float | None = Field(default=None, ge=0)
     change_1d_pct: float
     volume: int
 

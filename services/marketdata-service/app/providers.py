@@ -1014,28 +1014,34 @@ class YFinanceMarketDataProvider:
         except (TypeError, ValueError):
             return None
 
+    @staticmethod
+    def _first_non_none(*values: Any) -> Any:
+        for value in values:
+            if value is not None:
+                return value
+        return None
+
     def _build_snapshot(self, *, ticker, info: dict[str, Any], history_1y) -> SnapshotBlock:
         fast_info = self._safe_fast_info(ticker)
-        last_price = (
-            self._to_float(fast_info.get("lastPrice"))
-            or self._to_float(info.get("currentPrice"))
-            or self._last_close(history_1y)
-            or 0.0
+        last_price = self._first_non_none(
+            self._to_float(fast_info.get("lastPrice")),
+            self._to_float(info.get("currentPrice")),
+            self._last_close(history_1y),
         )
-        previous_close = (
-            self._to_float(fast_info.get("previousClose"))
-            or self._to_float(info.get("previousClose"))
-            or self._to_float(info.get("regularMarketPreviousClose"))
+        previous_close = self._first_non_none(
+            self._to_float(fast_info.get("previousClose")),
+            self._to_float(info.get("previousClose")),
+            self._to_float(info.get("regularMarketPreviousClose")),
         )
         change_1d_pct = 0.0
-        if previous_close and previous_close > 0:
+        if last_price is not None and previous_close and previous_close > 0:
             change_1d_pct = ((last_price - previous_close) / previous_close) * 100
 
-        volume = (
-            self._to_int(fast_info.get("lastVolume"))
-            or self._to_int(info.get("volume"))
-            or self._latest_volume(history_1y)
-            or 0
+        volume = self._first_non_none(
+            self._to_int(fast_info.get("lastVolume")),
+            self._to_int(info.get("volume")),
+            self._latest_volume(history_1y),
+            0,
         )
         return SnapshotBlock(last_price=last_price, change_1d_pct=change_1d_pct, volume=volume)
 

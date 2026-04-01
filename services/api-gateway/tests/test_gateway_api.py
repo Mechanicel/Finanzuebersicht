@@ -535,4 +535,12 @@ def test_marketdata_502_is_forwarded_when_downstream_unreachable() -> None:
 
     assert response.status_code == 502
     assert response.json()["detail"] == "Marketdata-Service ist derzeit nicht erreichbar. Bitte später erneut versuchen."
+
+
+def test_marketdata_search_limit_matches_backend_contract() -> None:
+    client = create_test_client(app)
+
+    response = client.get("/api/v1/app/marketdata/instruments/search", params={"q": "apple", "limit": 26})
+
+    assert response.status_code == 422
     app.dependency_overrides.clear()
