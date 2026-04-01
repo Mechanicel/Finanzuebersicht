@@ -5,7 +5,6 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
-import requests
 
 ROOT = Path(__file__).resolve().parents[3]
 SHARED_SRC = ROOT / "shared" / "src"
@@ -120,196 +119,114 @@ def test_selection_details_works_with_sessionless_ticker(monkeypatch: pytest.Mon
     assert summary is not None
     assert summary.symbol == "AAPL"
 
-def test_search_ranking_symbol_isin_wkn_company(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_openfigi_search_successful_freetext(monkeypatch: pytest.MonkeyPatch) -> None:
     provider = YFinanceMarketDataProvider(timeout_seconds=3)
 
-    class FakeSearch:
-        def __init__(self, *, query: str, max_results: int, timeout: float):
-            self.quotes = [
-                {"symbol": "AAP", "shortname": "Other", "longname": "Other Corp", "isin": "US0000000001"},
-                {"symbol": "AAPL", "shortname": "Apple", "longname": "Apple Inc.", "isin": "US0378331005"},
-            ]
+    monkeypatch.setattr(
+        provider._openfigi_client,
+        "search",
+        lambda *, query, start=0: [
+            {
+                "ticker": "AAPL",
+                "name": "Apple Inc",
+                "securityDescription": "Apple Inc. Common Stock",
+                "isin": "US0378331005",
+                "exchCode": "US",
+                "currency": "USD",
+                "marketSecDes": "Equity",
+                "securityType2": "Common Stock",
+                "securityCountry": "US",
+                "compositeFIGI": "BBG000B9XRY4",
+            }
+        ],
+    )
+    monkeypatch.setattr(provider._openfigi_client, "map", lambda *, payload: [])
 
-    monkeypatch.setattr("app.providers.yf.Search", FakeSearch)
+    result = provider.search_instruments("Apple", limit=5)
 
-    symbol_results = provider.search_instruments("AAPL", limit=5)
-    isin_results = provider.search_instruments("US0378331005", limit=5)
-
-    assert symbol_results[0].symbol == "AAPL"
-    assert isin_results[0].symbol == "AAPL"
+    assert len(result) == 1
+    assert result[0].symbol == "AAPL"
 
 
-def test_search_by_company_name_and_wkn_best_effort(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_openfigi_mapping_to_instrument_search_item(monkeypatch: pytest.MonkeyPatch) -> None:
     provider = YFinanceMarketDataProvider(timeout_seconds=3)
+    monkeypatch.setattr(
+        provider._openfigi_client,
+        "search",
+        lambda *, query, start=0: [
+            {
+                "ticker": "BMW",
+                "name": "Bayerische Motoren Werke AG",
+                "securityDescription": "BMW AG",
+                "isin": "DE0005190003",
+                "wkn": "519000",
+                "micCode": "XETR",
+                "currency": "EUR",
+                "marketSecDes": "Equity",
+                "securityType2": "Common Stock",
+                "securityCountry": "DE",
+                "figi": "BBG000BLNNH6",
+            }
+        ],
+    )
+    monkeypatch.setattr(provider._openfigi_client, "map", lambda *, payload: [])
 
-    class FakeSearch:
-        def __init__(self, *, query: str, max_results: int, timeout: float):
-            self.quotes = [
-                {"symbol": "AAPL", "shortname": "Apple", "longname": "Apple Inc.", "wkn": "865985"},
-                {"symbol": "MSFT", "shortname": "Microsoft", "longname": "Microsoft Corp."},
-            ]
+    item = provider.search_instruments("BMW", limit=1)[0]
 
-    monkeypatch.setattr("app.providers.yf.Search", FakeSearch)
-
-    by_name = provider.search_instruments("Apple", limit=5)
-    by_wkn = provider.search_instruments("865985", limit=5)
-
-    assert by_name[0].symbol == "AAPL"
-    assert by_wkn[0].symbol == "AAPL"
-    assert by_wkn[0].wkn == "865985"
+    assert item.symbol == "BMW"
+    assert item.company_name == "Bayerische Motoren Werke AG"
+    assert item.isin == "DE0005190003"
+    assert item.wkn == "519000"
+    assert item.exchange == "XETR"
+    assert item.currency == "EUR"
+    assert item.quote_type == "Equity"
+    assert item.asset_type == "Common Stock"
+    assert item.country == "DE"
+    assert item.last_price is None
+    assert item.change_1d_pct is None
 
 
-def test_search_maps_wkn_price_and_change(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_openfigi_search_deduplicates_results(monkeypatch: pytest.MonkeyPatch) -> None:
     provider = YFinanceMarketDataProvider(timeout_seconds=3)
-
-    class FakeSearch:
-        def __init__(self, *, query: str, max_results: int, timeout: float):
-            self.quotes = [
-                {
-                    "symbol": "CBK.DE",
-                    "shortname": "Commerzbank",
-                    "longname": "Commerzbank AG",
-                    "wkn": "CBK100",
-                    "regularMarketPrice": 18.35,
-                    "regularMarketChangePercent": -1.25,
-                }
-            ]
-
-    monkeypatch.setattr("app.providers.yf.Search", FakeSearch)
-
-    result = provider.search_instruments("Commerzbank", limit=5)
-
-    assert result[0].symbol == "CBK.DE"
-    assert result[0].wkn == "CBK100"
-    assert result[0].last_price == 18.35
-    assert result[0].change_1d_pct == -1.25
-
-
-def test_search_prefers_german_equity_over_structured_product_for_company_query(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    provider = YFinanceMarketDataProvider(timeout_seconds=3)
-
-    class FakeSearch:
-        def __init__(self, *, query: str, max_results: int, timeout: float):
-            self.quotes = [
-                {
-                    "symbol": "CERT1.DE",
-                    "shortname": "Commerzbank Turbo Zertifikat",
-                    "longname": "Commerzbank Turbo Zertifikat",
-                    "quoteType": "WARRANT",
-                    "typeDisp": "Warrant",
-                    "exchange": "GER",
-                    "isin": "DE000CERT001",
-                },
-                {
-                    "symbol": "CBK.DE",
-                    "shortname": "Commerzbank",
-                    "longname": "Commerzbank AG",
-                    "quoteType": "EQUITY",
-                    "typeDisp": "Stock",
-                    "exchange": "XETRA",
-                    "isin": "DE000CBK1001",
-                },
-            ]
-
-    monkeypatch.setattr("app.providers.yf.Search", FakeSearch)
-
-    result = provider.search_instruments("Commerzbank", limit=5)
-
-    assert result[0].symbol == "CBK.DE"
-    assert result[1].symbol == "CERT1.DE"
-
-
-def test_search_prefers_german_equity_listing_over_foreign_duplicate_for_german_company_query(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    provider = YFinanceMarketDataProvider(timeout_seconds=3)
-
-    class FakeSearch:
-        def __init__(self, *, query: str, max_results: int, timeout: float):
-            self.quotes = [
-                {
-                    "symbol": "VWAGY",
-                    "shortname": "Volkswagen ADR",
-                    "longname": "Volkswagen AG ADR",
-                    "quoteType": "EQUITY",
-                    "typeDisp": "Stock",
-                    "exchange": "NYSE",
-                    "isin": "US9286623034",
-                },
-                {
-                    "symbol": "CERT2.DE",
-                    "shortname": "Volkswagen Turbo Zertifikat",
-                    "longname": "Volkswagen Turbo Zertifikat",
-                    "quoteType": "WARRANT",
-                    "typeDisp": "Warrant",
-                    "exchange": "GER",
-                    "isin": "DE000CERT002",
-                },
-                {
-                    "symbol": "VOW3.DE",
-                    "shortname": "Volkswagen Vz",
-                    "longname": "Volkswagen AG",
-                    "quoteType": "EQUITY",
-                    "typeDisp": "Stock",
-                    "exchange": "XETRA",
-                    "isin": "DE0007664039",
-                },
-            ]
-
-    monkeypatch.setattr("app.providers.yf.Search", FakeSearch)
-
-    result = provider.search_instruments("Volkswagen", limit=5)
-
-    assert result[0].symbol == "VOW3.DE"
-    assert result[1].symbol == "VWAGY"
-    assert result[2].symbol == "CERT2.DE"
-
-
-def test_search_uses_stable_yfinance_search_signature(monkeypatch: pytest.MonkeyPatch) -> None:
-    provider = YFinanceMarketDataProvider(timeout_seconds=3)
-
-    class StableSearch:
-        def __init__(self, *, query: str, max_results: int, timeout: float):
-            self.quotes = [{"symbol": "AAPL", "shortname": "Apple", "longname": "Apple Inc."}]
-
-    monkeypatch.setattr("app.providers.yf.Search", StableSearch)
+    duplicate = {
+        "ticker": "AAPL",
+        "name": "Apple Inc",
+        "isin": "US0378331005",
+        "compositeFIGI": "BBG000B9XRY4",
+    }
+    monkeypatch.setattr(provider._openfigi_client, "search", lambda *, query, start=0: [duplicate, duplicate])
+    monkeypatch.setattr(provider._openfigi_client, "map", lambda *, payload: [])
 
     result = provider.search_instruments("AAPL", limit=5)
 
-    assert [item.symbol for item in result] == ["AAPL"]
+    assert len(result) == 1
+    assert result[0].symbol == "AAPL"
 
 
-def test_search_non_upstream_exception_degrades_to_empty(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
-) -> None:
+def test_openfigi_search_upstream_error_is_wrapped(monkeypatch: pytest.MonkeyPatch) -> None:
     provider = YFinanceMarketDataProvider(timeout_seconds=3)
 
-    class BoomSearch:
-        def __init__(self, *, query: str, max_results: int, timeout: float):
-            raise ValueError("parser issue")
+    def _boom(*, query: str, start: int = 0):
+        raise UpstreamServiceError()
 
-    monkeypatch.setattr("app.providers.yf.Search", BoomSearch)
-    caplog.set_level("ERROR")
-
-    result = provider.search_instruments("com", limit=5)
-
-    assert result == []
-    assert "marketdata search failed" in caplog.text
-
-
-def test_search_upstream_error_is_wrapped(monkeypatch: pytest.MonkeyPatch) -> None:
-    provider = YFinanceMarketDataProvider(timeout_seconds=3)
-
-    class BoomSearch:
-        def __init__(self, *, query: str, max_results: int, timeout: float):
-            raise requests.ConnectionError("yahoo down")
-
-    monkeypatch.setattr("app.providers.yf.Search", BoomSearch)
+    monkeypatch.setattr(provider._openfigi_client, "search", _boom)
 
     with pytest.raises(UpstreamServiceError):
         provider.search_instruments("AAPL", limit=5)
+
+
+def test_openfigi_search_parser_error_degrades_to_empty(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    provider = YFinanceMarketDataProvider(timeout_seconds=3)
+    monkeypatch.setattr(provider._openfigi_client, "search", lambda *, query, start=0: [{"ticker": "AAPL"}])
+    monkeypatch.setattr(provider, "_map_openfigi_item", lambda record: 1 / 0)
+    caplog.set_level("ERROR")
+
+    result = provider.search_instruments("AAPL", limit=5)
+
+    assert result == []
+    assert "marketdata openfigi search parsing failed" in caplog.text
 
 
 def test_businessinsider_isin_fallback_uses_symbol_aliases() -> None:
