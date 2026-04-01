@@ -7,6 +7,7 @@ from pathlib import Path
 import mongomock
 import pytest
 from datetime import UTC, datetime, timedelta
+from pymongo.errors import ServerSelectionTimeoutError
 
 ROOT = Path(__file__).resolve().parents[3]
 SHARED_SRC = ROOT / "shared" / "src"
@@ -30,6 +31,7 @@ from app.dependencies import (
 from app.models import InstrumentSearchItem
 from app.models import InstrumentSelectionDetailsResponse, OPENFIGI_IDENTITY_SOURCE
 from app.main import app
+from app.repositories import NoOpInstrumentHydratedRepository, NoOpInstrumentSelectionCacheRepository
 
 
 @pytest.fixture(autouse=True)
@@ -51,6 +53,33 @@ def test_selection_cache_repository_uses_mongo_collection_from_settings(monkeypa
 
     assert repository._collection.database.name == "finanzuebersicht_test"
     assert repository._collection.name == "marketdata_selection_cache_test"
+
+
+def test_repositories_fallback_to_noop_when_mongo_is_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MARKETDATA_MONGO_ENABLED", "false")
+
+    selection_repository = get_selection_cache_repository()
+    hydrated_repository = get_hydrated_repository()
+
+    assert isinstance(selection_repository, NoOpInstrumentSelectionCacheRepository)
+    assert isinstance(hydrated_repository, NoOpInstrumentHydratedRepository)
+
+
+def test_repositories_fallback_to_noop_when_mongo_is_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
+    class BrokenMongoClient:
+        def __init__(self, *args, **kwargs) -> None:
+            self.admin = self
+
+        def command(self, _command: str):
+            raise ServerSelectionTimeoutError("mongo unreachable")
+
+    monkeypatch.setattr(marketdata_dependencies, "MongoClient", BrokenMongoClient)
+
+    selection_repository = get_selection_cache_repository()
+    hydrated_repository = get_hydrated_repository()
+
+    assert isinstance(selection_repository, NoOpInstrumentSelectionCacheRepository)
+    assert isinstance(hydrated_repository, NoOpInstrumentHydratedRepository)
 
 
 def test_health_and_ready() -> None:

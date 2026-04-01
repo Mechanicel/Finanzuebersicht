@@ -52,6 +52,14 @@ class InstrumentSelectionCacheRepository:
         self._collection.create_index([("symbol", ASCENDING), ("identity_source", ASCENDING)], unique=True)
 
 
+class NoOpInstrumentSelectionCacheRepository:
+    def get(self, symbol: str, identity_source: str) -> tuple[InstrumentSelectionDetailsResponse, datetime] | None:
+        return None
+
+    def upsert(self, symbol: str, payload: InstrumentSelectionDetailsResponse, identity_source: str) -> datetime:
+        return datetime.now(UTC)
+
+
 class InstrumentHydratedRepository:
     def __init__(self, collection: Collection) -> None:
         self._collection = collection
@@ -89,3 +97,11 @@ class InstrumentHydratedRepository:
 
     def _initialize(self) -> None:
         self._collection.create_index([("symbol", ASCENDING)], unique=True)
+
+
+class NoOpInstrumentHydratedRepository:
+    def upsert(self, symbol: str, payload: dict[str, object]) -> datetime:
+        return datetime.now(UTC)
+
+    def get_hydrated_at(self, symbol: str) -> datetime | None:
+        return None

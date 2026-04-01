@@ -1,13 +1,22 @@
 from __future__ import annotations
 
 from functools import lru_cache
+import logging
 
 from pymongo import MongoClient
+from pymongo.errors import PyMongoError
 
 from app.config import get_settings
 from app.providers import InMemoryMarketDataProvider, MarketDataProvider, YFinanceMarketDataProvider
-from app.repositories import InstrumentHydratedRepository, InstrumentSelectionCacheRepository
+from app.repositories import (
+    InstrumentHydratedRepository,
+    InstrumentSelectionCacheRepository,
+    NoOpInstrumentHydratedRepository,
+    NoOpInstrumentSelectionCacheRepository,
+)
 from app.service import MarketDataService
+
+LOGGER = logging.getLogger(__name__)
 
 
 @lru_cache
@@ -33,19 +42,46 @@ def get_provider() -> MarketDataProvider:
 
 
 @lru_cache
-def get_selection_cache_repository() -> InstrumentSelectionCacheRepository:
+def get_selection_cache_repository() -> InstrumentSelectionCacheRepository | NoOpInstrumentSelectionCacheRepository:
     settings = get_settings()
-    client = MongoClient(settings.resolved_mongo_uri())
-    collection = client[settings.mongo_database][settings.marketdata_selection_cache_collection]
-    return InstrumentSelectionCacheRepository(collection=collection)
+    if not settings.marketdata_mongo_enabled:
+        LOGGER.info("marketdata mongo is disabled, using in-memory/no-op selection cache repository")
+        return NoOpInstrumentSelectionCacheRepository()
+
+    try:
+        client = MongoClient(
+            settings.resolved_mongo_uri(),
+            serverSelectionTimeoutMS=settings.marketdata_mongo_server_selection_timeout_ms,
+        )
+        client.admin.command("ping")
+        collection = client[settings.mongo_database][settings.marketdata_selection_cache_collection]
+        return InstrumentSelectionCacheRepository(collection=collection)
+    except PyMongoError:
+        LOGGER.warning(
+            "marketdata mongo unavailable, falling back to no-op selection cache repository",
+            exc_info=True,
+        )
+        return NoOpInstrumentSelectionCacheRepository()
 
 
 @lru_cache
-def get_hydrated_repository() -> InstrumentHydratedRepository:
+def get_hydrated_repository() -> InstrumentHydratedRepository | NoOpInstrumentHydratedRepository:
     settings = get_settings()
-    client = MongoClient(settings.resolved_mongo_uri())
-    collection = client[settings.mongo_database][settings.marketdata_hydrated_collection]
-    return InstrumentHydratedRepository(collection=collection)
+    if not settings.marketdata_mongo_enabled:
+        LOGGER.info("marketdata mongo is disabled, using no-op hydrated repository")
+        return NoOpInstrumentHydratedRepository()
+
+    try:
+        client = MongoClient(
+            settings.resolved_mongo_uri(),
+            serverSelectionTimeoutMS=settings.marketdata_mongo_server_selection_timeout_ms,
+        )
+        client.admin.command("ping")
+        collection = client[settings.mongo_database][settings.marketdata_hydrated_collection]
+        return InstrumentHydratedRepository(collection=collection)
+    except PyMongoError:
+        LOGGER.warning("marketdata mongo unavailable, falling back to no-op hydrated repository", exc_info=True)
+        return NoOpInstrumentHydratedRepository()
 
 
 @lru_cache

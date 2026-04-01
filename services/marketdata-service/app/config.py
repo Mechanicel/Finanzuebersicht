@@ -30,6 +30,11 @@ class Settings(ServiceSettings):
     marketdata_cache_benchmark_ttl_seconds: int = 900
     marketdata_cache_selection_ttl_seconds: int = 60
     marketdata_hydrated_freshness_ttl_seconds: int = 21600
+    marketdata_mongo_enabled: bool = Field(default=True, alias="MARKETDATA_MONGO_ENABLED")
+    marketdata_mongo_server_selection_timeout_ms: int = Field(
+        default=1000,
+        alias="MARKETDATA_MONGO_SERVER_SELECTION_TIMEOUT_MS",
+    )
     mongo_uri: str | None = Field(default=None, alias="MONGO_URI")
     mongo_host: str = Field(default="localhost", alias="MONGO_HOST")
     mongo_port: int = Field(default=27017, alias="MONGO_PORT")
