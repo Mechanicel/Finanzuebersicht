@@ -252,6 +252,54 @@ def test_businessinsider_isin_fallback_uses_symbol_aliases() -> None:
     assert resolved == "DE000CBK1001"
 
 
+def test_safe_isin_uses_mic_aware_symbol_lookup_for_german_suffix_symbols(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = YFinanceMarketDataProvider(timeout_seconds=3)
+    calls: list[object] = []
+
+    class PrimaryTicker:
+        isin = None
+
+    class LookupTicker:
+        def __init__(self, target):
+            calls.append(target)
+            if target == ("BMW", "XETR"):
+                self.isin = "DE0005190003"
+            else:
+                self.isin = None
+            self.info = {}
+
+    monkeypatch.setattr("app.providers.yf.Ticker", LookupTicker)
+
+    resolved = provider._safe_isin(PrimaryTicker(), symbol="BMW.DE", info={"exchange": "GER"})
+
+    assert resolved == "DE0005190003"
+    assert calls[0] == ("BMW", "XETR")
+
+
+def test_symbol_lookup_falls_back_to_plain_ticker_when_tuple_lookup_is_not_supported(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = YFinanceMarketDataProvider(timeout_seconds=3)
+    calls: list[object] = []
+
+    class LookupTicker:
+        def __init__(self, target):
+            calls.append(target)
+            if isinstance(target, tuple):
+                raise TypeError("tuple lookup unsupported")
+            self.isin = None
+            self.info = {"isin": "DE0005190003"} if target == "BMW" else {}
+
+    monkeypatch.setattr("app.providers.yf.Ticker", LookupTicker)
+
+    resolved = provider._resolve_isin_via_symbol_lookup(symbol="BMW.DE", info={"exchange": "GER"})
+
+    assert resolved == "DE0005190003"
+    assert calls[:2] == [("BMW", "XETR"), "BMW"]
+
+
 def test_isin_query_candidates_prefer_names_and_include_symbol_aliases() -> None:
     provider = YFinanceMarketDataProvider(timeout_seconds=3)
 

@@ -51,6 +51,56 @@ class MarketDataProvider(Protocol):
 
 class YFinanceMarketDataProvider:
     _ISIN_RE = re.compile(r"^[A-Z]{2}[A-Z0-9]{9}[0-9]$")
+    _EXCHANGE_TO_MIC: dict[str, str] = {
+        "XETRA": "XETR",
+        "GER": "XETR",
+        "ETR": "XETR",
+        "FRA": "XFRA",
+        "PAR": "XPAR",
+        "EPA": "XPAR",
+        "PARIS": "XPAR",
+        "AMS": "XAMS",
+        "AEX": "XAMS",
+        "BRU": "XBRU",
+        "MIL": "XMIL",
+        "MAD": "XMAD",
+        "LIS": "XLIS",
+        "STO": "XSTO",
+        "OSL": "XOSL",
+        "CPH": "XCSE",
+        "HEL": "XHEL",
+        "VIE": "XWBO",
+        "SWX": "XSWX",
+        "LSE": "XLON",
+        "LON": "XLON",
+        "NASDAQ": "XNAS",
+        "NMS": "XNAS",
+        "NYSE": "XNYS",
+        "NYQ": "XNYS",
+        "NYSEARCA": "ARCX",
+        "ARCA": "ARCX",
+    }
+    _SYMBOL_SUFFIX_TO_MIC: dict[str, str] = {
+        "DE": "XETR",
+        "PA": "XPAR",
+        "AS": "XAMS",
+        "BR": "XBRU",
+        "MI": "XMIL",
+        "MC": "XMAD",
+        "LS": "XLIS",
+        "ST": "XSTO",
+        "OL": "XOSL",
+        "CO": "XCSE",
+        "HE": "XHEL",
+        "VI": "XWBO",
+        "SW": "XSWX",
+        "L": "XLON",
+        "TO": "XTSE",
+        "V": "XTSX",
+        "AX": "XASX",
+        "HK": "XHKG",
+        "T": "XTKS",
+    }
     _RANGE_MAP: dict[DataRange, str] = {
         DataRange.ONE_MONTH: "1mo",
         DataRange.THREE_MONTHS: "3mo",
@@ -76,6 +126,7 @@ class YFinanceMarketDataProvider:
     ) -> None:
         self.timeout_seconds = timeout_seconds
         self._session = self._build_session(retries=retries, backoff_factor=backoff_factor)
+        self._symbol_isin_cache: dict[tuple[str, str | None], str | None] = {}
         self._benchmarks = benchmark_options or [
             BenchmarkOption(
                 benchmark_id="sp500",
@@ -350,32 +401,20 @@ class YFinanceMarketDataProvider:
     def _safe_isin(self, ticker, *, symbol: str, info: dict[str, Any]) -> str | None:
         logger = logging.getLogger(__name__)
         try:
-            try:
-                isin = ticker.isin
-            except Exception:
-                logger.exception(
-                    "marketdata ticker.isin lookup failed",
-                    extra={"symbol": symbol},
-                )
-                isin = None
+            resolved = self._extract_isin_from_ticker(ticker, info=info)
+            accepted = self._accept_resolved_isin(resolved, symbol=symbol, info=info, source="ticker")
+            if accepted is not None:
+                return accepted
 
-            normalized = self._normalize_optional_identifier(isin)
-            if self._is_country_consistent_isin(normalized, symbol=symbol, info=info):
-                return normalized
-            if self._is_valid_isin(normalized):
-                logger.debug(
-                    "marketdata rejected isin due to country mismatch",
-                    extra={"symbol": symbol, "isin": normalized, "exchange": info.get("exchange")},
-                )
+            resolved = self._resolve_isin_via_symbol_lookup(symbol=symbol, info=info)
+            accepted = self._accept_resolved_isin(resolved, symbol=symbol, info=info, source="symbol_lookup")
+            if accepted is not None:
+                return accepted
 
             resolved = self._resolve_isin_via_businessinsider(symbol=symbol, info=info)
-            if self._is_country_consistent_isin(resolved, symbol=symbol, info=info):
-                return resolved
-            if self._is_valid_isin(resolved):
-                logger.debug(
-                    "marketdata rejected isin due to country mismatch",
-                    extra={"symbol": symbol, "isin": resolved, "exchange": info.get("exchange")},
-                )
+            accepted = self._accept_resolved_isin(resolved, symbol=symbol, info=info, source="businessinsider")
+            if accepted is not None:
+                return accepted
             return None
         except Exception:
             logger.exception(
@@ -383,6 +422,107 @@ class YFinanceMarketDataProvider:
                 extra={"symbol": symbol},
             )
             return None
+
+    def _extract_isin_from_ticker(self, ticker, *, info: dict[str, Any]) -> str | None:
+        logger = logging.getLogger(__name__)
+        try:
+            normalized = self._normalize_optional_identifier(ticker.isin)
+            if normalized is not None:
+                return normalized
+        except Exception:
+            logger.exception("marketdata ticker.isin lookup failed")
+        return self._normalize_optional_identifier(info.get("isin"))
+
+    def _accept_resolved_isin(
+        self,
+        candidate: str | None,
+        *,
+        symbol: str,
+        info: dict[str, Any],
+        source: str,
+    ) -> str | None:
+        logger = logging.getLogger(__name__)
+        normalized = self._normalize_optional_identifier(candidate)
+        if self._is_country_consistent_isin(normalized, symbol=symbol, info=info):
+            return normalized
+        if self._is_valid_isin(normalized):
+            logger.debug(
+                "marketdata rejected isin due to country mismatch",
+                extra={"symbol": symbol, "isin": normalized, "exchange": info.get("exchange"), "source": source},
+            )
+        return None
+
+    def _resolve_isin_via_symbol_lookup(self, *, symbol: str, info: dict[str, Any]) -> str | None:
+        normalized_symbol = str(symbol).strip().upper()
+        mic = self._infer_mic_for_symbol_lookup(symbol=symbol, info=info)
+        cache_key = (normalized_symbol, mic)
+        if cache_key in self._symbol_isin_cache:
+            return self._symbol_isin_cache[cache_key]
+
+        for candidate in self._build_symbol_lookup_candidates(symbol):
+            lookup_ticker = self._build_symbol_lookup_ticker(candidate, mic=mic)
+            resolved = self._extract_isin_from_ticker(
+                lookup_ticker,
+                info=self._safe_optional_info(lookup_ticker),
+            )
+            if resolved is not None:
+                self._symbol_isin_cache[cache_key] = resolved
+                return resolved
+        self._symbol_isin_cache[cache_key] = None
+        return None
+
+    def _build_symbol_lookup_ticker(self, symbol: str, *, mic: str | None):
+        normalized_symbol = str(symbol).strip().upper()
+        if mic:
+            try:
+                return yf.Ticker((normalized_symbol, mic))
+            except Exception:
+                return yf.Ticker(normalized_symbol)
+        return yf.Ticker(normalized_symbol)
+
+    @staticmethod
+    def _safe_optional_info(ticker) -> dict[str, Any]:
+        try:
+            return dict(ticker.info or {})
+        except Exception:
+            return {}
+
+    def _infer_mic_for_symbol_lookup(self, *, symbol: str, info: dict[str, Any]) -> str | None:
+        for key in ("mic", "micCode", "marketMic", "exchange", "fullExchangeName", "exchDisp", "market"):
+            normalized_key = self._normalize_exchange_key(info.get(key))
+            if normalized_key is None:
+                continue
+            if len(normalized_key) == 4:
+                return normalized_key
+            mapped = self._EXCHANGE_TO_MIC.get(normalized_key)
+            if mapped is not None:
+                return mapped
+        if "." in symbol:
+            suffix = symbol.rsplit(".", 1)[-1].strip().upper()
+            return self._SYMBOL_SUFFIX_TO_MIC.get(suffix)
+        return None
+
+    @staticmethod
+    def _normalize_exchange_key(value: Any) -> str | None:
+        if value is None:
+            return None
+        normalized = str(value).strip().upper()
+        return normalized or None
+
+    @classmethod
+    def _build_symbol_lookup_candidates(cls, symbol: str) -> list[str]:
+        normalized = str(symbol).strip().upper()
+        if not normalized:
+            return []
+        candidates: list[str] = []
+        if "." in normalized:
+            base_symbol = normalized.split(".", 1)[0].strip()
+            if base_symbol:
+                candidates.append(base_symbol)
+        for alias in cls._build_symbol_aliases(normalized):
+            if alias not in candidates:
+                candidates.append(alias)
+        return candidates
 
     @classmethod
     def _is_valid_isin(cls, value: str | None) -> bool:
