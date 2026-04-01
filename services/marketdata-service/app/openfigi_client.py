@@ -36,8 +36,11 @@ class OpenFigiClient:
         }
         if exchange_code and exchange_code.strip():
             payload["exchCode"] = exchange_code.strip()
-        if company_name and company_name.strip():
-            payload["securityDescription"] = company_name.strip()
+
+        self._logger.debug(
+            "openfigi mapping request",
+            extra={"symbol": symbol, "exchange_code": payload.get("exchCode")},
+        )
 
         headers = {
             "Accept": "application/json",
@@ -69,6 +72,16 @@ class OpenFigiClient:
 
         first = parsed[0]
         if not isinstance(first, Mapping):
+            return []
+
+        warning = first.get("warning")
+        if warning is not None:
+            self._logger.debug("openfigi mapping warning", extra={"warning": str(warning)})
+            return []
+
+        error = first.get("error")
+        if error is not None:
+            self._logger.debug("openfigi mapping error", extra={"error": str(error)})
             return []
 
         data = first.get("data")
