@@ -30,6 +30,7 @@ from app.dependencies import (
 from app.models import InstrumentSearchItem
 from app.models import InstrumentSelectionDetailsResponse, OPENFIGI_IDENTITY_SOURCE
 from app.main import app
+from app.routers import api_v1
 
 
 @pytest.fixture(autouse=True)
@@ -338,3 +339,39 @@ def test_instrument_search_does_not_call_selection_path(monkeypatch: pytest.Monk
     assert payload["total"] == 2
     assert payload["items"][0]["symbol"] == "BAD"
     assert selection_calls == 0
+
+
+def test_instrument_search_runs_blocking_service_in_threadpool(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = 0
+
+    async def _track_threadpool(func, *args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr(api_v1, "run_in_threadpool", _track_threadpool)
+    client = create_test_client(app)
+
+    response = client.get("/api/v1/marketdata/instruments/search", params={"q": "micro", "limit": 5})
+
+    assert response.status_code == 200
+    assert calls == 1
+
+
+def test_selection_endpoint_runs_service_and_hydration_check_in_threadpool(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = 0
+
+    async def _track_threadpool(func, *args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr(api_v1, "run_in_threadpool", _track_threadpool)
+    client = create_test_client(app)
+
+    response = client.get("/api/v1/marketdata/instruments/MSFT/selection")
+
+    assert response.status_code == 200
+    assert calls == 2
