@@ -84,18 +84,29 @@ class SecurityIdentityRepository:
         self._initialize()
 
     def get(self, symbol: str, exchange: str | None) -> InstrumentIdentity | None:
-        document = self._collection.find_one({"symbol": symbol, "exchange": exchange})
+        normalized_symbol = self._normalize_symbol(symbol)
+        normalized_exchange = self._normalize_exchange(exchange)
+        document = self._collection.find_one(self._lookup_filter(normalized_symbol, normalized_exchange))
         if document is None:
             return None
 
         return InstrumentIdentity.model_validate(document)
 
+    def find_by_symbol(self, symbol: str) -> list[InstrumentIdentity]:
+        normalized_symbol = self._normalize_symbol(symbol)
+        documents = self._collection.find({"symbol": normalized_symbol})
+        return [InstrumentIdentity.model_validate(document) for document in documents]
+
     def upsert(self, identity: InstrumentIdentity) -> datetime:
+        normalized_identity = self._normalize_identity(identity)
         resolved_at = datetime.now(UTC)
-        payload = identity.model_dump(mode="json", exclude_none=True)
+        payload = normalized_identity.model_dump(mode="json", exclude_none=True)
+        payload = _drop_none(payload)
+        if not isinstance(payload, dict):
+            payload = {}
         payload["resolved_at"] = resolved_at
         self._collection.update_one(
-            {"symbol": identity.symbol, "exchange": identity.exchange},
+            self._lookup_filter(normalized_identity.symbol, normalized_identity.exchange),
             {"$set": payload},
             upsert=True,
         )
@@ -103,3 +114,43 @@ class SecurityIdentityRepository:
 
     def _initialize(self) -> None:
         self._collection.create_index([("symbol", ASCENDING), ("exchange", ASCENDING)], unique=True)
+        self._collection.create_index([("isin", ASCENDING)], sparse=True)
+
+    @staticmethod
+    def _normalize_symbol(symbol: str) -> str:
+        return symbol.strip().upper()
+
+    @staticmethod
+    def _normalize_exchange(exchange: str | None) -> str | None:
+        if exchange is None:
+            return None
+        normalized = exchange.strip().upper()
+        return normalized or None
+
+    @staticmethod
+    def _normalize_identifier(value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip().upper()
+        return normalized or None
+
+    @classmethod
+    def _normalize_identity(cls, identity: InstrumentIdentity) -> InstrumentIdentity:
+        return identity.model_copy(
+            update={
+                "symbol": cls._normalize_symbol(identity.symbol),
+                "exchange": cls._normalize_exchange(identity.exchange),
+                "isin": cls._normalize_identifier(identity.isin),
+                "figi": cls._normalize_identifier(identity.figi),
+                "wkn": cls._normalize_identifier(identity.wkn),
+            }
+        )
+
+    @staticmethod
+    def _lookup_filter(symbol: str, exchange: str | None) -> dict[str, object]:
+        if exchange is None:
+            return {
+                "symbol": symbol,
+                "$or": [{"exchange": None}, {"exchange": {"$exists": False}}],
+            }
+        return {"symbol": symbol, "exchange": exchange}
