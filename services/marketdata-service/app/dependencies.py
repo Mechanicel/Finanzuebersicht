@@ -5,7 +5,14 @@ from functools import lru_cache
 from pymongo import MongoClient
 
 from app.config import get_settings
-from app.identity import IdentifierResolver, NoopIdentifierResolver, OpenFigiClient, OpenFigiIdentifierResolver
+from app.identity import (
+    FmpClient,
+    FmpIdentifierResolver,
+    IdentifierResolver,
+    NoopIdentifierResolver,
+    OpenFigiClient,
+    OpenFigiIdentifierResolver,
+)
 from app.providers import InMemoryMarketDataProvider, MarketDataProvider, YFinanceMarketDataProvider
 from app.repositories import (
     InstrumentHydratedRepository,
@@ -46,8 +53,6 @@ def get_hydrated_repository() -> InstrumentHydratedRepository:
     return InstrumentHydratedRepository(collection=collection)
 
 
-
-
 @lru_cache
 def get_security_identity_repository() -> SecurityIdentityRepository:
     settings = get_settings()
@@ -60,19 +65,26 @@ def get_security_identity_repository() -> SecurityIdentityRepository:
 def get_identifier_resolver() -> IdentifierResolver:
     settings = get_settings()
     resolver_name = settings.identifier_resolver.strip().lower()
-    openfigi_enabled = settings.openfigi_enabled and resolver_name in {"openfigi", "auto"}
-    if not openfigi_enabled:
-        return NoopIdentifierResolver()
 
-    if not settings.openfigi_api_key:
-        return NoopIdentifierResolver()
+    fmp_enabled = settings.fmp_enabled and resolver_name in {"fmp", "auto"}
+    if fmp_enabled and settings.fmp_api_key:
+        fmp_client = FmpClient(
+            base_url=settings.fmp_base_url,
+            api_key=settings.fmp_api_key,
+            timeout_seconds=settings.fmp_request_timeout_seconds,
+        )
+        return FmpIdentifierResolver(client=fmp_client)
 
-    client = OpenFigiClient(
-        base_url=settings.openfigi_base_url,
-        api_key=settings.openfigi_api_key,
-        timeout_seconds=settings.openfigi_request_timeout_seconds,
-    )
-    return OpenFigiIdentifierResolver(client=client)
+    openfigi_enabled = settings.openfigi_enabled and resolver_name in {"openfigi", "fmp", "auto"}
+    if openfigi_enabled and settings.openfigi_api_key:
+        openfigi_client = OpenFigiClient(
+            base_url=settings.openfigi_base_url,
+            api_key=settings.openfigi_api_key,
+            timeout_seconds=settings.openfigi_request_timeout_seconds,
+        )
+        return OpenFigiIdentifierResolver(client=openfigi_client)
+
+    return NoopIdentifierResolver()
 
 
 @lru_cache
