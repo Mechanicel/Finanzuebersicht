@@ -220,7 +220,6 @@ class YFinanceMarketDataProvider:
             search = yf.Search(
                 query=query,
                 max_results=max_results,
-                session=self._session,
                 timeout=self.timeout_seconds,
             )
             raw_quotes = list(search.quotes or [])
@@ -286,7 +285,7 @@ class YFinanceMarketDataProvider:
         return list(self._benchmarks)
 
     def _get_ticker(self, symbol: str):
-        return yf.Ticker(symbol, session=self._session)
+        return yf.Ticker(symbol)
 
     @staticmethod
     def _build_session(*, retries: int, backoff_factor: float) -> requests.Session:
