@@ -227,6 +227,7 @@ class YFinanceMarketDataProvider:
             symbol = str(quote.get("symbol") or "").upper()
             if not symbol:
                 continue
+
             name = str(quote.get("longname") or quote.get("shortname") or quote.get("name") or symbol)
             isin = self._normalize_optional_identifier(quote.get("isin"))
 
@@ -244,6 +245,7 @@ class YFinanceMarketDataProvider:
                 country=quote.get("region"),
                 sector=None,
             )
+
             score = self._score_search_item(
                 item=item,
                 lowered_query=lowered,
@@ -254,7 +256,24 @@ class YFinanceMarketDataProvider:
                 scored.append((score, item))
 
         scored.sort(key=lambda pair: (pair[0], pair[1].symbol), reverse=True)
-        return [item for _, item in scored[:limit]]
+
+        top_items = [item for _, item in scored[:limit]]
+
+        for item in top_items:
+            if item.isin:
+                continue
+            try:
+                ticker = self._get_ticker(item.symbol)
+                info = self._safe_info(ticker)
+                item.isin = self._safe_isin(ticker, symbol=item.symbol, info=info)
+            except Exception:
+                logger.debug(
+                    "search isin enrichment failed",
+                    extra={"symbol": item.symbol},
+                    exc_info=True,
+                )
+
+        return top_items
 
     @staticmethod
     def _is_upstream_search_failure(exc: Exception) -> bool:
