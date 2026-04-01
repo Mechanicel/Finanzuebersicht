@@ -49,6 +49,61 @@ class MarketDataProvider(Protocol):
     def list_benchmark_options(self) -> list[BenchmarkOption]: ...
 
 
+class OpenFigiSearchClient:
+    def __init__(
+        self,
+        *,
+        base_url: str,
+        timeout_seconds: float,
+        retries: int,
+        backoff_factor: float,
+        api_key: str | None = None,
+    ) -> None:
+        self.base_url = base_url.rstrip("/")
+        self.timeout_seconds = timeout_seconds
+        self.api_key = api_key.strip() if api_key else None
+        self._session = self._build_session(retries=retries, backoff_factor=backoff_factor)
+
+    @staticmethod
+    def _build_session(*, retries: int, backoff_factor: float) -> requests.Session:
+        retry = Retry(
+            total=max(0, retries),
+            backoff_factor=max(0.0, backoff_factor),
+            status_forcelist=(429, 500, 502, 503, 504),
+            allowed_methods=frozenset({"POST"}),
+        )
+        adapter = HTTPAdapter(max_retries=retry)
+        session = requests.Session()
+        session.mount("http://", adapter)
+        session.mount("https://", adapter)
+        return session
+
+    def search(self, *, query: str, start: int = 0) -> list[dict[str, Any]]:
+        return self._post_json("/search", {"query": query, "start": start})
+
+    def map(self, *, payload: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return self._post_json("/mapping", payload)
+
+    def _post_json(self, path: str, payload: Any) -> list[dict[str, Any]]:
+        headers = {"Content-Type": "application/json"}
+        if self.api_key:
+            headers["X-OPENFIGI-APIKEY"] = self.api_key
+        try:
+            response = self._session.post(
+                f"{self.base_url}{path}",
+                json=payload,
+                headers=headers,
+                timeout=self.timeout_seconds,
+            )
+            response.raise_for_status()
+            data = response.json()
+        except requests.RequestException as exc:
+            raise UpstreamServiceError() from exc
+        except ValueError:
+            return []
+        return data if isinstance(data, list) else []
+
+
 class YFinanceMarketDataProvider:
     _ISIN_RE = re.compile(r"^[A-Z]{2}[A-Z0-9]{9}[0-9]$")
     _EXCHANGE_TO_MIC: dict[str, str] = {
@@ -114,32 +169,34 @@ class YFinanceMarketDataProvider:
         DataInterval.ONE_WEEK: "1wk",
         DataInterval.ONE_MONTH: "1mo",
     }
-    _SEARCH_PROVIDER_NAME = "yfinance"
-    _STRUCTURED_PRODUCT_HINTS = (
-        "zertifikat",
-        "certificate",
-        "warrant",
-        "turbo",
-        "knock",
-        "call",
-        "put",
-        "mini",
-        "discount",
-        "tracker",
-        "optionsschein",
-    )
-    _GERMAN_EXCHANGES = {"GER", "XETRA", "XFRA"}
-
     def __init__(
         self,
         *,
         timeout_seconds: float,
         retries: int = 2,
         backoff_factor: float = 0.3,
+        openfigi_base_url: str = "https://api.openfigi.com/v3",
+        openfigi_api_key: str | None = None,
+        openfigi_timeout_seconds: float | None = None,
+        openfigi_retries: int = 2,
+        openfigi_backoff_factor: float = 0.3,
+        openfigi_search_result_limit: int = 20,
+        openfigi_default_market_sec_des: str | None = None,
         benchmark_options: list[BenchmarkOption] | None = None,
     ) -> None:
         self.timeout_seconds = timeout_seconds
         self._session = self._build_session(retries=retries, backoff_factor=backoff_factor)
+        self._openfigi_client = OpenFigiSearchClient(
+            base_url=openfigi_base_url,
+            api_key=openfigi_api_key,
+            timeout_seconds=openfigi_timeout_seconds or timeout_seconds,
+            retries=openfigi_retries,
+            backoff_factor=openfigi_backoff_factor,
+        )
+        self._openfigi_search_result_limit = max(1, openfigi_search_result_limit)
+        self._openfigi_default_market_sec_des = (
+            openfigi_default_market_sec_des.strip() if openfigi_default_market_sec_des else None
+        )
         self._symbol_isin_cache: dict[tuple[str, str | None], str | None] = {}
         self._benchmarks = benchmark_options or [
             BenchmarkOption(
@@ -282,73 +339,81 @@ class YFinanceMarketDataProvider:
 
     def search_instruments(self, query: str, limit: int) -> list[InstrumentSearchItem]:
         logger = logging.getLogger(__name__)
-        max_results = min(max(limit * 3, 10), 40)
-
         try:
-            search = yf.Search(
-                query=query,
-                max_results=max_results,
-                timeout=self.timeout_seconds,
-            )
-            raw_quotes = list(search.quotes or [])
-        except Exception as exc:  # pragma: no cover - library/network behaviour
-            logger.error(
-                "marketdata search failed",
-                extra={
-                    "provider": self._SEARCH_PROVIDER_NAME,
-                    "query": query,
-                    "exception_type": type(exc).__name__,
-                    "error_message": str(exc)[:240],
-                },
-                exc_info=True,
-            )
-            if self._is_upstream_search_failure(exc):
-                raise UpstreamServiceError() from exc
+            openfigi_records = self._collect_openfigi_candidates(query=query, limit=limit)
+            deduped: list[InstrumentSearchItem] = []
+            seen: set[str] = set()
+            for record in openfigi_records:
+                item = self._map_openfigi_item(record)
+                if item is None:
+                    continue
+                dedupe_key = self._openfigi_dedupe_key(record=record, item=item)
+                if dedupe_key in seen:
+                    continue
+                seen.add(dedupe_key)
+                deduped.append(item)
+                if len(deduped) >= limit:
+                    break
+            return deduped
+        except UpstreamServiceError:
+            logger.error("marketdata openfigi search failed", extra={"query": query}, exc_info=True)
+            raise
+        except Exception:
+            logger.exception("marketdata openfigi search parsing failed", extra={"query": query})
             return []
 
-        terms = query.strip()
-        lowered = terms.lower()
-        normalized_isin = terms.upper()
-        exact_wkn = terms.upper() if len(terms) in {6, 7} and terms.isalnum() else None
+    def _collect_openfigi_candidates(self, *, query: str, limit: int) -> list[dict[str, Any]]:
+        max_results = min(max(limit * 3, 10), self._openfigi_search_result_limit)
+        records: list[dict[str, Any]] = []
+        search_hits = self._openfigi_client.search(query=query, start=0)
+        records.extend(item for item in search_hits if isinstance(item, dict))
 
-        scored: list[tuple[int, InstrumentSearchItem]] = []
-        for quote in raw_quotes:
-            symbol = str(quote.get("symbol") or "").upper()
-            if not symbol:
-                continue
-            name = str(quote.get("longname") or quote.get("shortname") or quote.get("name") or symbol)
-            isin = self._normalize_optional_identifier(quote.get("isin"))
+        query_upper = query.strip().upper()
+        if self._is_valid_isin(query_upper):
+            mapping_job: dict[str, Any] = {"idType": "ID_ISIN", "idValue": query_upper}
+            if self._openfigi_default_market_sec_des:
+                mapping_job["marketSecDes"] = self._openfigi_default_market_sec_des
+            mapping_response = self._openfigi_client.map(payload=[mapping_job])
+            for entry in mapping_response:
+                if isinstance(entry, dict):
+                    records.extend(item for item in (entry.get("data") or []) if isinstance(item, dict))
 
-            item = InstrumentSearchItem(
-                symbol=symbol,
-                company_name=name,
-                display_name=str(quote.get("shortname") or quote.get("longname") or name),
-                isin=isin,
-                wkn=self._normalize_optional_identifier(quote.get("wkn")),
-                exchange=quote.get("exchDisp") or quote.get("exchange"),
-                currency=quote.get("currency"),
-                quote_type=quote.get("quoteType"),
-                asset_type=quote.get("typeDisp") or quote.get("quoteType"),
-                last_price=self._to_float(quote.get("regularMarketPrice")),
-                change_1d_pct=self._to_float(quote.get("regularMarketChangePercent")),
-                country=quote.get("region"),
-                sector=None,
-            )
-            score = self._score_search_item(
-                item=item,
-                lowered_query=lowered,
-                query_isin=normalized_isin,
-                exact_wkn=exact_wkn,
-            )
-            if score > 0:
-                scored.append((score, item))
+        return records[:max_results]
 
-        scored.sort(key=lambda pair: (pair[0], pair[1].symbol), reverse=True)
-        return [item for _, item in scored[:limit]]
+    def _map_openfigi_item(self, record: dict[str, Any]) -> InstrumentSearchItem | None:
+        symbol = self._normalize_optional_identifier(record.get("ticker"))
+        if symbol is None:
+            return None
+        company_name = str(record.get("name") or symbol).strip()
+        display_name = str(record.get("securityDescription") or company_name or symbol).strip()
+        return InstrumentSearchItem(
+            symbol=symbol,
+            company_name=company_name or symbol,
+            display_name=display_name or company_name or symbol,
+            isin=self._normalize_optional_identifier(record.get("isin")),
+            wkn=self._normalize_optional_identifier(record.get("wkn")),
+            exchange=record.get("exchCode") or record.get("micCode") or record.get("marketSector"),
+            currency=record.get("currency"),
+            quote_type=record.get("marketSecDes"),
+            asset_type=record.get("securityType2") or record.get("securityType") or record.get("marketSecDes"),
+            last_price=None,
+            change_1d_pct=None,
+            country=record.get("securityCountry"),
+            sector=None,
+        )
 
     @staticmethod
-    def _is_upstream_search_failure(exc: Exception) -> bool:
-        return isinstance(exc, requests.RequestException)
+    def _openfigi_dedupe_key(*, record: dict[str, Any], item: InstrumentSearchItem) -> str:
+        composite_figi = str(record.get("compositeFIGI") or "").strip().upper()
+        figi = str(record.get("figi") or "").strip().upper()
+        isin = str(item.isin or "").strip().upper()
+        if composite_figi:
+            return f"composite:{composite_figi}"
+        if figi:
+            return f"figi:{figi}"
+        if isin:
+            return f"isin:{isin}"
+        return f"symbol:{item.symbol.strip().upper()}"
 
     def list_benchmark_options(self) -> list[BenchmarkOption]:
         return list(self._benchmarks)
@@ -875,91 +940,6 @@ class YFinanceMarketDataProvider:
             points.append(PricePoint(date=point_date, close=close))
         return points
 
-    @staticmethod
-    def _score_search_item(
-        *,
-        item: InstrumentSearchItem,
-        lowered_query: str,
-        query_isin: str,
-        exact_wkn: str | None,
-    ) -> int:
-        score = 0
-        symbol = item.symbol.upper()
-        company = item.company_name.lower()
-        display = (item.display_name or "").lower()
-        isin = (item.isin or "").upper()
-        wkn = (item.wkn or "").upper()
-
-        if symbol == lowered_query.upper():
-            score += 100
-        elif symbol.startswith(lowered_query.upper()):
-            score += 80
-        elif lowered_query in symbol.lower():
-            score += 45
-
-        if isin and isin == query_isin:
-            score += 110
-        elif isin and query_isin in isin:
-            score += 60
-
-        if exact_wkn and wkn == exact_wkn:
-            score += 90
-        elif exact_wkn and wkn and exact_wkn in wkn:
-            score += 40
-
-        if company == lowered_query or display == lowered_query:
-            score += 70
-        elif lowered_query in company or lowered_query in display:
-            score += 30
-
-        score += YFinanceMarketDataProvider._listing_quality_score(item)
-
-        return score
-
-    @classmethod
-    def _listing_quality_score(cls, item: InstrumentSearchItem) -> int:
-        score = 0
-        if cls._is_structured_product_like(item):
-            score -= 220
-        if cls._is_equity_like(item):
-            score += 80
-        if cls._is_german_listing(item):
-            score += 60
-        if cls._is_foreign_duplicate_like(item):
-            score -= 25
-        return score
-
-    @classmethod
-    def _is_structured_product_like(cls, item: InstrumentSearchItem) -> bool:
-        haystack = " ".join(
-            (
-                item.company_name or "",
-                item.display_name or "",
-                item.quote_type or "",
-                item.asset_type or "",
-            )
-        ).lower()
-        return any(hint in haystack for hint in cls._STRUCTURED_PRODUCT_HINTS)
-
-    @staticmethod
-    def _is_equity_like(item: InstrumentSearchItem) -> bool:
-        quote_type = (item.quote_type or "").upper()
-        asset_type = (item.asset_type or "").upper()
-        return quote_type in {"EQUITY", "STOCK"} or asset_type in {"EQUITY", "STOCK"}
-
-    @classmethod
-    def _is_german_listing(cls, item: InstrumentSearchItem) -> bool:
-        symbol = item.symbol.upper()
-        exchange = (item.exchange or "").upper()
-        isin = (item.isin or "").upper()
-        return symbol.endswith(".DE") or exchange in cls._GERMAN_EXCHANGES or isin.startswith("DE")
-
-    @classmethod
-    def _is_foreign_duplicate_like(cls, item: InstrumentSearchItem) -> bool:
-        if cls._is_german_listing(item):
-            return False
-        haystack = " ".join((item.company_name or "", item.display_name or "", item.symbol or "")).upper()
-        return "ADR" in haystack
 
 
 class InMemoryMarketDataProvider:

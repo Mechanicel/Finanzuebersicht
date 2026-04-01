@@ -14,6 +14,13 @@ class Settings(ServiceSettings):
     marketdata_request_timeout_seconds: float = 8.0
     marketdata_request_retries: int = 2
     marketdata_request_backoff_factor: float = 0.3
+    openfigi_base_url: str = "https://api.openfigi.com/v3"
+    openfigi_api_key: str | None = None
+    openfigi_request_timeout_seconds: float = 6.0
+    openfigi_request_retries: int = 2
+    openfigi_request_backoff_factor: float = 0.3
+    openfigi_search_result_limit: int = 20
+    openfigi_search_default_market_sec_des: str | None = None
     marketdata_cache_search_ttl_seconds: int = 60
     marketdata_cache_summary_ttl_seconds: int = 120
     marketdata_cache_price_ttl_seconds: int = 45

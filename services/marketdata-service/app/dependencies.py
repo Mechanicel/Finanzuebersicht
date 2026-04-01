@@ -21,6 +21,13 @@ def get_provider() -> MarketDataProvider:
             timeout_seconds=settings.marketdata_request_timeout_seconds,
             retries=settings.marketdata_request_retries,
             backoff_factor=settings.marketdata_request_backoff_factor,
+            openfigi_base_url=settings.openfigi_base_url,
+            openfigi_api_key=settings.openfigi_api_key,
+            openfigi_timeout_seconds=settings.openfigi_request_timeout_seconds,
+            openfigi_retries=settings.openfigi_request_retries,
+            openfigi_backoff_factor=settings.openfigi_request_backoff_factor,
+            openfigi_search_result_limit=settings.openfigi_search_result_limit,
+            openfigi_default_market_sec_des=settings.openfigi_search_default_market_sec_des,
         )
     raise RuntimeError(f"Unsupported marketdata_provider '{settings.marketdata_provider}'")
 
