@@ -139,6 +139,76 @@ describe('DepotHoldingsManager', () => {
     expect((wrapper.find('[data-testid=\"holding-acquisition-price\"]').element as HTMLInputElement).value).toBe('171.5')
   })
 
+  it('keeps search isin/wkn when selection details return null and prefers detail price', async () => {
+    vi.mocked(apiClient.searchInstruments).mockResolvedValue({
+      query: 'MSFT',
+      total: 1,
+      items: [{
+        symbol: 'MSFT',
+        display_name: 'Microsoft',
+        company_name: 'Microsoft Corp',
+        isin: 'US5949181045',
+        wkn: '870747',
+        currency: 'USD',
+        last_price: 410
+      }]
+    })
+    vi.mocked(apiClient.marketdataSelection).mockResolvedValue({
+      symbol: 'MSFT',
+      display_name: '',
+      isin: null,
+      wkn: null,
+      currency: 'USD',
+      last_price: 415.25
+    })
+
+    const wrapper = mount(DepotHoldingsManager, { props: { personId: 'person-1', depotLabel: 'Depot Core' } })
+    await flushUi()
+    await wrapper.find('input[placeholder*="Name / Symbol / ISIN / WKN"]').setValue('MSFT')
+    await vi.advanceTimersByTimeAsync(350)
+    await flushUi()
+    await wrapper.find('ul.search-list button').trigger('click')
+    await flushUi()
+
+    expect((wrapper.find('[data-testid="holding-isin"]').element as HTMLInputElement).value).toBe('US5949181045')
+    expect((wrapper.find('[data-testid="holding-wkn"]').element as HTMLInputElement).value).toBe('870747')
+    expect((wrapper.find('[data-testid="holding-display-name"]').element as HTMLInputElement).value).toBe('Microsoft')
+    expect((wrapper.find('[data-testid="holding-acquisition-price"]').element as HTMLInputElement).value).toBe('415.25')
+  })
+
+  it('keeps search price as fallback when selection detail has no price', async () => {
+    vi.mocked(apiClient.searchInstruments).mockResolvedValue({
+      query: 'SAP',
+      total: 1,
+      items: [{
+        symbol: 'SAP',
+        display_name: 'SAP SE',
+        isin: 'DE0007164600',
+        wkn: '716460',
+        currency: 'EUR',
+        last_price: 150.4
+      }]
+    })
+    vi.mocked(apiClient.marketdataSelection).mockResolvedValue({
+      symbol: 'SAP',
+      display_name: 'SAP SE Detail',
+      currency: 'EUR',
+      last_price: null
+    })
+
+    const wrapper = mount(DepotHoldingsManager, { props: { personId: 'person-1', depotLabel: 'Depot Core' } })
+    await flushUi()
+    await wrapper.find('input[placeholder*="Name / Symbol / ISIN / WKN"]').setValue('SAP')
+    await vi.advanceTimersByTimeAsync(350)
+    await flushUi()
+    await wrapper.find('ul.search-list button').trigger('click')
+    await flushUi()
+
+    expect((wrapper.find('[data-testid="holding-acquisition-price"]').element as HTMLInputElement).value).toBe('150.4')
+    expect((wrapper.find('[data-testid="holding-isin"]').element as HTMLInputElement).value).toBe('DE0007164600')
+  })
+
+
   it('falls back to search result when detail request fails', async () => {
     vi.mocked(apiClient.searchInstruments).mockResolvedValue({
       query: 'AAPL',
