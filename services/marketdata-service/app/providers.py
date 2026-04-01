@@ -130,6 +130,28 @@ class YFinanceMarketDataProvider:
         "XOSL": "OL",
         "XSTO": "ST",
     }
+    _OPENFIGI_MARKET_PREFERENCE: tuple[str, ...] = (
+        "XETR",
+        "XFRA",
+        "GER",
+        "XPAR",
+        "EPA",
+        "PAR",
+        "XAMS",
+        "AEX",
+        "AMS",
+        "XLON",
+        "LSE",
+        "LON",
+        "XMIL",
+        "XMAD",
+        "XSWX",
+        "XWBO",
+        "XHEL",
+        "XCSE",
+        "XOSL",
+        "XSTO",
+    )
     _EXCHANGE_TO_MIC: dict[str, str] = {
         "XETRA": "XETR",
         "GER": "XETR",
@@ -374,16 +396,21 @@ class YFinanceMarketDataProvider:
                     query_type=query_type,
                     normalized_query=query.strip().upper(),
                 )
-            deduped_by_key: dict[str, InstrumentSearchItem] = {}
+            deduped_by_key: dict[str, tuple[dict[str, Any], InstrumentSearchItem]] = {}
             for record in openfigi_records:
                 item = self._map_openfigi_item(record)
                 if item is None:
                     continue
                 dedupe_key = self._openfigi_dedupe_key(record=record, item=item)
                 current = deduped_by_key.get(dedupe_key)
-                if current is None or self._is_better_openfigi_item(candidate=item, current=current):
-                    deduped_by_key[dedupe_key] = item
-            return list(deduped_by_key.values())[:limit]
+                if current is None or self._is_better_openfigi_item(
+                    candidate_record=record,
+                    candidate=item,
+                    current_record=current[0],
+                    current=current[1],
+                ):
+                    deduped_by_key[dedupe_key] = (record, item)
+            return [value[1] for value in deduped_by_key.values()][:limit]
         except UpstreamServiceError:
             logger.error("marketdata openfigi search failed", extra={"query": query}, exc_info=True)
             raise
@@ -469,27 +496,13 @@ class YFinanceMarketDataProvider:
         )
 
     def _preferred_market_rank(self, record: dict[str, Any]) -> int:
-        preferred_markets = (
-            "XETR",
-            "XFRA",
-            "GER",
-            "XPAR",
-            "EPA",
-            "PAR",
-            "XAMS",
-            "AEX",
-            "AMS",
-            "XLON",
-            "LSE",
-            "LON",
-        )
         market = self._openfigi_primary_market(record)
         if market is None:
-            return len(preferred_markets)
+            return len(self._OPENFIGI_MARKET_PREFERENCE)
         try:
-            return preferred_markets.index(market)
+            return self._OPENFIGI_MARKET_PREFERENCE.index(market)
         except ValueError:
-            return len(preferred_markets)
+            return len(self._OPENFIGI_MARKET_PREFERENCE)
 
     def _openfigi_primary_market(self, record: dict[str, Any]) -> str | None:
         for key in ("micCode", "exchCode", "exchange", "market", "marketSector"):
@@ -533,14 +546,17 @@ class YFinanceMarketDataProvider:
         return bool(cls._SYMBOLISH_RE.fullmatch(normalized))
 
     def _map_openfigi_item(self, record: dict[str, Any]) -> InstrumentSearchItem | None:
+        raw_symbol = self._raw_openfigi_ticker(record)
         symbol = self._normalize_openfigi_symbol(record)
         if symbol is None:
             return None
-        company_name = self._normalize_name_for_query(record.get("name")) or symbol
+        company_name = self._normalize_name_for_query(record.get("name")) or raw_symbol or symbol
         display_name = self._normalize_name_for_query(record.get("securityDescription")) or company_name
         exchange = (
             self._normalize_optional_identifier(record.get("micCode"))
             or self._normalize_optional_identifier(record.get("exchCode"))
+            or self._normalize_optional_identifier(record.get("exchange"))
+            or self._normalize_optional_identifier(record.get("market"))
             or self._normalize_optional_identifier(record.get("marketSector"))
         )
         quote_type = self._normalize_name_for_query(record.get("marketSecDes"))
@@ -563,9 +579,12 @@ class YFinanceMarketDataProvider:
             sector=None,
         )
 
+    def _raw_openfigi_ticker(self, record: dict[str, Any]) -> str | None:
+        return self._normalize_optional_identifier(record.get("ticker"))
+
     def _normalize_openfigi_symbol(self, record: dict[str, Any]) -> str | None:
         logger = logging.getLogger(__name__)
-        raw_symbol = self._normalize_optional_identifier(record.get("ticker"))
+        raw_symbol = self._raw_openfigi_ticker(record)
         if raw_symbol is None:
             return None
         if "." in raw_symbol:
@@ -575,8 +594,10 @@ class YFinanceMarketDataProvider:
             return raw_symbol
         normalized = f"{raw_symbol}.{suffix}"
         logger.debug(
-            "marketdata normalized openfigi ticker to yfinance symbol",
-            extra={"raw_ticker": raw_symbol, "normalized_symbol": normalized, "mic": record.get("micCode")},
+            "marketdata normalized openfigi ticker %s -> %s",
+            raw_symbol,
+            normalized,
+            extra={"mic": record.get("micCode")},
         )
         return normalized
 
@@ -607,14 +628,22 @@ class YFinanceMarketDataProvider:
             return f"isin:{isin}"
         return f"symbol:{item.symbol.strip().upper()}"
 
-    @staticmethod
-    def _is_better_openfigi_item(*, candidate: InstrumentSearchItem, current: InstrumentSearchItem) -> bool:
-        def score(item: InstrumentSearchItem) -> tuple[int, int]:
+    def _is_better_openfigi_item(
+        self,
+        *,
+        candidate_record: dict[str, Any],
+        candidate: InstrumentSearchItem,
+        current_record: dict[str, Any],
+        current: InstrumentSearchItem,
+    ) -> bool:
+        def score(record: dict[str, Any], item: InstrumentSearchItem) -> tuple[int, int, int, int]:
             has_suffix = int("." in item.symbol)
+            raw_has_suffix = int("." in (self._raw_openfigi_ticker(record) or ""))
+            market_score = -self._preferred_market_rank(record)
             metadata_score = int(bool(item.exchange)) + int(bool(item.country))
-            return (has_suffix, metadata_score)
+            return (has_suffix, raw_has_suffix, market_score, metadata_score)
 
-        return score(candidate) > score(current)
+        return score(candidate_record, candidate) > score(current_record, current)
 
     def list_benchmark_options(self) -> list[BenchmarkOption]:
         return list(self._benchmarks)
