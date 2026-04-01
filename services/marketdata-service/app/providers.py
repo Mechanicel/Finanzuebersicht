@@ -347,14 +347,28 @@ class YFinanceMarketDataProvider:
         )
 
     def _safe_isin(self, ticker, *, symbol: str, info: dict[str, Any]) -> str | None:
+        logger = logging.getLogger(__name__)
         try:
-            isin = ticker.isin
+            try:
+                isin = ticker.isin
+            except Exception:
+                logger.exception(
+                    "marketdata ticker.isin lookup failed",
+                    extra={"symbol": symbol},
+                )
+                isin = None
+
+            normalized = self._normalize_optional_identifier(isin)
+            if self._is_valid_isin(normalized):
+                return normalized
+
+            return self._resolve_isin_via_businessinsider(symbol=symbol, info=info)
         except Exception:
-            isin = None
-        normalized = self._normalize_optional_identifier(isin)
-        if self._is_valid_isin(normalized):
-            return normalized
-        return self._resolve_isin_via_businessinsider(symbol=symbol, info=info)
+            logger.exception(
+                "marketdata isin resolution failed",
+                extra={"symbol": symbol},
+            )
+            return None
 
     @classmethod
     def _is_valid_isin(cls, value: str | None) -> bool:
@@ -396,39 +410,43 @@ class YFinanceMarketDataProvider:
         *,
         expected_symbols: list[str],
     ) -> str | None:
-        if not payload:
+        try:
+            if not isinstance(payload, str) or not payload:
+                return None
+
+            for expected_symbol in expected_symbols:
+                marker = f'"{expected_symbol.upper()}|'
+                marker_index = payload.find(marker)
+                if marker_index == -1:
+                    continue
+                start = marker_index + len(marker)
+                end = payload.find('"', start)
+                if end == -1:
+                    continue
+                segment = payload[start:end]
+                first_field = segment.split("|", 1)[0].strip().upper()
+                if self._is_valid_isin(first_field):
+                    return first_field
+
+            expected_symbol_set = {str(symbol).upper() for symbol in expected_symbols}
+            for segment in payload.split('"'):
+                if "|" not in segment:
+                    continue
+                parts = segment.split("|")
+                if not parts:
+                    continue
+                if parts[0].strip().upper() not in expected_symbol_set:
+                    continue
+                for value in parts[1:]:
+                    normalized = value.strip().upper()
+                    if self._is_valid_isin(normalized):
+                        return normalized
+        except Exception:
             return None
-
-        for expected_symbol in expected_symbols:
-            marker = f'"{expected_symbol.upper()}|'
-            marker_index = payload.find(marker)
-            if marker_index == -1:
-                continue
-            start = marker_index + len(marker)
-            end = payload.find('"', start)
-            if end == -1:
-                continue
-            segment = payload[start:end]
-            first_field = segment.split("|", 1)[0].strip().upper()
-            if self._is_valid_isin(first_field):
-                return first_field
-
-        expected_symbol_set = {symbol.upper() for symbol in expected_symbols}
-        for segment in payload.split('"'):
-            if "|" not in segment:
-                continue
-            parts = segment.split("|")
-            if not parts:
-                continue
-            if parts[0].strip().upper() not in expected_symbol_set:
-                continue
-            for value in parts[1:]:
-                normalized = value.strip().upper()
-                if self._is_valid_isin(normalized):
-                    return normalized
         return None
 
     def _resolve_isin_via_businessinsider(self, *, symbol: str, info: dict[str, Any]) -> str | None:
+        logger = logging.getLogger(__name__)
         expected_symbols = [
             symbol.upper(),
             symbol.split(".", 1)[0].upper(),
@@ -443,15 +461,29 @@ class YFinanceMarketDataProvider:
                 response = self._session.get(url, timeout=self.timeout_seconds)
             except Exception:
                 continue
-            if not response.ok:
+            if response is None:
                 continue
-            payload = response.text
-            resolved = self._extract_isin_from_businessinsider_payload(
-                payload,
-                expected_symbols=expected_symbols,
-            )
+            status_code = getattr(response, "status_code", None)
+            if status_code != 200:
+                continue
+            payload = getattr(response, "text", "") or ""
+            try:
+                resolved = self._extract_isin_from_businessinsider_payload(
+                    payload,
+                    expected_symbols=expected_symbols,
+                )
+            except Exception:
+                continue
             if resolved is not None:
+                logger.debug(
+                    "marketdata isin fallback resolved",
+                    extra={"symbol": symbol, "isin": resolved},
+                )
                 return resolved
+        logger.debug(
+            "marketdata isin fallback unresolved",
+            extra={"symbol": symbol},
+        )
         return None
 
     @staticmethod
