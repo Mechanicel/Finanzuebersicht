@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any
 
 from pymongo import ASCENDING
 from pymongo.collection import Collection
 
-from app.models import CachedInstrumentProfile, utcnow
+from app.models import CachedInstrumentProfile, InstrumentProfile, PersistenceOnlyInstrumentProfile, utcnow
 
 
 class InstrumentProfileCacheRepository:
@@ -25,23 +24,36 @@ class InstrumentProfileCacheRepository:
         if fetched_at.tzinfo is None:
             fetched_at = fetched_at.replace(tzinfo=UTC)
 
-        payload = document.get("payload")
-        if not isinstance(payload, dict):
+        visible_profile = document.get("visible_profile")
+        persistence_only_profile = document.get("persistence_only_profile")
+        source = document.get("source")
+        if not isinstance(visible_profile, dict) or not isinstance(persistence_only_profile, dict) or not isinstance(source, str):
             return None
 
         return CachedInstrumentProfile(
-            payload=payload,
+            symbol=symbol,
+            source=source,
+            visible_profile=InstrumentProfile.model_validate(visible_profile),
+            persistence_only_profile=PersistenceOnlyInstrumentProfile.model_validate(persistence_only_profile),
             fetched_at=fetched_at,
         )
 
-    def upsert(self, symbol: str, payload: dict[str, Any], source: str = "fmp_profile_v1") -> datetime:
+    def upsert(
+        self,
+        symbol: str,
+        *,
+        visible_profile: dict,
+        persistence_only_profile: dict,
+        source: str = "fmp_profile_v2",
+    ) -> datetime:
         fetched_at = utcnow()
         self._collection.update_one(
             {"symbol": symbol},
             {
                 "$set": {
                     "symbol": symbol,
-                    "payload": payload,
+                    "visible_profile": visible_profile,
+                    "persistence_only_profile": persistence_only_profile,
                     "fetched_at": fetched_at,
                     "source": source,
                 }
@@ -58,7 +70,20 @@ class InMemoryInstrumentProfileCacheRepository:
     def get(self, symbol: str) -> CachedInstrumentProfile | None:
         return self._data.get(symbol)
 
-    def upsert(self, symbol: str, payload: dict[str, Any], source: str = "fmp_profile_v1") -> datetime:
+    def upsert(
+        self,
+        symbol: str,
+        *,
+        visible_profile: dict,
+        persistence_only_profile: dict,
+        source: str = "fmp_profile_v2",
+    ) -> datetime:
         fetched_at = utcnow()
-        self._data[symbol] = CachedInstrumentProfile(payload=payload, fetched_at=fetched_at)
+        self._data[symbol] = CachedInstrumentProfile(
+            symbol=symbol,
+            source=source,
+            visible_profile=InstrumentProfile.model_validate(visible_profile),
+            persistence_only_profile=PersistenceOnlyInstrumentProfile.model_validate(persistence_only_profile),
+            fetched_at=fetched_at,
+        )
         return fetched_at

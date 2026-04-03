@@ -45,7 +45,7 @@
           <ErrorState v-else-if="profileError" :message="profileError" />
           <p v-else-if="!selectedProfile" class="muted">Noch kein Profil geladen. Wähle einen Suchtreffer aus.</p>
           <div v-else class="profile-details">
-            <img v-if="selectedProfile.image" :src="selectedProfile.image" :alt="`Logo ${selectedProfile.companyName || selectedProfile.symbol}`" class="profile-image" />
+            <img v-if="selectedProfile.image" :src="selectedProfile.image" :alt="`Logo ${selectedProfile.company_name || selectedProfile.symbol}`" class="profile-image" />
             <dl>
               <template v-for="entry in profileEntries" :key="entry.key">
                 <dt>{{ entry.label }}</dt>
@@ -288,11 +288,11 @@ function buildDraftHoldingFromProfile(profile: MarketdataProfile) {
     symbol: profile.symbol,
     isin: typeof profile.isin === 'string' ? profile.isin : null,
     wkn: null,
-    display_name: typeof profile.companyName === 'string' ? profile.companyName : null,
-    company_name: typeof profile.companyName === 'string' ? profile.companyName : null,
+    display_name: typeof profile.company_name === 'string' ? profile.company_name : null,
+    company_name: typeof profile.company_name === 'string' ? profile.company_name : null,
     exchange: typeof profile.exchange === 'string' ? profile.exchange : null,
     quote_type: null,
-    asset_type: profile.isEtf ? 'ETF' : profile.isFund ? 'Fund' : 'Stock',
+    asset_type: null,
     quantity: 1,
     acquisition_price: typeof profile.price === 'number' ? profile.price : null,
     currency: typeof profile.currency === 'string' ? profile.currency : 'EUR',

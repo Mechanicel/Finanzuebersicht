@@ -111,14 +111,12 @@ describe('DepotHoldingsManager (FMP flow)', () => {
     })
     vi.mocked(apiClient.marketdataProfile).mockResolvedValue({
       symbol: 'CBK.DE',
-      companyName: 'Commerzbank AG',
+      company_name: 'Commerzbank AG',
       currency: 'EUR',
       exchange: 'XETRA',
-      exchangeFullName: 'Deutsche Börse Xetra',
+      exchange_full_name: 'Deutsche Börse Xetra',
       sector: 'Financial Services',
       country: 'DE',
-      isEtf: false,
-      isFund: false,
       price: 18.35,
     })
 
@@ -134,9 +132,9 @@ describe('DepotHoldingsManager (FMP flow)', () => {
 
     expect(apiClient.marketdataProfile).toHaveBeenCalledWith('CBK.DE')
     const profilePanelText = wrapper.find('.profile-panel').text()
-    expect(profilePanelText).toContain('companyName')
+    expect(profilePanelText).toContain('company_name')
     expect(profilePanelText).toContain('Commerzbank AG')
-    expect(profilePanelText).toContain('exchangeFullName')
+    expect(profilePanelText).toContain('exchange_full_name')
     expect(profilePanelText).toContain('Deutsche Börse Xetra')
     expect(profilePanelText).toContain('sector')
     expect(profilePanelText).toContain('Financial Services')
@@ -150,12 +148,10 @@ describe('DepotHoldingsManager (FMP flow)', () => {
     })
     vi.mocked(apiClient.marketdataProfile).mockResolvedValue({
       symbol: 'CBK.DE',
-      companyName: 'Commerzbank AG',
+      company_name: 'Commerzbank AG',
       isin: 'DE000CBK1001',
       exchange: 'XETRA',
       currency: 'EUR',
-      isEtf: false,
-      isFund: false,
       price: 18.35,
     })
 
@@ -174,7 +170,7 @@ describe('DepotHoldingsManager (FMP flow)', () => {
     expect((wrapper.find('[data-testid="holding-exchange"]').element as HTMLInputElement).value).toBe('XETRA')
     expect((wrapper.find('[data-testid="holding-currency"]').element as HTMLInputElement).value).toBe('EUR')
     expect((wrapper.find('[data-testid="holding-acquisition-price"]').element as HTMLInputElement).value).toBe('18.35')
-    expect((wrapper.find('[data-testid="holding-asset-type"]').element as HTMLInputElement).value).toBe('Stock')
+    expect((wrapper.find('[data-testid="holding-asset-type"]').element as HTMLInputElement).value).toBe('')
   })
 
   it('shows errors for failed search and failed profile requests', async () => {

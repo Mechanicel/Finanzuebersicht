@@ -4,7 +4,16 @@ from datetime import timedelta
 import logging
 
 from app.clients.fmp_client import FMPClient
-from app.models import BadRequestError, InstrumentProfile, InstrumentSearchItem, InstrumentSearchResponse, NotFoundError, utcnow
+from app.models import (
+    BadRequestError,
+    FMPInstrumentProfile,
+    InstrumentProfile,
+    InstrumentSearchItem,
+    InstrumentSearchResponse,
+    NotFoundError,
+    PersistenceOnlyInstrumentProfile,
+    utcnow,
+)
 from app.repositories import InMemoryInstrumentProfileCacheRepository, InstrumentProfileCacheRepository
 
 LOGGER = logging.getLogger(__name__)
@@ -69,19 +78,50 @@ class MarketDataService:
             cached = None
 
         if cached is not None and self._is_fresh(cached.fetched_at):
-            return InstrumentProfile.model_validate(cached.payload | {"symbol": normalized})
+            return cached.visible_profile
 
         rows = self._fmp_client.profile(symbol=normalized)
         if not rows:
             raise NotFoundError(f"Instrument '{normalized}' not found")
 
-        full_payload = rows[0] | {"symbol": normalized}
-        profile = InstrumentProfile.model_validate(full_payload)
+        parsed = FMPInstrumentProfile.model_validate(rows[0] | {"symbol": normalized})
+        visible_profile = self._build_visible_profile(parsed)
+        persistence_only_profile = self._build_persistence_profile(parsed)
+
         try:
-            self._profile_repository.upsert(normalized, full_payload)
+            self._profile_repository.upsert(
+                normalized,
+                visible_profile=visible_profile.model_dump(),
+                persistence_only_profile=persistence_only_profile.model_dump(),
+            )
         except Exception:
             LOGGER.warning("profile cache write failed for symbol '%s'", normalized, exc_info=True)
-        return profile
+        return visible_profile
+
+    def _build_visible_profile(self, parsed: FMPInstrumentProfile) -> InstrumentProfile:
+        visible_profile = InstrumentProfile.model_validate(parsed.model_dump())
+        visible_profile.address_line = self._build_address_line(
+            visible_profile.address,
+            visible_profile.zip,
+            visible_profile.city,
+        )
+        return visible_profile
+
+    @staticmethod
+    def _build_persistence_profile(parsed: FMPInstrumentProfile) -> PersistenceOnlyInstrumentProfile:
+        return PersistenceOnlyInstrumentProfile.model_validate(parsed.model_dump())
+
+    @staticmethod
+    def _build_address_line(address: str | None, zip_code: str | None, city: str | None) -> str | None:
+        prefix_parts = [part.strip() for part in [address] if isinstance(part, str) and part.strip()]
+        location_parts = [part.strip() for part in [zip_code, city] if isinstance(part, str) and part.strip()]
+
+        if location_parts:
+            prefix_parts.append(" ".join(location_parts))
+
+        if not prefix_parts:
+            return None
+        return ", ".join(prefix_parts)
 
     def _is_fresh(self, fetched_at) -> bool:
         return utcnow() - fetched_at <= timedelta(seconds=self._profile_cache_ttl_seconds)

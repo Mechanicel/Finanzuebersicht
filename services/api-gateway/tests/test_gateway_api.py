@@ -328,7 +328,13 @@ class StubGatewayService:
         return {"symbol": symbol, "summary": {"name": "Apple Inc."}, "prices": {"points": []}}
 
     async def get_marketdata_profile(self, symbol: str) -> dict:
-        return {"symbol": symbol, "name": "Apple Inc.", "quote": {"price": 100.0, "currency": "USD"}}
+        return {
+            "symbol": symbol,
+            "company_name": "Apple Inc.",
+            "price": 100.0,
+            "currency": "USD",
+            "address_line": "One Apple Park Way, 95014 Cupertino",
+        }
 
 
 def test_health_endpoint() -> None:
@@ -501,7 +507,8 @@ def test_marketdata_routes_return_downstream_payloads() -> None:
     assert prices_response.status_code == 200
     assert prices_response.json()["data"]["symbol"] == "AAPL"
     assert profile_response.status_code == 200
-    assert profile_response.json()["data"]["quote"]["price"] == 100.0
+    assert profile_response.json()["data"]["price"] == 100.0
+    assert "quote" not in profile_response.json()["data"]
     app.dependency_overrides.clear()
 
 
@@ -512,7 +519,7 @@ def test_marketdata_selection_route_is_deprecated_alias_for_profile() -> None:
     response = client.get("/api/v1/app/marketdata/instruments/AAPL/selection")
 
     assert response.status_code == 200
-    assert response.json()["data"]["quote"]["price"] == 100.0
+    assert response.json()["data"]["price"] == 100.0
     app.dependency_overrides.clear()
 
 

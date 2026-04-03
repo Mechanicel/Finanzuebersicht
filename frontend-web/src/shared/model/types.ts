@@ -258,41 +258,24 @@ export interface InstrumentSearchResult {
 
 export interface MarketdataProfile {
   symbol: string
-  companyName?: string | null
+  company_name: string
   price?: number | null
-  marketCap?: number | null
-  beta?: number | null
-  lastDividend?: number | null
-  range?: string | null
-  change?: number | null
-  changePercentage?: number | null
-  volume?: number | null
-  averageVolume?: number | null
   currency?: string | null
   isin?: string | null
-  cusip?: string | null
-  exchangeFullName?: string | null
   exchange?: string | null
+  exchange_full_name?: string | null
   industry?: string | null
   website?: string | null
   description?: string | null
   ceo?: string | null
   sector?: string | null
   country?: string | null
-  fullTimeEmployees?: string | number | null
   phone?: string | null
+  image?: string | null
   address?: string | null
   city?: string | null
-  state?: string | null
   zip?: string | null
-  image?: string | null
-  ipoDate?: string | null
-  defaultImage?: boolean | null
-  isEtf?: boolean | null
-  isActivelyTrading?: boolean | null
-  isAdr?: boolean | null
-  isFund?: boolean | null
-  [key: string]: unknown
+  address_line?: string | null
 }
 
 export interface DashboardReadModel {
