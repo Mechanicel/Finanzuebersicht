@@ -1,344 +1,89 @@
 from __future__ import annotations
 
-import logging
-from app.cache import TTLMemoryCache
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 
-from app.models import (
-    BadRequestError,
-    BenchmarkOptionsResponse,
-    BenchmarkSearchResponse,
-    ComparisonSeriesItem,
-    ComparisonSeriesRequest,
-    ComparisonSeriesResponse,
-    DataInterval,
-    DataRange,
-    InstrumentDataBlocksResponse,
-    InstrumentFullResponse,
-    InstrumentSearchItem,
-    InstrumentSelectionDetailsResponse,
-    InstrumentSearchResponse,
-    InstrumentSummary,
-    NotFoundError,
-    OPENFIGI_IDENTITY_SOURCE,
-    PriceSeriesResponse,
-    SeriesPoint,
-)
-from app.providers import MarketDataProvider
-from app.repositories import InstrumentHydratedRepository, InstrumentSelectionCacheRepository
+from app.clients.fmp_client import FMPClient
+from app.models import BadRequestError, InstrumentProfile, InstrumentSearchItem, InstrumentSearchResponse, NotFoundError, utcnow
+from app.repositories import InMemoryInstrumentProfileCacheRepository, InstrumentProfileCacheRepository
 
 
 class MarketDataService:
-    _SEARCH_CACHE_PREFIX = "search:openfigi:v1"
-    _SELECTION_MEMORY_CACHE_PREFIX = "selection:openfigi:v1"
-    _HYDRATED_FRESHNESS_TTL_SECONDS = 60 * 60 * 6
     def __init__(
         self,
-        provider: MarketDataProvider,
         *,
+        fmp_client: FMPClient,
+        profile_repository: InstrumentProfileCacheRepository | InMemoryInstrumentProfileCacheRepository,
         cache_enabled: bool,
-        cache_search_ttl_seconds: int,
-        cache_summary_ttl_seconds: int,
-        cache_price_ttl_seconds: int,
-        cache_series_ttl_seconds: int,
-        cache_benchmark_ttl_seconds: int,
-        selection_cache_repository: InstrumentSelectionCacheRepository,
-        hydrated_repository: InstrumentHydratedRepository,
-        selection_cache_ttl_seconds: int,
-        hydrated_freshness_ttl_seconds: int = _HYDRATED_FRESHNESS_TTL_SECONDS,
+        profile_cache_ttl_seconds: int,
     ) -> None:
-        self._logger = logging.getLogger(__name__)
-        self.provider = provider
-        self.cache_enabled = cache_enabled
-        self.summary_cache: TTLMemoryCache[object] | None = (
-            TTLMemoryCache(ttl_seconds=cache_summary_ttl_seconds) if cache_enabled else None
-        )
-        self.price_cache: TTLMemoryCache[object] | None = (
-            TTLMemoryCache(ttl_seconds=cache_price_ttl_seconds) if cache_enabled else None
-        )
-        self.series_cache: TTLMemoryCache[object] | None = (
-            TTLMemoryCache(ttl_seconds=cache_series_ttl_seconds) if cache_enabled else None
-        )
-        self.search_cache: TTLMemoryCache[object] | None = (
-            TTLMemoryCache(ttl_seconds=cache_search_ttl_seconds) if cache_enabled else None
-        )
-        self.benchmark_cache: TTLMemoryCache[object] | None = (
-            TTLMemoryCache(ttl_seconds=cache_benchmark_ttl_seconds) if cache_enabled else None
-        )
-        self.selection_cache_repository = selection_cache_repository
-        self.hydrated_repository = hydrated_repository
-        self.selection_cache_ttl_seconds = selection_cache_ttl_seconds
-        self.hydrated_freshness_ttl_seconds = hydrated_freshness_ttl_seconds
-        self.selection_memory_cache: TTLMemoryCache[object] | None = (
-            TTLMemoryCache(ttl_seconds=selection_cache_ttl_seconds) if cache_enabled else None
-        )
+        self._fmp_client = fmp_client
+        self._profile_repository = profile_repository
+        self._cache_enabled = cache_enabled
+        self._profile_cache_ttl_seconds = profile_cache_ttl_seconds
+        self._search_cache: dict[tuple[str, int], InstrumentSearchResponse] = {}
 
-    def get_instrument_summary(self, symbol: str) -> InstrumentSummary:
-        normalized = self._normalize_symbol(symbol)
-        cache_key = f"summary:{normalized}"
-        cached = self._cache_get(self.summary_cache, cache_key)
-        if cached is not None:
-            return cached
+    def search_instruments(self, query: str, limit: int) -> InstrumentSearchResponse:
+        cleaned_query = query.strip()
+        if len(cleaned_query) < 1:
+            raise BadRequestError("query must contain at least 1 character")
 
-        summary = self.provider.get_instrument_summary(normalized)
-        if summary is None:
-            raise NotFoundError(f"Instrument '{normalized}' not found")
-        self._cache_set(self.summary_cache, cache_key, summary)
-        return summary
+        cache_key = (cleaned_query.lower(), limit)
+        if self._cache_enabled and cache_key in self._search_cache:
+            return self._search_cache[cache_key]
 
-    def get_price_series(
-        self,
-        *,
-        symbol: str,
-        data_range: DataRange,
-        interval: DataInterval,
-    ) -> PriceSeriesResponse:
-        normalized = self._normalize_symbol(symbol)
-        cache_key = f"prices:{normalized}:{data_range}:{interval}"
-        cached = self._cache_get(self.series_cache, cache_key)
-        if cached is None:
-            points = self.provider.get_price_series(normalized, data_range, interval)
-            if points is None:
-                raise NotFoundError(f"Instrument '{normalized}' not found")
-            self._cache_set(self.series_cache, cache_key, points)
-        else:
-            points = cached
-
-        summary = self.get_instrument_summary(normalized)
-        return PriceSeriesResponse(
-            symbol=summary.symbol,
-            currency=summary.currency,
-            range=data_range,
-            interval=interval,
-            points=points,
-        )
-
-    def get_instrument_blocks(self, symbol: str) -> InstrumentDataBlocksResponse:
-        normalized = self._normalize_symbol(symbol)
-        cache_key = f"priceblocks:{normalized}"
-        cached = self._cache_get(self.price_cache, cache_key)
-        if cached is not None:
-            return cached
-        blocks = self.provider.get_instrument_blocks(normalized)
-        if blocks is None:
-            raise NotFoundError(f"Instrument '{normalized}' not found")
-        self._cache_set(self.price_cache, cache_key, blocks)
-        return blocks
-
-    def get_instrument_full(self, symbol: str) -> InstrumentFullResponse:
-        normalized = self._normalize_symbol(symbol)
-        cache_key = f"full:{normalized}"
-        cached = self._cache_get(self.price_cache, cache_key)
-        if cached is not None:
-            return cached
-        full = self.provider.get_instrument_full(normalized)
-        if full is None:
-            raise NotFoundError(f"Instrument '{normalized}' not found")
-        self._cache_set(self.price_cache, cache_key, full)
-        return full
-
-    def get_instrument_selection_details(self, symbol: str) -> InstrumentSelectionDetailsResponse:
-        normalized = self._normalize_symbol(symbol)
-        cache_key = f"{self._SELECTION_MEMORY_CACHE_PREFIX}:{normalized}"
-
-        cached = self._cache_get(self.selection_memory_cache, cache_key)
-        if cached is not None:
-            return cached
-
-        cached_payload: InstrumentSelectionDetailsResponse | None = None
-        db_cached = self.selection_cache_repository.get(normalized, OPENFIGI_IDENTITY_SOURCE)
-        if db_cached is not None:
-            payload, fetched_at = db_cached
-            cached_payload = payload
-            if self._is_selection_cache_fresh(fetched_at):
-                self._cache_set(self.selection_memory_cache, cache_key, payload)
-                return payload
-
-        selection = self.provider.get_instrument_selection_details(normalized)
-        if selection is None:
-            raise NotFoundError(f"Instrument '{normalized}' not found")
-        selection = self._enrich_selection_details(selection)
-        if cached_payload is not None:
-            selection = self._merge_selection_details(cached_payload, selection)
-
-        persisted_at = self.selection_cache_repository.upsert(normalized, selection, OPENFIGI_IDENTITY_SOURCE)
-        if selection.as_of is None:
-            selection = selection.model_copy(update={"as_of": persisted_at})
-        self._cache_set(self.selection_memory_cache, cache_key, selection)
-        return selection
-
-    def hydrate_instrument_in_background(self, symbol: str) -> None:
-        normalized = self._normalize_symbol(symbol)
-        try:
-            payload = self.provider.get_instrument_hydration_payload(normalized)
-            if payload is None:
-                return
-            self.hydrated_repository.upsert(normalized, payload)
-        except Exception:
-            self._logger.exception("marketdata background hydration failed", extra={"symbol": normalized})
-
-    def should_trigger_background_hydration(self, symbol: str) -> bool:
-        normalized = self._normalize_symbol(symbol)
-        hydrated_at = self.hydrated_repository.get_hydrated_at(normalized)
-        if hydrated_at is None:
-            return True
-        return not self._is_hydrated_document_fresh(hydrated_at)
-
-    def _merge_selection_details(
-        self,
-        cached: InstrumentSelectionDetailsResponse,
-        fresh: InstrumentSelectionDetailsResponse,
-    ) -> InstrumentSelectionDetailsResponse:
-        identity_fields = (
-            "isin",
-            "wkn",
-            "company_name",
-            "display_name",
-            "exchange",
-            "currency",
-            "quote_type",
-            "asset_type",
-        )
-        updates: dict[str, str | None] = {}
-        for field_name in identity_fields:
-            fresh_value = getattr(fresh, field_name)
-            if self._is_blank_value(fresh_value):
-                updates[field_name] = getattr(cached, field_name)
-
-        if not updates:
-            return fresh
-        return fresh.model_copy(update=updates)
-
-    def _enrich_selection_details(
-        self, selection: InstrumentSelectionDetailsResponse
-    ) -> InstrumentSelectionDetailsResponse:
-        candidates = self.provider.search_instruments(selection.symbol, limit=10)
-        best_match = next((item for item in candidates if item.symbol.upper() == selection.symbol.upper()), None)
-        if best_match is None and candidates:
-            best_match = candidates[0]
-        if best_match is None:
-            return selection
-
-        updates: dict[str, str] = {}
-        for field_name in ("isin", "wkn", "display_name", "exchange", "quote_type", "asset_type"):
-            current_value = getattr(selection, field_name)
-            candidate_value = getattr(best_match, field_name)
-            if self._is_blank_value(current_value) and not self._is_blank_value(candidate_value):
-                updates[field_name] = candidate_value
-
-        if not updates:
-            return selection
-        return selection.model_copy(update=updates)
-
-    @staticmethod
-    def _is_blank_value(value: str | None) -> bool:
-        return value is None or value.strip() == ""
-
-    def list_benchmark_options(self) -> BenchmarkOptionsResponse:
-        cache_key = "benchmarks:options"
-        cached = self._cache_get(self.benchmark_cache, cache_key)
-        if cached is None:
-            items = self.provider.list_benchmark_options()
-            self._cache_set(self.benchmark_cache, cache_key, items)
-        else:
-            items = cached
-        return BenchmarkOptionsResponse(items=items, total=len(items))
-
-    def search_benchmarks(self, query: str) -> BenchmarkSearchResponse:
-        normalized = query.strip().lower()
-        if len(normalized) < 2:
-            raise BadRequestError("query must contain at least 2 characters")
-
-        options = self.provider.list_benchmark_options()
+        rows = self._fmp_client.search_name(query=cleaned_query, limit=limit)
         items = [
-            option
-            for option in options
-            if normalized in option.label.lower()
-            or normalized in option.symbol.lower()
-            or normalized in option.benchmark_id.lower()
+            InstrumentSearchItem.model_validate(
+                {
+                    "symbol": row.get("symbol", ""),
+                    "name": row.get("name") or row.get("companyName") or "",
+                    "currency": row.get("currency"),
+                    "exchange": row.get("exchange") or row.get("stockExchange"),
+                    "exchange_short_name": row.get("exchangeShortName"),
+                    "type": row.get("type"),
+                }
+            )
+            for row in rows
+            if row.get("symbol") and (row.get("name") or row.get("companyName"))
         ]
-        return BenchmarkSearchResponse(query=query, items=items, total=len(items))
+        response = InstrumentSearchResponse(query=cleaned_query, items=items, total=len(items))
+        if self._cache_enabled:
+            self._search_cache[cache_key] = response
+        return response
 
-    def search_instruments(self, query: str, limit: int = 10) -> InstrumentSearchResponse:
-        normalized_query = query.strip()
-        if not normalized_query:
-            raise BadRequestError("query must not be empty")
-
-        bounded_limit = min(max(1, limit), 25)
-        normalized_cache_query = normalized_query.lower()
-        cache_key = f"{self._SEARCH_CACHE_PREFIX}:{normalized_cache_query}:{bounded_limit}"
-        cached = self._cache_get(self.search_cache, cache_key)
-        if cached is None:
-            items = self.provider.search_instruments(normalized_cache_query, bounded_limit)
-            self._cache_set(self.search_cache, cache_key, items)
-        else:
-            items = cached
-        return InstrumentSearchResponse(query=normalized_query, items=items, total=len(items))
-
-    def get_comparison_series(self, payload: ComparisonSeriesRequest) -> ComparisonSeriesResponse:
-        series: list[ComparisonSeriesItem] = []
-
-        for symbol in payload.symbols:
-            data = self.get_price_series(symbol=symbol, data_range=payload.range, interval=payload.interval)
-            series.append(
-                ComparisonSeriesItem(
-                    series_id=data.symbol,
-                    label=self.get_instrument_summary(symbol).company_name,
-                    kind="instrument",
-                    currency=data.currency,
-                    points=[SeriesPoint(date=item.date, value=item.close) for item in data.points],
-                )
-            )
-
-        if payload.benchmark_id:
-            benchmark = next(
-                (
-                    item
-                    for item in self.provider.list_benchmark_options()
-                    if item.benchmark_id == payload.benchmark_id
-                ),
-                None,
-            )
-            if benchmark is None:
-                raise NotFoundError(f"Benchmark '{payload.benchmark_id}' not found")
-
-            benchmark_data = self.get_price_series(
-                symbol=benchmark.symbol, data_range=payload.range, interval=payload.interval
-            )
-            series.append(
-                ComparisonSeriesItem(
-                    series_id=benchmark.benchmark_id,
-                    label=benchmark.label,
-                    kind="benchmark",
-                    currency=benchmark_data.currency,
-                    points=[SeriesPoint(date=item.date, value=item.close) for item in benchmark_data.points],
-                )
-            )
-
-        return ComparisonSeriesResponse(range=payload.range, interval=payload.interval, series=series)
-
-    def _is_selection_cache_fresh(self, fetched_at: datetime) -> bool:
-        if fetched_at.tzinfo is None:
-            fetched_at = fetched_at.replace(tzinfo=UTC)
-        return datetime.now(UTC) - fetched_at < timedelta(seconds=self.selection_cache_ttl_seconds)
-
-    def _is_hydrated_document_fresh(self, hydrated_at: datetime) -> bool:
-        if hydrated_at.tzinfo is None:
-            hydrated_at = hydrated_at.replace(tzinfo=UTC)
-        return datetime.now(UTC) - hydrated_at < timedelta(seconds=self.hydrated_freshness_ttl_seconds)
-
-    @staticmethod
-    def _normalize_symbol(symbol: str) -> str:
+    def get_instrument_profile(self, symbol: str) -> InstrumentProfile:
         normalized = symbol.strip().upper()
         if not normalized:
             raise BadRequestError("symbol must not be empty")
-        return normalized
 
-    def _cache_get(self, cache: TTLMemoryCache[object] | None, key: str):
-        if self.cache_enabled and cache is not None:
-            return cache.get(key)
-        return None
+        cached = self._profile_repository.get(normalized)
+        if cached is not None and self._is_fresh(cached.fetched_at):
+            return cached.profile
 
-    def _cache_set(self, cache: TTLMemoryCache[object] | None, key: str, value: object) -> None:
-        if self.cache_enabled and cache is not None:
-            cache.set(key, value)
+        rows = self._fmp_client.profile(symbol=normalized)
+        if not rows:
+            raise NotFoundError(f"Instrument '{normalized}' not found")
+
+        row = rows[0]
+        profile = InstrumentProfile(
+            symbol=row.get("symbol") or normalized,
+            company_name=row.get("companyName") or normalized,
+            currency=row.get("currency"),
+            exchange=row.get("exchange") or row.get("stockExchange"),
+            exchange_short_name=row.get("exchangeShortName"),
+            industry=row.get("industry"),
+            sector=row.get("sector"),
+            country=row.get("country"),
+            description=row.get("description"),
+            website=row.get("website"),
+            image=row.get("image"),
+            market_cap=row.get("mktCap"),
+            price=row.get("price"),
+            beta=row.get("beta"),
+        )
+
+        stored_at = self._profile_repository.upsert(normalized, profile)
+        return profile.model_copy(update={"as_of": stored_at})
+
+    def _is_fresh(self, fetched_at) -> bool:
+        return utcnow() - fetched_at <= timedelta(seconds=self._profile_cache_ttl_seconds)
