@@ -59,19 +59,19 @@
           <ErrorState v-if="profileError" :message="profileError" />
           <form class="holding-form" @submit.prevent="createHolding">
             <div class="grid three-col">
-              <div><label>Symbol</label><input data-testid="holding-symbol" class="input" v-model.trim="draftHolding.symbol" required /></div>
-              <div><label>ISIN</label><input data-testid="holding-isin" class="input" v-model.trim="draftHolding.isin" /></div>
-              <div><label>WKN</label><input data-testid="holding-wkn" class="input" v-model.trim="draftHolding.wkn" /></div>
-              <div><label>Stückzahl</label><input class="input" v-model.number="draftHolding.quantity" type="number" min="0.000001" step="0.000001" required /></div>
-              <div><label>Kaufkurs</label><input data-testid="holding-acquisition-price" class="input" v-model.number="draftHolding.acquisition_price" type="number" min="0.000001" step="0.000001" required /></div>
-              <div><label>Währung</label><input data-testid="holding-currency" class="input" v-model.trim="draftHolding.currency" maxlength="3" required /></div>
-              <div><label>Kaufdatum</label><input class="input" v-model="draftHolding.buy_date" type="date" required /></div>
-              <div><label>Name</label><input data-testid="holding-display-name" class="input" v-model.trim="draftHolding.display_name" /></div>
-              <div><label>Unternehmen</label><input data-testid="holding-company-name" class="input" v-model.trim="draftHolding.company_name" /></div>
-              <div><label>Börse</label><input data-testid="holding-exchange" class="input" v-model.trim="draftHolding.exchange" /></div>
-              <div><label>Quote-Type</label><input data-testid="holding-quote-type" class="input" v-model.trim="draftHolding.quote_type" /></div>
-              <div><label>Asset-Type</label><input data-testid="holding-asset-type" class="input" v-model.trim="draftHolding.asset_type" /></div>
-              <div class="wide"><label>Notiz</label><input class="input" v-model.trim="draftHolding.notes" /></div>
+              <div v-if="hasValue(draftHolding.symbol)"><label>Symbol</label><input data-testid="holding-symbol" class="input" :value="draftHolding.symbol" readonly /></div>
+              <div v-if="hasValue(draftHolding.isin)"><label>ISIN</label><input data-testid="holding-isin" class="input" :value="draftHolding.isin" readonly /></div>
+              <div v-if="profileWkn"><label>WKN</label><input data-testid="holding-wkn" class="input" :value="profileWkn" readonly /></div>
+              <div><label>Stückzahl</label><input data-testid="holding-quantity" class="input" v-model.number="draftHolding.quantity" type="number" min="0.000001" step="0.000001" required /></div>
+              <div v-if="hasValue(draftHolding.acquisition_price)"><label>Kaufkurs</label><input data-testid="holding-acquisition-price" class="input" :value="draftHolding.acquisition_price" readonly /></div>
+              <div v-if="hasValue(draftHolding.currency)"><label>Währung</label><input data-testid="holding-currency" class="input" :value="draftHolding.currency" readonly /></div>
+              <div><label>Kaufdatum</label><input data-testid="holding-buy-date" class="input" v-model="draftHolding.buy_date" type="date" required /></div>
+              <div v-if="hasValue(draftHolding.display_name)"><label>Name</label><input data-testid="holding-display-name" class="input" :value="draftHolding.display_name" readonly /></div>
+              <div v-if="hasValue(draftHolding.company_name)"><label>Unternehmen</label><input data-testid="holding-company-name" class="input" :value="draftHolding.company_name" readonly /></div>
+              <div v-if="hasValue(draftHolding.exchange)"><label>Börse</label><input data-testid="holding-exchange" class="input" :value="draftHolding.exchange" readonly /></div>
+              <div v-if="profileQuoteType"><label>Quote-Type</label><input data-testid="holding-quote-type" class="input" :value="profileQuoteType" readonly /></div>
+              <div v-if="profileAssetType"><label>Asset-Type</label><input data-testid="holding-asset-type" class="input" :value="profileAssetType" readonly /></div>
+              <div class="wide"><label>Notiz</label><input data-testid="holding-notes" class="input" v-model.trim="draftHolding.notes" /></div>
 
               <div v-if="selectedProfile?.image" class="profile-logo-field">
                 <label>Bild</label>
@@ -187,8 +187,6 @@ const viewStateByContext = new Map<string, SearchViewSnapshot>()
 type HoldingDraftState = HoldingCreatePayload & {
   acquisition_price: number | null
   exchange?: string | null
-  quote_type?: string | null
-  asset_type?: string | null
 }
 
 const draftHolding = ref<HoldingDraftState>(createDefaultDraftHolding())
@@ -217,6 +215,9 @@ const profileSector = computed(() => asText(selectedProfile.value?.sector))
 const profileCountry = computed(() => asText(selectedProfile.value?.country))
 const profilePhone = computed(() => asText(selectedProfile.value?.phone))
 const profileDescription = computed(() => asText(selectedProfile.value?.description))
+const profileWkn = computed(() => asText(selectedProfile.value?.wkn))
+const profileQuoteType = computed(() => asText(selectedProfile.value?.quote_type))
+const profileAssetType = computed(() => asText(selectedProfile.value?.asset_type))
 const profileAddressLine = computed(() => {
   const profile = selectedProfile.value
   if (!profile) return null
@@ -242,8 +243,6 @@ function createDefaultDraftHolding(): HoldingDraftState {
     buy_date: new Date().toISOString().slice(0, 10),
     notes: null,
     exchange: null,
-    quote_type: null,
-    asset_type: null,
   }
 }
 
@@ -341,12 +340,10 @@ function buildDraftHoldingFromProfile(profile: MarketdataProfile) {
   return {
     symbol: profile.symbol,
     isin: typeof profile.isin === 'string' ? profile.isin : null,
-    wkn: null,
+    wkn: typeof profile.wkn === 'string' ? profile.wkn : null,
     display_name: typeof profile.company_name === 'string' ? profile.company_name : null,
     company_name: typeof profile.company_name === 'string' ? profile.company_name : null,
     exchange: typeof profile.exchange === 'string' ? profile.exchange : null,
-    quote_type: null,
-    asset_type: null,
     quantity: 1,
     acquisition_price: typeof profile.price === 'number' ? profile.price : null,
     currency: typeof profile.currency === 'string' ? profile.currency : 'EUR',
@@ -433,7 +430,6 @@ async function createHolding() {
     await apiClient.addHolding(selectedPortfolioId.value, {
       symbol: draftHolding.value.symbol.trim().toUpperCase(),
       isin: cleanOptional(draftHolding.value.isin),
-      wkn: cleanOptional(draftHolding.value.wkn),
       display_name: cleanOptional(draftHolding.value.display_name),
       company_name: cleanOptional(draftHolding.value.company_name),
       quantity: Number(draftHolding.value.quantity),
