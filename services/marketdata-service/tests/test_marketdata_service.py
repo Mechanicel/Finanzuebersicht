@@ -62,6 +62,8 @@ def test_search_uses_fmp() -> None:
     payload = service.search_instruments("apple", 10)
     assert payload.total == 1
     assert payload.items[0].symbol == "AAPL"
+    assert payload.items[0].company_name == "Apple Inc."
+    assert payload.items[0].display_name == "Apple Inc."
     assert client.search_calls == 1
 
 
@@ -95,3 +97,9 @@ def test_profile_refetches_when_cache_stale() -> None:
     payload = service.get_instrument_profile("AAPL")
     assert payload.company_name == "Apple Inc."
     assert client.profile_calls == 1
+
+
+def test_search_limit_is_bounded_server_side() -> None:
+    service, _, _ = build_service()
+    payload = service.search_instruments("apple", 999)
+    assert payload.total == 1

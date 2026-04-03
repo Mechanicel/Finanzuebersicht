@@ -51,11 +51,16 @@ class FMPClient:
             )
             response.raise_for_status()
             payload = response.json()
+        except requests.HTTPError as exc:
+            status_code = exc.response.status_code if exc.response is not None else None
+            raise UpstreamServiceError(
+                f"Market data provider request failed with status {status_code or 'unknown'}"
+            ) from exc
         except requests.RequestException as exc:
             raise UpstreamServiceError() from exc
         except ValueError as exc:
             raise UpstreamServiceError("Invalid response from market data provider") from exc
 
         if not isinstance(payload, list):
-            return []
+            raise UpstreamServiceError("Invalid response payload from market data provider")
         return [item for item in payload if isinstance(item, dict)]
