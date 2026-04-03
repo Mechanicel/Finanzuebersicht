@@ -7,6 +7,7 @@ import type {
   HoldingUpdatePayload,
   MarketdataProfile,
   InstrumentSearchResult,
+  InstrumentPriceRefreshResponse,
   PortfolioCreatePayload,
   PortfolioDetailReadModel,
   PortfolioListReadModel,
@@ -49,4 +50,8 @@ export async function searchInstruments(q: string, limit = 10) {
 
 export async function marketdataProfile(symbol: string) {
   return (await http.get<ApiEnvelope<MarketdataProfile>>(`/app/marketdata/instruments/${symbol}/profile`)).data.data
+}
+
+export async function refreshInstrumentPrice(symbol: string) {
+  return (await http.post<ApiEnvelope<InstrumentPriceRefreshResponse>>(`/app/marketdata/instruments/${symbol}/refresh-price`)).data.data
 }

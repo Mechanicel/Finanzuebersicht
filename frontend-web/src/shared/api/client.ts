@@ -12,7 +12,8 @@ import {
   updateHolding,
   deleteHolding,
   searchInstruments,
-  marketdataProfile
+  marketdataProfile,
+  refreshInstrumentPrice
 } from '@/modules/portfolio/api/portfolioApi'
 
 export const apiClient = {
@@ -42,5 +43,6 @@ export const apiClient = {
   updateHolding,
   deleteHolding,
   searchInstruments,
-  marketdataProfile
+  marketdataProfile,
+  refreshInstrumentPrice
 }

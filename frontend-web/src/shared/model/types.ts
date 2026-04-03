@@ -250,6 +250,17 @@ export interface HoldingsRefreshStubResponse {
   detail: string
 }
 
+export interface InstrumentPriceRefreshResponse {
+  symbol: string
+  trade_date: string
+  current_price: number
+  price_source: 'cache_today' | 'yfinance_1d_1m'
+  price_cache_hit: boolean
+  history_cache_present: boolean
+  history_action: 'seed_max_in_background' | 'enrich_in_background'
+  fetched_at: string
+}
+
 export interface InstrumentSearchItem {
   symbol: string
   company_name: string
