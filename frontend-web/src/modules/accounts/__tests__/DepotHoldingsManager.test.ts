@@ -119,7 +119,7 @@ describe('DepotHoldingsManager (FMP flow)', () => {
     expect(wrapper.find('ul.search-list button.result-item--compact').exists()).toBe(true)
   })
 
-  it('opens detail form without separate profile overview and renders profile data in one mask', async () => {
+  it('opens detail form without separate profile overview and renders extended profile data', async () => {
     vi.mocked(apiClient.searchInstruments).mockResolvedValue({
       query: 'Commerzbank',
       total: 1,
@@ -166,6 +166,7 @@ describe('DepotHoldingsManager (FMP flow)', () => {
     expect(wrapper.findAll('form.holding-form').length).toBe(1)
     const formText = wrapper.find('form.holding-form').text()
     expect(formText).toContain('WKN')
+    expect(formText).toContain('Börsenplatz')
     expect(formText).toContain('Quote-Type')
     expect(formText).toContain('Asset-Type')
     expect(formText).toContain('Industrie')
@@ -175,9 +176,12 @@ describe('DepotHoldingsManager (FMP flow)', () => {
     expect(formText).not.toContain('ipo_date')
     expect(formText).not.toContain('default_image')
     expect(wrapper.findAll('.profile-description-block').some((node) => node.text() === 'Banks')).toBe(true)
-    expect(wrapper.findAll('.profile-description-block').some((node) => node.text() === 'Kaiserplatz, 60311 Frankfurt am Main')).toBe(true)
-    const websiteLink = wrapper.find('a[href="https://www.commerzbank.de"]')
+    expect(wrapper.findAll('.profile-description-block').some((node) => node.text() === 'Deutsche Börse Xetra')).toBe(true)
+    expect(wrapper.find('[data-testid="holding-address"]').text()).toBe('Kaiserplatz, 60311 Frankfurt am Main')
+    expect(wrapper.find('[data-testid="holding-description"]').text()).toBe('Deutsche Geschäftsbank.')
+    const websiteLink = wrapper.find('[data-testid="holding-website-link"]')
     expect(websiteLink.exists()).toBe(true)
+    expect(websiteLink.attributes('href')).toBe('https://www.commerzbank.de')
     expect(wrapper.find('img.profile-image--inline').attributes('src')).toBe('https://example.com/logo.png')
     expect(wrapper.find('ul.search-list').exists()).toBe(false)
   })
@@ -226,7 +230,7 @@ describe('DepotHoldingsManager (FMP flow)', () => {
     expect(wrapper.find('[data-testid="holding-symbol"]').element.tagName).toBe('DIV')
     expect(wrapper.find('[data-testid="holding-isin"]').element.tagName).toBe('DIV')
     expect(wrapper.find('[data-testid="holding-currency"]').element.tagName).toBe('DIV')
-    expect(wrapper.find('a[href="https://www.commerzbank.de"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="holding-website-link"]').attributes('href')).toBe('https://www.commerzbank.de')
   })
 
   it('does not render empty optional profile fields and keeps address in one line', async () => {
@@ -275,8 +279,9 @@ describe('DepotHoldingsManager (FMP flow)', () => {
     expect(formText).not.toContain('Quote-Type')
     expect(formText).not.toContain('Asset-Type')
     expect(formText).not.toContain('WKN')
-    expect(wrapper.find('.profile-link').exists()).toBe(false)
-    expect(wrapper.findAll('.profile-description-block').some((node) => node.text() === 'Kaiserplatz, 60311 Frankfurt am Main')).toBe(true)
+    expect(wrapper.find('[data-testid="holding-website-link"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="holding-address"]').text()).toBe('Kaiserplatz, 60311 Frankfurt am Main')
+    expect(wrapper.find('[data-testid="holding-description"]').text()).toBe('Kurzbeschreibung')
   })
 
   it('keeps search query and result list after returning from detail view', async () => {
