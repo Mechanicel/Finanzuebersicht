@@ -125,6 +125,25 @@
             {{ refreshingPrices ? 'Aktualisieren läuft…' : 'Aktualisieren' }}
           </button>
         </div>
+        <div v-if="holdingsForSummary.length" class="portfolio-summary" data-testid="portfolio-summary">
+          <div class="summary-card">
+            <p class="muted">Aktueller Gesamtwert</p>
+            <p class="summary-value" data-testid="portfolio-summary-current-value">{{ formatCurrency(summaryMetrics.estimatedCurrentTotal, summaryMetrics.currency) }}</p>
+            <p v-if="summaryMetrics.holdingsWithoutCurrentPrice > 0" class="muted">
+              Teilweise auf Einstandswert geschätzt ({{ summaryMetrics.holdingsWithoutCurrentPrice }} ohne aktuellen Kurs).
+            </p>
+          </div>
+          <div class="summary-card">
+            <p class="muted">Investierter Wert</p>
+            <p class="summary-value" data-testid="portfolio-summary-invested-value">{{ formatCurrency(summaryMetrics.investedTotal, summaryMetrics.currency) }}</p>
+          </div>
+          <div class="summary-card">
+            <p class="muted">Gesamt Gewinn/Verlust</p>
+            <p class="summary-value" :class="summaryMetrics.pnlClass" data-testid="portfolio-summary-pnl-value">
+              {{ formatSignedCurrency(summaryMetrics.totalPnL, summaryMetrics.currency) }}
+            </p>
+          </div>
+        </div>
         <div class="holding-filter">
           <label for="holding-filter-input">Position suchen</label>
           <input
@@ -139,15 +158,15 @@
         <EmptyState v-else-if="!portfolioDetail?.holdings.length">Keine Positionen vorhanden.</EmptyState>
         <EmptyState v-else-if="!filteredHoldings.length">Keine Positionen für den Suchbegriff gefunden.</EmptyState>
         <ul v-else class="holding-list">
-          <li v-for="holding in filteredHoldings" :key="holding.holding_id" class="holding-item">
-            <template v-if="editHoldingId !== holding.holding_id">
+          <li v-for="item in filteredHoldingsWithMetrics" :key="item.holding.holding_id" class="holding-item">
+            <template v-if="editHoldingId !== item.holding.holding_id">
               <div class="holding-item-layout">
                 <button
                   type="button"
                   class="holding-delete-button"
                   aria-label="Position löschen"
                   title="Position löschen"
-                  @click.stop="removeHolding(holding.holding_id)"
+                  @click.stop="removeHolding(item.holding.holding_id)"
                 >
                   <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" class="delete-icon">
                     <path d="M9 3h6l1 2h4v2H4V5h4l1-2Zm1 6h2v9h-2V9Zm4 0h2v9h-2V9ZM7 9h2v9H7V9Z" />
@@ -156,16 +175,21 @@
                 <button
                   type="button"
                   class="holding-row-button"
-                  :aria-label="`Position ${holding.symbol} bearbeiten`"
-                  @click="startEdit(holding)"
+                  :aria-label="`Position ${item.holding.symbol} bearbeiten`"
+                  @click="startEdit(item.holding)"
                 >
-                  <p><strong>{{ holding.symbol }}</strong> · {{ holding.quantity }} @ {{ holding.acquisition_price }} {{ holding.currency }}</p>
-                  <p class="muted">Kaufdatum: {{ holding.buy_date }} · {{ holding.notes || 'keine Notiz' }}</p>
+                  <p><strong>{{ item.holding.symbol }}</strong> · {{ item.holding.quantity }} Stück</p>
+                  <div class="holding-metrics-grid">
+                    <p data-testid="holding-acquisition-price-display"><span class="muted">Kaufkurs:</span> {{ formatCurrency(item.holding.acquisition_price, item.holding.currency) }}</p>
+                    <p data-testid="holding-current-price-display"><span class="muted">Aktueller Kurs:</span> {{ item.currentPriceLabel }}</p>
+                    <p data-testid="holding-pnl-display"><span class="muted">Gewinn/Verlust:</span> <span :class="item.pnlClass">{{ item.pnlLabel }}</span></p>
+                  </div>
+                  <p class="muted">Kaufdatum: {{ item.holding.buy_date }} · {{ item.holding.notes || 'keine Notiz' }}</p>
                 </button>
               </div>
             </template>
 
-            <form v-else class="holding-form" @submit.prevent="saveEdit(holding.holding_id)">
+            <form v-else class="holding-form" @submit.prevent="saveEdit(item.holding.holding_id)">
               <div class="grid three-col">
                 <div><label>Stückzahl</label><input class="input" v-model.number="editHolding.quantity" type="number" min="0.000001" step="0.000001" required /></div>
                 <div><label>Kaufkurs</label><input class="input" v-model.number="editHolding.acquisition_price" type="number" min="0.000001" step="0.000001" required /></div>
@@ -238,7 +262,7 @@ type SearchViewSnapshot = {
 
 const viewStateByContext = new Map<string, SearchViewSnapshot>()
 
-type HoldingDraftState = HoldingCreatePayload & {
+type HoldingDraftState = Omit<HoldingCreatePayload, 'acquisition_price'> & {
   acquisition_price: number | null
   exchange?: string | null
 }
@@ -291,6 +315,54 @@ const filteredHoldings = computed(() => {
     const searchableValues = [holding.symbol, holding.isin, holding.display_name, holding.company_name]
     return searchableValues.some((value) => typeof value === 'string' && value.toLowerCase().includes(query))
   })
+})
+const holdingsForSummary = computed(() => portfolioDetail.value?.holdings ?? [])
+
+type HoldingMetrics = {
+  holding: HoldingReadModel
+  currentPrice: number | null
+  pnlAbsolute: number | null
+  pnlPercent: number | null
+  pnlClass: string
+  currentPriceLabel: string
+  pnlLabel: string
+}
+
+const filteredHoldingsWithMetrics = computed<HoldingMetrics[]>(() => {
+  return filteredHoldings.value.map((holding) => {
+    const currentPrice = hasFiniteCurrentPrice(holding) ? Number(holding.current_price) : null
+    const invested = holding.quantity * holding.acquisition_price
+    const currentValue = currentPrice == null ? null : holding.quantity * currentPrice
+    const pnlAbsolute = currentValue == null ? null : currentValue - invested
+    const pnlPercent = pnlAbsolute == null || invested === 0 ? null : (pnlAbsolute / invested) * 100
+    const pnlClass = pnlAbsolute == null ? 'metric-neutral' : pnlAbsolute >= 0 ? 'metric-positive' : 'metric-negative'
+    const currentPriceLabel = currentPrice == null ? '—' : formatCurrency(currentPrice, holding.currency)
+    const pnlLabel = pnlAbsolute == null
+      ? 'Nicht berechenbar'
+      : `${formatSignedCurrency(pnlAbsolute, holding.currency)}${pnlPercent == null ? '' : ` (${formatSignedPercent(pnlPercent)})`}`
+    return { holding, currentPrice, pnlAbsolute, pnlPercent, pnlClass, currentPriceLabel, pnlLabel }
+  })
+})
+
+const summaryMetrics = computed(() => {
+  const holdings = holdingsForSummary.value
+  const currency = holdings[0]?.currency ?? 'EUR'
+  const investedTotal = holdings.reduce((sum, holding) => sum + (holding.quantity * holding.acquisition_price), 0)
+  const estimatedCurrentTotal = holdings.reduce((sum, holding) => {
+    const currentPrice = hasFiniteCurrentPrice(holding) ? Number(holding.current_price) : null
+    const unitPrice = currentPrice == null ? holding.acquisition_price : currentPrice
+    return sum + (holding.quantity * unitPrice)
+  }, 0)
+  const holdingsWithoutCurrentPrice = holdings.filter((holding) => !hasFiniteCurrentPrice(holding)).length
+  const totalPnL = estimatedCurrentTotal - investedTotal
+  return {
+    currency,
+    investedTotal,
+    estimatedCurrentTotal,
+    holdingsWithoutCurrentPrice,
+    totalPnL,
+    pnlClass: totalPnL >= 0 ? 'metric-positive' : 'metric-negative',
+  }
 })
 
 function cleanOptional(value?: string | null) {
@@ -398,6 +470,28 @@ function asText(value: unknown) {
 function normalizeUrl(url: string) {
   if (url.startsWith('http://') || url.startsWith('https://')) return url
   return `https://${url}`
+}
+
+function hasFiniteCurrentPrice(holding: HoldingReadModel) {
+  return typeof holding.current_price === 'number' && Number.isFinite(holding.current_price)
+}
+
+function formatCurrency(value: number, currency: string) {
+  return new Intl.NumberFormat('de-DE', { style: 'currency', currency, maximumFractionDigits: 2 }).format(value)
+}
+
+function formatSignedCurrency(value: number, currency: string) {
+  const amount = formatCurrency(Math.abs(value), currency)
+  if (value > 0) return `+${amount}`
+  if (value < 0) return `-${amount}`
+  return amount
+}
+
+function formatSignedPercent(value: number) {
+  const amount = new Intl.NumberFormat('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Math.abs(value))
+  if (value > 0) return `+${amount} %`
+  if (value < 0) return `-${amount} %`
+  return `${amount} %`
 }
 
 function buildDraftHoldingFromProfile(profile: MarketdataProfile) {
@@ -641,6 +735,19 @@ onBeforeUnmount(() => {
 .context-panel { display: flex; align-items: center; justify-content: space-between; gap: .75rem; margin-top: .75rem; }
 .manager-grid { display: grid; gap: 1rem; }
 .holdings-header { display: flex; align-items: center; justify-content: space-between; gap: .75rem; }
+.portfolio-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: .65rem;
+  margin: .7rem 0;
+}
+.summary-card {
+  border: 1px solid #dbeafe;
+  border-radius: 8px;
+  padding: .7rem;
+  background: #f8fbff;
+}
+.summary-value { margin: .2rem 0; font-weight: 700; font-size: 1rem; }
 .holding-list { list-style: none; padding: 0; display: grid; gap: .75rem; }
 .holding-item { border: 1px solid #e2e8f0; border-radius: 8px; padding: .75rem; }
 .holding-item-layout { display: grid; grid-template-columns: auto 1fr; align-items: stretch; gap: .6rem; }
@@ -659,6 +766,16 @@ onBeforeUnmount(() => {
   border-color: #93c5fd;
   background: #f8fafc;
 }
+.holding-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: .25rem .5rem;
+  margin: .25rem 0;
+  font-size: .92rem;
+}
+.metric-positive { color: #15803d; font-weight: 600; }
+.metric-negative { color: #b91c1c; font-weight: 600; }
+.metric-neutral { color: #475569; font-weight: 500; }
 .holding-row-button:focus-visible {
   outline: none;
   border-color: #2563eb;

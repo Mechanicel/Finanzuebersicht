@@ -205,6 +205,8 @@ export interface HoldingReadModel {
   display_name?: string | null
   quantity: number
   acquisition_price: number
+  current_price?: number | null
+  current_price_updated_at?: string | null
   currency: string
   buy_date: string
   notes?: string | null
@@ -267,6 +269,7 @@ export interface MarketdataProfile {
   symbol: string
   company_name: string
   price?: number | null
+  last_price?: number | null
   currency?: string | null
   isin?: string | null
   wkn?: string | null

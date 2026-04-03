@@ -453,6 +453,7 @@ describe('DepotHoldingsManager (FMP flow)', () => {
       updated_at: 'x',
       holdings: [{
         holding_id: 'h1',
+        portfolio_id: 'p1',
         symbol: 'CBK.DE',
         isin: 'DE000CBK1001',
         display_name: 'Commerzbank AG',
@@ -462,6 +463,8 @@ describe('DepotHoldingsManager (FMP flow)', () => {
         currency: 'EUR',
         buy_date: '2026-01-10',
         notes: 'Langfristig',
+        created_at: 'x',
+        updated_at: 'x',
       }],
     })
 
@@ -592,5 +595,101 @@ describe('DepotHoldingsManager (FMP flow)', () => {
     await flushUi()
     expect(wrapper.text()).toContain('CBK.DE')
     expect(wrapper.text()).toContain('AAPL')
+  })
+
+  it('shows acquisition price, current price and per-position profit/loss', async () => {
+    vi.mocked(apiClient.portfolio).mockResolvedValueOnce({
+      portfolio_id: 'p1',
+      person_id: 'person-1',
+      display_name: 'Depot Core',
+      created_at: 'x',
+      updated_at: 'x',
+      holdings: [{
+        holding_id: 'h1',
+        symbol: 'CBK.DE',
+        quantity: 10,
+        acquisition_price: 10,
+        current_price: 12,
+        currency: 'EUR',
+        buy_date: '2026-01-10',
+        notes: null,
+      }],
+    } as never)
+
+    const { wrapper } = await mountManager()
+    await flushUi()
+
+    expect(wrapper.find('[data-testid="holding-acquisition-price-display"]').text()).toContain('10,00')
+    expect(wrapper.find('[data-testid="holding-current-price-display"]').text()).toContain('12,00')
+    expect(wrapper.find('[data-testid="holding-pnl-display"]').text()).toContain('+20,00')
+    expect(wrapper.find('[data-testid="holding-pnl-display"]').text()).toContain('+20,00 %')
+  })
+
+  it('renders portfolio summary with current value, invested value and total pnl', async () => {
+    vi.mocked(apiClient.portfolio).mockResolvedValueOnce({
+      portfolio_id: 'p1',
+      person_id: 'person-1',
+      display_name: 'Depot Core',
+      created_at: 'x',
+      updated_at: 'x',
+      holdings: [
+        {
+          holding_id: 'h1',
+          symbol: 'AAA',
+          quantity: 2,
+          acquisition_price: 100,
+          current_price: 130,
+          currency: 'EUR',
+          buy_date: '2026-01-10',
+          notes: null,
+        },
+        {
+          holding_id: 'h2',
+          symbol: 'BBB',
+          quantity: 1,
+          acquisition_price: 50,
+          current_price: 40,
+          currency: 'EUR',
+          buy_date: '2026-01-10',
+          notes: null,
+        }
+      ],
+    } as never)
+
+    const { wrapper } = await mountManager()
+    await flushUi()
+
+    expect(wrapper.find('[data-testid="portfolio-summary"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="portfolio-summary-current-value"]').text()).toContain('300,00')
+    expect(wrapper.find('[data-testid="portfolio-summary-invested-value"]').text()).toContain('250,00')
+    expect(wrapper.find('[data-testid="portfolio-summary-pnl-value"]').text()).toContain('+50,00')
+  })
+
+  it('handles missing current prices with stable fallback in row and summary', async () => {
+    vi.mocked(apiClient.portfolio).mockResolvedValueOnce({
+      portfolio_id: 'p1',
+      person_id: 'person-1',
+      display_name: 'Depot Core',
+      created_at: 'x',
+      updated_at: 'x',
+      holdings: [{
+        holding_id: 'h1',
+        symbol: 'CBK.DE',
+        quantity: 3,
+        acquisition_price: 10,
+        currency: 'EUR',
+        buy_date: '2026-01-10',
+        notes: null,
+      }],
+    } as never)
+
+    const { wrapper } = await mountManager()
+    await flushUi()
+
+    expect(wrapper.find('[data-testid="holding-current-price-display"]').text()).toContain('—')
+    expect(wrapper.find('[data-testid="holding-pnl-display"]').text()).toContain('Nicht berechenbar')
+    expect(wrapper.text()).toContain('Teilweise auf Einstandswert geschätzt')
+    expect(wrapper.find('[data-testid="portfolio-summary-current-value"]').text()).toContain('30,00')
+    expect(wrapper.find('[data-testid="portfolio-summary-pnl-value"]').text()).toContain('0,00')
   })
 })
