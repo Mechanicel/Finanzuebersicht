@@ -41,5 +41,5 @@ export async function searchInstruments(q: string, limit = 10) {
 }
 
 export async function marketdataSelection(symbol: string) {
-  return (await http.get<ApiEnvelope<InstrumentSelectionDetail>>(`/app/marketdata/instruments/${symbol}/selection`)).data.data
+  return (await http.get<ApiEnvelope<InstrumentSelectionDetail>>(`/app/marketdata/instruments/${symbol}/profile`)).data.data
 }

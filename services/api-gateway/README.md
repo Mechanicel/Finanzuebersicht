@@ -18,8 +18,12 @@ Die Endpunkte leiten als Proxy/BFF an den `portfolio-service` weiter (kein Stub,
 Instrumentensuche und letzte Kurse kommen weiterhin aus:
 
 - `GET /api/v1/app/marketdata/instruments/search`
+- `GET /api/v1/app/marketdata/instruments/{symbol}/profile`
 
 Das Gateway übernimmt hier nur Weiterleitung und Fehlerabbildung.
+
+Der alte Endpoint `GET /api/v1/app/marketdata/instruments/{symbol}/selection` bleibt
+vorübergehend als deprecated Alias auf `.../profile` verfügbar.
 
 ## Lokale Konfiguration
 
