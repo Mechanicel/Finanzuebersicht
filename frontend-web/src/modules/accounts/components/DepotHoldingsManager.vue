@@ -26,39 +26,55 @@
 
           <ul v-else-if="searchResults.length" class="search-list">
             <li v-for="item in searchResults" :key="item.symbol">
-              <button class="btn secondary result-item" type="button" :disabled="profileLoading && selectingSymbol === item.symbol" @click="selectInstrument(item)">
-                <div class="result-top-row">
-                  <strong>{{ item.symbol }}</strong>
-                  <small>{{ item.currency || '—' }}</small>
+              <button
+                class="result-item result-item--compact"
+                type="button"
+                :class="{ 'result-item--active': isSelectedResult(item) }"
+                :disabled="profileLoading && selectingSymbol === item.symbol"
+                @click="selectInstrument(item)"
+              >
+                <div class="result-row">
+                  <strong class="result-symbol">{{ item.symbol }}</strong>
+                  <span class="result-name">{{ item.display_name || item.company_name || 'Unbenanntes Instrument' }}</span>
                 </div>
-                <span>{{ item.display_name || item.company_name || 'Unbenanntes Instrument' }}</span>
-                <small>Börse: {{ item.exchange || '—' }} · {{ item.exchange_full_name || '—' }}</small>
-                <small v-if="profileLoading && selectingSymbol === item.symbol">Lade Profil…</small>
+                <div class="result-row result-row--meta">
+                  <small v-if="item.currency">{{ item.currency }}</small>
+                  <small v-if="item.exchange">{{ item.exchange }}</small>
+                  <small v-if="item.exchange_full_name">{{ item.exchange_full_name }}</small>
+                </div>
+                <small v-if="profileLoading && selectingSymbol === item.symbol" class="result-loading">Lade Profil…</small>
               </button>
             </li>
           </ul>
         </div>
 
         <div class="profile-panel">
-          <h5>Geladenes Profil</h5>
+          <h5>Profilübersicht</h5>
           <LoadingState v-if="profileLoading" />
           <ErrorState v-else-if="profileError" :message="profileError" />
           <p v-else-if="!selectedProfile" class="muted">Noch kein Profil geladen. Wähle einen Suchtreffer aus.</p>
-          <div v-else class="profile-details">
-            <img v-if="selectedProfile.image" :src="selectedProfile.image" :alt="`Logo ${selectedProfile.company_name || selectedProfile.symbol}`" class="profile-image" />
-            <dl>
-              <template v-for="entry in profileEntries" :key="entry.key">
-                <dt>{{ entry.label }}</dt>
-                <dd>
-                  <template v-if="entry.key === 'website' && typeof entry.value === 'string'">
-                    <a :href="entry.value" target="_blank" rel="noopener noreferrer">{{ entry.value }}</a>
-                  </template>
-                  <template v-else>
-                    {{ entry.value }}
-                  </template>
-                </dd>
-              </template>
-            </dl>
+          <div v-else class="profile-card">
+            <div class="profile-main">
+              <img
+                v-if="selectedProfile.image"
+                :src="selectedProfile.image"
+                :alt="`Logo ${selectedProfile.company_name || selectedProfile.symbol}`"
+                class="profile-image"
+              />
+              <dl class="profile-grid">
+                <template v-for="entry in profileEntries" :key="entry.key">
+                  <dt>{{ entry.label }}</dt>
+                  <dd>
+                    <a v-if="entry.isLink" :href="entry.href" target="_blank" rel="noopener noreferrer">{{ entry.value }}</a>
+                    <template v-else>{{ entry.value }}</template>
+                  </dd>
+                </template>
+              </dl>
+            </div>
+            <div v-if="profileDescription" class="profile-description">
+              <h6>Beschreibung</h6>
+              <p>{{ profileDescription }}</p>
+            </div>
           </div>
         </div>
 
@@ -175,12 +191,37 @@ const searchHint = computed(() => {
   return null
 })
 
+const profileDescription = computed(() => {
+  if (!selectedProfile.value) return null
+  return hasValue(selectedProfile.value.description) ? String(selectedProfile.value.description) : null
+})
+
 const profileEntries = computed(() => {
   if (!selectedProfile.value) return []
-  return Object.entries(selectedProfile.value)
-    .filter(([, value]) => hasValue(value))
-    .map(([key, value]) => ({ key, label: key, value: String(value) }))
+  const profile = selectedProfile.value
+  return [
+    asProfileEntry('company_name', 'Name', profile.company_name),
+    asProfileEntry('symbol', 'Symbol', profile.symbol),
+    asProfileEntry('price', 'Kurs', formatPrice(profile.price, profile.currency)),
+    asProfileEntry('exchange', 'Börse', formatExchange(profile.exchange, profile.exchange_full_name)),
+    asProfileEntry('isin', 'ISIN', profile.isin),
+    asProfileEntry('industry', 'Industrie', profile.industry),
+    asProfileEntry('website', 'Website', profile.website, true),
+    asProfileEntry('ceo', 'CEO', profile.ceo),
+    asProfileEntry('sector', 'Sektor', profile.sector),
+    asProfileEntry('country', 'Land', profile.country),
+    asProfileEntry('phone', 'Telefon', profile.phone),
+    asProfileEntry('address_line', 'Adresse', profile.address_line),
+  ].filter((entry): entry is ProfileEntry => entry !== null)
 })
+
+interface ProfileEntry {
+  key: string
+  label: string
+  value: string
+  isLink: boolean
+  href?: string
+}
 
 function cleanOptional(value?: string | null) {
   const trimmed = (value ?? '').trim()
@@ -281,6 +322,39 @@ function hasValue<T>(value: T | null | undefined) {
   if (value == null) return false
   if (typeof value === 'string') return value.trim().length > 0
   return true
+}
+
+function asProfileEntry(key: string, label: string, value: unknown, isLink = false): ProfileEntry | null {
+  if (!hasValue(value)) return null
+  const text = String(value).trim()
+  if (!text) return null
+  return {
+    key,
+    label,
+    value: text,
+    isLink,
+    href: isLink ? normalizeUrl(text) : undefined,
+  }
+}
+
+function normalizeUrl(url: string) {
+  if (url.startsWith('http://') || url.startsWith('https://')) return url
+  return `https://${url}`
+}
+
+function formatPrice(price?: number | null, currency?: string | null) {
+  if (typeof price !== 'number') return null
+  const hasCurrency = hasValue(currency)
+  return hasCurrency ? `${price} ${String(currency).trim()}` : `${price}`
+}
+
+function formatExchange(exchange?: string | null, exchangeFullName?: string | null) {
+  const parts = [exchange, exchangeFullName].filter(hasValue).map((value) => String(value).trim())
+  return parts.length ? parts.join(' · ') : null
+}
+
+function isSelectedResult(item: InstrumentSearchItem) {
+  return selectedProfile.value?.symbol === item.symbol
 }
 
 function buildDraftHoldingFromProfile(profile: MarketdataProfile) {
@@ -448,16 +522,46 @@ onBeforeUnmount(() => {
 .holding-list { list-style: none; padding: 0; display: grid; gap: .75rem; }
 .holding-item { border: 1px solid #e2e8f0; border-radius: 8px; padding: .75rem; }
 .row-actions { display: flex; gap: .5rem; margin-top: .5rem; }
-.search-list { list-style: none; padding: 0; display: grid; gap: .5rem; margin-top: .5rem; }
-.result-item { width: 100%; text-align: left; display: grid; gap: .2rem; }
-.result-top-row { display: flex; justify-content: space-between; align-items: center; }
+.search-list { list-style: none; padding: 0; display: grid; gap: .4rem; margin-top: .5rem; }
+.result-item {
+  width: 100%;
+  text-align: left;
+  display: grid;
+  gap: .15rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #0f172a;
+}
+.result-item--compact { padding: .4rem .55rem; min-height: 44px; }
+.result-item--active {
+  border-color: #2563eb;
+  background: #eff6ff;
+  box-shadow: 0 0 0 1px #bfdbfe inset;
+}
+.result-item:disabled { opacity: .75; cursor: wait; }
+.result-row { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+.result-row--meta { gap: .45rem; }
+.result-symbol { font-size: .82rem; line-height: 1.1; }
+.result-name { font-size: .84rem; font-weight: 500; }
+.result-row--meta small {
+  background: #e2e8f0;
+  border-radius: 999px;
+  padding: .05rem .38rem;
+  line-height: 1.3;
+}
+.result-loading { color: #334155; }
 .search-panel,
 .profile-panel { border: 1px solid #e2e8f0; border-radius: 8px; padding: .75rem; margin-bottom: .75rem; }
-.profile-details { display: grid; gap: .75rem; }
-.profile-details dl { display: grid; grid-template-columns: minmax(140px, 220px) 1fr; gap: .35rem .75rem; margin: 0; }
-.profile-details dt { font-weight: 600; color: #334155; }
-.profile-details dd { margin: 0; white-space: pre-wrap; word-break: break-word; }
-.profile-image { max-width: 100px; max-height: 100px; object-fit: contain; }
+.profile-card { display: grid; gap: .6rem; }
+.profile-main { display: grid; grid-template-columns: auto 1fr; gap: .75rem; align-items: start; }
+.profile-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .35rem .75rem; margin: 0; }
+.profile-grid dt { font-weight: 600; color: #334155; font-size: .82rem; }
+.profile-grid dd { margin: 0; white-space: pre-wrap; word-break: break-word; font-size: .85rem; }
+.profile-image { width: 48px; height: 48px; object-fit: contain; border-radius: 6px; border: 1px solid #e2e8f0; background: #fff; }
+.profile-description { border-top: 1px solid #e2e8f0; padding-top: .55rem; }
+.profile-description h6 { margin: 0 0 .2rem; font-size: .82rem; color: #334155; }
+.profile-description p { margin: 0; font-size: .85rem; line-height: 1.4; }
 .feedback-banner {
   margin-top: .75rem;
   margin-bottom: .5rem;

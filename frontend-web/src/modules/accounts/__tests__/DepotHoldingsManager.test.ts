@@ -101,9 +101,10 @@ describe('DepotHoldingsManager (FMP flow)', () => {
     expect(listText).toContain('EUR')
     expect(listText).toContain('XETRA')
     expect(listText).toContain('Deutsche Börse Xetra')
+    expect(wrapper.find('ul.search-list button.result-item--compact').exists()).toBe(true)
   })
 
-  it('loads profile when clicking search result and shows FMP fields', async () => {
+  it('loads profile when clicking search result and shows structured profile fields only when present', async () => {
     vi.mocked(apiClient.searchInstruments).mockResolvedValue({
       query: 'Commerzbank',
       total: 1,
@@ -115,8 +116,16 @@ describe('DepotHoldingsManager (FMP flow)', () => {
       currency: 'EUR',
       exchange: 'XETRA',
       exchange_full_name: 'Deutsche Börse Xetra',
+      isin: 'DE000CBK1001',
+      industry: 'Banks',
+      website: 'www.commerzbank.de',
+      ceo: 'Bettina Orlopp',
       sector: 'Financial Services',
       country: 'DE',
+      phone: '+49 69 136 20',
+      address_line: 'Kaiserplatz, 60311 Frankfurt am Main, Germany',
+      image: 'https://example.com/logo.png',
+      description: 'Deutsche Geschäftsbank.',
       price: 18.35,
     })
 
@@ -131,13 +140,22 @@ describe('DepotHoldingsManager (FMP flow)', () => {
     await flushUi()
 
     expect(apiClient.marketdataProfile).toHaveBeenCalledWith('CBK.DE')
-    const profilePanelText = wrapper.find('.profile-panel').text()
-    expect(profilePanelText).toContain('company_name')
+    const profilePanel = wrapper.find('.profile-panel')
+    const profilePanelText = profilePanel.text()
     expect(profilePanelText).toContain('Commerzbank AG')
-    expect(profilePanelText).toContain('exchange_full_name')
-    expect(profilePanelText).toContain('Deutsche Börse Xetra')
-    expect(profilePanelText).toContain('sector')
-    expect(profilePanelText).toContain('Financial Services')
+    expect(profilePanelText).toContain('Industrie')
+    expect(profilePanelText).toContain('Banks')
+    expect(profilePanelText).toContain('Adresse')
+    expect(profilePanelText).toContain('Kaiserplatz, 60311 Frankfurt am Main, Germany')
+    expect(profilePanelText).toContain('Beschreibung')
+    expect(profilePanelText).toContain('Deutsche Geschäftsbank.')
+    expect(profilePanelText).not.toContain('exchange_full_name')
+    expect(profilePanelText).not.toContain('city')
+    expect(profilePanelText).not.toContain('zip')
+    const websiteLink = profilePanel.find('a[href="https://www.commerzbank.de"]')
+    expect(websiteLink.exists()).toBe(true)
+    expect(profilePanel.find('img.profile-image').attributes('src')).toBe('https://example.com/logo.png')
+    expect(wrapper.find('button.result-item--active').exists()).toBe(true)
   })
 
   it('prefills holding form from loaded profile', async () => {
