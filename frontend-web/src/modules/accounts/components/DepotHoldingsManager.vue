@@ -104,16 +104,43 @@
 
       <section v-if="showHoldingsSection">
         <h4>Vorhandene Positionen</h4>
+        <div class="holding-filter">
+          <label for="holding-filter-input">Position suchen</label>
+          <input
+            id="holding-filter-input"
+            v-model.trim="holdingsFilterQuery"
+            class="input"
+            type="search"
+            placeholder="Symbol, ISIN, Name oder Unternehmen"
+          />
+        </div>
         <LoadingState v-if="loading" />
         <EmptyState v-else-if="!portfolioDetail?.holdings.length">Keine Positionen vorhanden.</EmptyState>
+        <EmptyState v-else-if="!filteredHoldings.length">Keine Positionen für den Suchbegriff gefunden.</EmptyState>
         <ul v-else class="holding-list">
-          <li v-for="holding in portfolioDetail.holdings" :key="holding.holding_id" class="holding-item">
+          <li v-for="holding in filteredHoldings" :key="holding.holding_id" class="holding-item">
             <template v-if="editHoldingId !== holding.holding_id">
-              <p><strong>{{ holding.symbol }}</strong> · {{ holding.quantity }} @ {{ holding.acquisition_price }} {{ holding.currency }}</p>
-              <p class="muted">Kaufdatum: {{ holding.buy_date }} · {{ holding.notes || 'keine Notiz' }}</p>
-              <div class="row-actions">
-                <button class="btn secondary" type="button" @click="startEdit(holding)">Bearbeiten</button>
-                <button class="btn secondary" type="button" @click="removeHolding(holding.holding_id)">Löschen</button>
+              <div class="holding-item-layout">
+                <button
+                  type="button"
+                  class="holding-delete-button"
+                  aria-label="Position löschen"
+                  title="Position löschen"
+                  @click.stop="removeHolding(holding.holding_id)"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" class="delete-icon">
+                    <path d="M9 3h6l1 2h4v2H4V5h4l1-2Zm1 6h2v9h-2V9Zm4 0h2v9h-2V9ZM7 9h2v9H7V9Z" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  class="holding-row-button"
+                  :aria-label="`Position ${holding.symbol} bearbeiten`"
+                  @click="startEdit(holding)"
+                >
+                  <p><strong>{{ holding.symbol }}</strong> · {{ holding.quantity }} @ {{ holding.acquisition_price }} {{ holding.currency }}</p>
+                  <p class="muted">Kaufdatum: {{ holding.buy_date }} · {{ holding.notes || 'keine Notiz' }}</p>
+                </button>
               </div>
             </template>
 
@@ -177,6 +204,7 @@ let activeProfileRequestId = 0
 const route = useRoute()
 const router = useRouter()
 const searchListContainerRef = ref<HTMLElement | null>(null)
+const holdingsFilterQuery = ref('')
 
 type SearchViewSnapshot = {
   searchQuery: string
@@ -231,6 +259,15 @@ const profileAddressLine = computed(() => {
   const city = asText(profile.city)
   if (street && zip && city) return `${street}, ${zip} ${city}`
   return null
+})
+const filteredHoldings = computed(() => {
+  const holdings = portfolioDetail.value?.holdings ?? []
+  const query = holdingsFilterQuery.value.trim().toLowerCase()
+  if (!query) return holdings
+  return holdings.filter((holding) => {
+    const searchableValues = [holding.symbol, holding.isin, holding.display_name, holding.company_name]
+    return searchableValues.some((value) => typeof value === 'string' && value.toLowerCase().includes(query))
+  })
 })
 
 function cleanOptional(value?: string | null) {
@@ -495,6 +532,8 @@ async function saveEdit(holdingId: string) {
 
 async function removeHolding(holdingId: string) {
   if (!selectedPortfolioId.value) return
+  const confirmed = window.confirm('Position wirklich löschen?')
+  if (!confirmed) return
   saving.value = true
   errorMessage.value = null
   feedbackMessage.value = ''
@@ -564,7 +603,53 @@ onBeforeUnmount(() => {
 .manager-grid { display: grid; gap: 1rem; }
 .holding-list { list-style: none; padding: 0; display: grid; gap: .75rem; }
 .holding-item { border: 1px solid #e2e8f0; border-radius: 8px; padding: .75rem; }
+.holding-item-layout { display: grid; grid-template-columns: auto 1fr; align-items: stretch; gap: .6rem; }
+.holding-row-button {
+  width: 100%;
+  text-align: left;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+  color: inherit;
+  padding: .7rem .75rem;
+  cursor: pointer;
+  transition: border-color .15s ease, box-shadow .15s ease, background-color .15s ease;
+}
+.holding-row-button:hover {
+  border-color: #93c5fd;
+  background: #f8fafc;
+}
+.holding-row-button:focus-visible {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px #bfdbfe;
+}
+.holding-delete-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+  color: #475569;
+  cursor: pointer;
+  transition: color .15s ease, border-color .15s ease, background-color .15s ease;
+}
+.holding-delete-button:hover {
+  color: #dc2626;
+  border-color: #fca5a5;
+  background: #fef2f2;
+}
+.holding-delete-button:focus-visible {
+  outline: none;
+  color: #dc2626;
+  border-color: #ef4444;
+  box-shadow: 0 0 0 2px #fecaca;
+}
+.delete-icon { width: 1.1rem; height: 1.1rem; fill: currentColor; }
 .row-actions { display: flex; gap: .5rem; margin-top: .5rem; }
+.holding-filter { margin-bottom: .6rem; display: grid; gap: .3rem; }
 .search-list { list-style: none; padding: 0; display: grid; gap: .4rem; margin-top: .5rem; }
 .result-item {
   width: 100%;
