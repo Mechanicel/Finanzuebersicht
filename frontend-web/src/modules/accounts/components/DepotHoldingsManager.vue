@@ -52,25 +52,30 @@
 
         <template v-else>
           <div class="detail-header">
-            <button class="btn secondary" type="button" @click="backToSearch">← Zurück</button>
             <h4>Position bearbeiten: {{ detailHeading }}</h4>
+            <div class="detail-actions" data-testid="detail-top-actions">
+              <button class="btn" data-testid="detail-save-button" type="submit" form="holding-create-form" :disabled="saving">
+                Holding hinzufügen
+              </button>
+              <button class="btn secondary" data-testid="detail-back-button" type="button" @click="backToSearch">← Zurück</button>
+            </div>
           </div>
           <LoadingState v-if="profileLoading" />
           <ErrorState v-if="profileError" :message="profileError" />
-          <form class="holding-form" @submit.prevent="createHolding">
+          <form id="holding-create-form" class="holding-form" @submit.prevent="createHolding">
             <div class="grid three-col">
-              <div v-if="hasValue(draftHolding.symbol)"><label>Symbol</label><input data-testid="holding-symbol" class="input" :value="draftHolding.symbol" readonly /></div>
-              <div v-if="hasValue(draftHolding.isin)"><label>ISIN</label><input data-testid="holding-isin" class="input" :value="draftHolding.isin" readonly /></div>
-              <div v-if="profileWkn"><label>WKN</label><input data-testid="holding-wkn" class="input" :value="profileWkn" readonly /></div>
+              <div v-if="hasValue(draftHolding.symbol)"><label>Symbol</label><div data-testid="holding-symbol" class="profile-description-block">{{ draftHolding.symbol }}</div></div>
+              <div v-if="hasValue(draftHolding.isin)"><label>ISIN</label><div data-testid="holding-isin" class="profile-description-block">{{ draftHolding.isin }}</div></div>
+              <div v-if="profileWkn"><label>WKN</label><div data-testid="holding-wkn" class="profile-description-block">{{ profileWkn }}</div></div>
               <div><label>Stückzahl</label><input data-testid="holding-quantity" class="input" v-model.number="draftHolding.quantity" type="number" min="0.000001" step="0.000001" required /></div>
-              <div v-if="hasValue(draftHolding.acquisition_price)"><label>Kaufkurs</label><input data-testid="holding-acquisition-price" class="input" :value="draftHolding.acquisition_price" readonly /></div>
-              <div v-if="hasValue(draftHolding.currency)"><label>Währung</label><input data-testid="holding-currency" class="input" :value="draftHolding.currency" readonly /></div>
+              <div><label>Kaufkurs</label><input data-testid="holding-acquisition-price" class="input" v-model.number="draftHolding.acquisition_price" type="number" min="0.000001" step="0.000001" required /></div>
+              <div v-if="hasValue(draftHolding.currency)"><label>Währung</label><div data-testid="holding-currency" class="profile-description-block">{{ draftHolding.currency }}</div></div>
               <div><label>Kaufdatum</label><input data-testid="holding-buy-date" class="input" v-model="draftHolding.buy_date" type="date" required /></div>
-              <div v-if="hasValue(draftHolding.display_name)"><label>Name</label><input data-testid="holding-display-name" class="input" :value="draftHolding.display_name" readonly /></div>
-              <div v-if="hasValue(draftHolding.company_name)"><label>Unternehmen</label><input data-testid="holding-company-name" class="input" :value="draftHolding.company_name" readonly /></div>
-              <div v-if="hasValue(draftHolding.exchange)"><label>Börse</label><input data-testid="holding-exchange" class="input" :value="draftHolding.exchange" readonly /></div>
-              <div v-if="profileQuoteType"><label>Quote-Type</label><input data-testid="holding-quote-type" class="input" :value="profileQuoteType" readonly /></div>
-              <div v-if="profileAssetType"><label>Asset-Type</label><input data-testid="holding-asset-type" class="input" :value="profileAssetType" readonly /></div>
+              <div v-if="hasValue(draftHolding.display_name)"><label>Name</label><div data-testid="holding-display-name" class="profile-description-block">{{ draftHolding.display_name }}</div></div>
+              <div v-if="hasValue(draftHolding.company_name)"><label>Unternehmen</label><div data-testid="holding-company-name" class="profile-description-block">{{ draftHolding.company_name }}</div></div>
+              <div v-if="hasValue(draftHolding.exchange)"><label>Börse</label><div data-testid="holding-exchange" class="profile-description-block">{{ draftHolding.exchange }}</div></div>
+              <div v-if="profileQuoteType"><label>Quote-Type</label><div data-testid="holding-quote-type" class="profile-description-block">{{ profileQuoteType }}</div></div>
+              <div v-if="profileAssetType"><label>Asset-Type</label><div data-testid="holding-asset-type" class="profile-description-block">{{ profileAssetType }}</div></div>
               <div class="wide"><label>Notiz</label><input data-testid="holding-notes" class="input" v-model.trim="draftHolding.notes" /></div>
 
               <div v-if="selectedProfile?.image" class="profile-logo-field">
@@ -81,19 +86,18 @@
                   class="profile-image profile-image--inline"
                 />
               </div>
-              <div v-if="profileIndustry"><label>Industrie</label><input class="input" :value="profileIndustry" readonly /></div>
-              <div v-if="profileWebsite"><label>Website</label><a class="profile-link" :href="normalizeUrl(profileWebsite)" target="_blank" rel="noopener noreferrer">{{ profileWebsite }}</a></div>
-              <div v-if="profileCeo"><label>CEO</label><input class="input" :value="profileCeo" readonly /></div>
-              <div v-if="profileSector"><label>Sektor</label><input class="input" :value="profileSector" readonly /></div>
-              <div v-if="profileCountry"><label>Land</label><input class="input" :value="profileCountry" readonly /></div>
-              <div v-if="profilePhone"><label>Telefon</label><input class="input" :value="profilePhone" readonly /></div>
-              <div v-if="profileAddressLine" class="wide"><label>Adresse</label><input class="input" :value="profileAddressLine" readonly /></div>
+              <div v-if="profileIndustry"><label>Industrie</label><div class="profile-description-block">{{ profileIndustry }}</div></div>
+              <div v-if="profileWebsite"><label>Website</label><div class="profile-description-block"><a class="profile-link" :href="normalizeUrl(profileWebsite)" target="_blank" rel="noopener noreferrer">{{ profileWebsite }}</a></div></div>
+              <div v-if="profileCeo"><label>CEO</label><div class="profile-description-block">{{ profileCeo }}</div></div>
+              <div v-if="profileSector"><label>Sektor</label><div class="profile-description-block">{{ profileSector }}</div></div>
+              <div v-if="profileCountry"><label>Land</label><div class="profile-description-block">{{ profileCountry }}</div></div>
+              <div v-if="profilePhone"><label>Telefon</label><div class="profile-description-block">{{ profilePhone }}</div></div>
+              <div v-if="profileAddressLine" class="wide"><label>Adresse</label><div class="profile-description-block">{{ profileAddressLine }}</div></div>
               <div v-if="profileDescription" class="wide">
                 <label>Beschreibung</label>
                 <div class="profile-description-block">{{ profileDescription }}</div>
               </div>
             </div>
-            <button class="btn" type="submit" :disabled="saving">Holding hinzufügen</button>
           </form>
         </template>
       </section>
@@ -441,6 +445,7 @@ async function createHolding() {
     await showSuccessFeedback('Depotbestandteil wurde erfolgreich hinzugefügt.')
     resetDraftHoldingForm()
     await refreshPortfolio()
+    await backToSearch()
   } catch (e) {
     feedbackMessage.value = ''
     errorMessage.value = e instanceof Error ? e.message : 'Holding konnte nicht gespeichert werden.'
@@ -590,11 +595,12 @@ onBeforeUnmount(() => {
 }
 .result-loading { color: #334155; }
 .search-panel { border: 1px solid #e2e8f0; border-radius: 8px; padding: .75rem; margin-bottom: .75rem; }
-.detail-header { display: flex; align-items: center; gap: .75rem; margin-bottom: .75rem; }
+.detail-header { display: flex; justify-content: space-between; align-items: flex-start; gap: .75rem; margin-bottom: .75rem; }
+.detail-actions { display: flex; justify-content: flex-end; gap: .5rem; }
 .profile-image { width: 48px; height: 48px; object-fit: contain; border-radius: 6px; border: 1px solid #e2e8f0; background: #fff; }
 .profile-image--inline { display: block; margin-top: .35rem; }
 .profile-logo-field { display: flex; flex-direction: column; justify-content: flex-start; }
-.profile-link { display: inline-block; margin-top: .45rem; color: #1d4ed8; text-decoration: underline; word-break: break-all; }
+.profile-link { color: #1d4ed8; text-decoration: underline; word-break: break-all; }
 .profile-description-block {
   margin-top: .35rem;
   border: 1px solid #e2e8f0;

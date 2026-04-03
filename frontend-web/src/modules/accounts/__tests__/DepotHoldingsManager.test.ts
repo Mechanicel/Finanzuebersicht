@@ -159,7 +159,7 @@ describe('DepotHoldingsManager (FMP flow)', () => {
     await wrapper.find('ul.search-list button').trigger('click')
     await flushUi()
 
-    expect(wrapper.text()).toContain('← Zurück')
+    expect(wrapper.find('[data-testid="detail-back-button"]').exists()).toBe(true)
     expect(wrapper.text()).toContain('Position bearbeiten: Commerzbank AG')
     expect(apiClient.marketdataProfile).toHaveBeenCalledWith('CBK.DE')
     expect(wrapper.text()).not.toContain('Profilübersicht')
@@ -174,15 +174,15 @@ describe('DepotHoldingsManager (FMP flow)', () => {
     expect(formText).toContain('Deutsche Geschäftsbank.')
     expect(formText).not.toContain('ipo_date')
     expect(formText).not.toContain('default_image')
-    expect((wrapper.find('input[readonly][value="Banks"]').element as HTMLInputElement).value).toBe('Banks')
-    expect((wrapper.find('input[readonly][value="Kaiserplatz, 60311 Frankfurt am Main"]').element as HTMLInputElement).value).toBe('Kaiserplatz, 60311 Frankfurt am Main')
+    expect(wrapper.findAll('.profile-description-block').some((node) => node.text() === 'Banks')).toBe(true)
+    expect(wrapper.findAll('.profile-description-block').some((node) => node.text() === 'Kaiserplatz, 60311 Frankfurt am Main')).toBe(true)
     const websiteLink = wrapper.find('a[href="https://www.commerzbank.de"]')
     expect(websiteLink.exists()).toBe(true)
     expect(wrapper.find('img.profile-image--inline').attributes('src')).toBe('https://example.com/logo.png')
     expect(wrapper.find('ul.search-list').exists()).toBe(false)
   })
 
-  it('prefills holding form from loaded profile and keeps only quantity, buy date and notes editable', async () => {
+  it('prefills holding form from loaded profile and keeps only quantity, buy date, notes and acquisition price editable', async () => {
     vi.mocked(apiClient.searchInstruments).mockResolvedValue({
       query: 'Commerzbank',
       total: 1,
@@ -207,11 +207,11 @@ describe('DepotHoldingsManager (FMP flow)', () => {
     await wrapper.find('ul.search-list button').trigger('click')
     await flushUi()
 
-    expect((wrapper.find('[data-testid="holding-symbol"]').element as HTMLInputElement).value).toBe('CBK.DE')
-    expect((wrapper.find('[data-testid="holding-isin"]').element as HTMLInputElement).value).toBe('DE000CBK1001')
-    expect((wrapper.find('[data-testid="holding-company-name"]').element as HTMLInputElement).value).toBe('Commerzbank AG')
-    expect((wrapper.find('[data-testid="holding-exchange"]').element as HTMLInputElement).value).toBe('XETRA')
-    expect((wrapper.find('[data-testid="holding-currency"]').element as HTMLInputElement).value).toBe('EUR')
+    expect(wrapper.find('[data-testid="holding-symbol"]').text()).toBe('CBK.DE')
+    expect(wrapper.find('[data-testid="holding-isin"]').text()).toBe('DE000CBK1001')
+    expect(wrapper.find('[data-testid="holding-company-name"]').text()).toBe('Commerzbank AG')
+    expect(wrapper.find('[data-testid="holding-exchange"]').text()).toBe('XETRA')
+    expect(wrapper.find('[data-testid="holding-currency"]').text()).toBe('EUR')
     expect((wrapper.find('[data-testid="holding-acquisition-price"]').element as HTMLInputElement).value).toBe('18.35')
     expect(wrapper.find('[data-testid="holding-asset-type"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="holding-quote-type"]').exists()).toBe(false)
@@ -221,12 +221,11 @@ describe('DepotHoldingsManager (FMP flow)', () => {
       .findAll('input')
       .filter((input) => input.attributes('readonly') === undefined)
       .map((input) => input.attributes('data-testid'))
-    expect(allEditableInputs).toEqual(['holding-quantity', 'holding-buy-date', 'holding-notes'])
+    expect(allEditableInputs).toEqual(['holding-quantity', 'holding-acquisition-price', 'holding-buy-date', 'holding-notes'])
 
-    expect(wrapper.find('[data-testid="holding-symbol"]').attributes('readonly')).toBeDefined()
-    expect(wrapper.find('[data-testid="holding-isin"]').attributes('readonly')).toBeDefined()
-    expect(wrapper.find('[data-testid="holding-acquisition-price"]').attributes('readonly')).toBeDefined()
-    expect(wrapper.find('[data-testid="holding-currency"]').attributes('readonly')).toBeDefined()
+    expect(wrapper.find('[data-testid="holding-symbol"]').element.tagName).toBe('DIV')
+    expect(wrapper.find('[data-testid="holding-isin"]').element.tagName).toBe('DIV')
+    expect(wrapper.find('[data-testid="holding-currency"]').element.tagName).toBe('DIV')
     expect(wrapper.find('a[href="https://www.commerzbank.de"]').exists()).toBe(true)
   })
 
@@ -277,7 +276,7 @@ describe('DepotHoldingsManager (FMP flow)', () => {
     expect(formText).not.toContain('Asset-Type')
     expect(formText).not.toContain('WKN')
     expect(wrapper.find('.profile-link').exists()).toBe(false)
-    expect((wrapper.find('input[readonly][value="Kaiserplatz, 60311 Frankfurt am Main"]').element as HTMLInputElement).value).toBe('Kaiserplatz, 60311 Frankfurt am Main')
+    expect(wrapper.findAll('.profile-description-block').some((node) => node.text() === 'Kaiserplatz, 60311 Frankfurt am Main')).toBe(true)
   })
 
   it('keeps search query and result list after returning from detail view', async () => {
@@ -302,13 +301,108 @@ describe('DepotHoldingsManager (FMP flow)', () => {
     await flushUi()
     await wrapper.find('ul.search-list button').trigger('click')
     await flushUi()
-    expect(wrapper.text()).toContain('← Zurück')
-    await wrapper.find('button.btn.secondary').trigger('click')
+    expect(wrapper.find('[data-testid="detail-back-button"]').exists()).toBe(true)
+    await wrapper.find('[data-testid="detail-back-button"]').trigger('click')
     await flushUi()
 
     expect((wrapper.find('input[placeholder*="Name / Symbol / ISIN / WKN"]').element as HTMLInputElement).value).toBe('Commerzbank')
     expect(wrapper.find('ul.search-list').text()).toContain('CBK.DE')
     expect(wrapper.find('form.holding-form').exists()).toBe(false)
+  })
+
+  it('renders top action bar right-aligned with save and back buttons and without bottom save button', async () => {
+    vi.mocked(apiClient.searchInstruments).mockResolvedValue({
+      query: 'Commerzbank',
+      total: 1,
+      items: [{ symbol: 'CBK.DE', company_name: 'Commerzbank AG', display_name: 'Commerzbank AG', currency: 'EUR' }],
+    })
+    vi.mocked(apiClient.marketdataProfile).mockResolvedValue({
+      symbol: 'CBK.DE',
+      company_name: 'Commerzbank AG',
+      currency: 'EUR',
+      price: 18.35,
+    })
+
+    const { wrapper } = await mountManager()
+    await flushUi()
+    await wrapper.find('input[placeholder*="Name / Symbol / ISIN / WKN"]').setValue('Commerzbank')
+    await vi.advanceTimersByTimeAsync(1000)
+    await flushUi()
+    await wrapper.find('ul.search-list button').trigger('click')
+    await flushUi()
+
+    const actionBar = wrapper.find('[data-testid="detail-top-actions"]')
+    expect(actionBar.exists()).toBe(true)
+    expect(actionBar.find('[data-testid="detail-save-button"]').exists()).toBe(true)
+    expect(actionBar.find('[data-testid="detail-back-button"]').exists()).toBe(true)
+    expect(wrapper.findAll('button[type="submit"]').length).toBe(1)
+  })
+
+  it('navigates back to search after successful save and preserves search state', async () => {
+    vi.mocked(apiClient.searchInstruments).mockResolvedValue({
+      query: 'Commerzbank',
+      total: 1,
+      items: [{ symbol: 'CBK.DE', company_name: 'Commerzbank AG', display_name: 'Commerzbank AG', currency: 'EUR' }],
+    })
+    vi.mocked(apiClient.marketdataProfile).mockResolvedValue({
+      symbol: 'CBK.DE',
+      company_name: 'Commerzbank AG',
+      currency: 'EUR',
+      price: 18.35,
+    })
+
+    const { wrapper } = await mountManager()
+    await flushUi()
+
+    const searchInput = wrapper.find('input[placeholder*="Name / Symbol / ISIN / WKN"]')
+    await searchInput.setValue('Commerzbank')
+    await vi.advanceTimersByTimeAsync(1000)
+    await flushUi()
+    await wrapper.find('ul.search-list button').trigger('click')
+    await flushUi()
+
+    await wrapper.find('[data-testid="holding-quantity"]').setValue('5')
+    await wrapper.find('[data-testid="holding-acquisition-price"]').setValue('19.5')
+    await wrapper.find('form#holding-create-form').trigger('submit.prevent')
+    await flushUi()
+
+    expect(apiClient.addHolding).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(apiClient.addHolding).mock.calls[0]?.[1]).toMatchObject({
+      quantity: 5,
+      acquisition_price: 19.5,
+    })
+    expect(wrapper.find('form.holding-form').exists()).toBe(false)
+    expect((wrapper.find('input[placeholder*="Name / Symbol / ISIN / WKN"]').element as HTMLInputElement).value).toBe('Commerzbank')
+    expect(wrapper.find('ul.search-list').text()).toContain('CBK.DE')
+  })
+
+  it('stays in detail view when save fails', async () => {
+    vi.mocked(apiClient.searchInstruments).mockResolvedValue({
+      query: 'Commerzbank',
+      total: 1,
+      items: [{ symbol: 'CBK.DE', company_name: 'Commerzbank AG', display_name: 'Commerzbank AG', currency: 'EUR' }],
+    })
+    vi.mocked(apiClient.marketdataProfile).mockResolvedValue({
+      symbol: 'CBK.DE',
+      company_name: 'Commerzbank AG',
+      currency: 'EUR',
+      price: 18.35,
+    })
+    vi.mocked(apiClient.addHolding).mockRejectedValueOnce(new Error('Save failed'))
+
+    const { wrapper } = await mountManager()
+    await flushUi()
+    await wrapper.find('input[placeholder*="Name / Symbol / ISIN / WKN"]').setValue('Commerzbank')
+    await vi.advanceTimersByTimeAsync(1000)
+    await flushUi()
+    await wrapper.find('ul.search-list button').trigger('click')
+    await flushUi()
+
+    await wrapper.find('form#holding-create-form').trigger('submit.prevent')
+    await flushUi()
+
+    expect(wrapper.find('form.holding-form').exists()).toBe(true)
+    expect(wrapper.text()).toContain('Save failed')
   })
 
   it('shows errors for failed search and failed profile requests', async () => {
