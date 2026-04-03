@@ -75,7 +75,7 @@ uv run python scripts/dev.py run-service analytics-service
 Diese können direkt im Services-Fenster gestartet werden.
 
 
-## MongoDB für person-service
+## MongoDB für person-service und marketdata-service
 
 Für den Personen-CRUD wird lokal eine laufende MongoDB-Instanz benötigt (Standard: `localhost:27017`).
 
@@ -90,3 +90,7 @@ export MONGO_ALLOWANCE_COLLECTION="tax_allowances"
 
 Alternativ kann `MONGO_URI` direkt gesetzt werden.
 
+Für den `marketdata-service` ist Mongo **optional**:
+- Mit Mongo werden Selection-Cache und Hydration-Dokumente persistent gespeichert.
+- Ohne Mongo startet der Service trotzdem und nutzt No-Op-Repositories plus In-Memory-Caches.
+- Optionales Abschalten über `MARKETDATA_MONGO_ENABLED=false`.

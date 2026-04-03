@@ -215,13 +215,13 @@ describe('apiClient portfolio and holdings endpoints', () => {
     mock.onPost(`/app/persons/${personId}/portfolios`).reply(201, { data: { portfolio_id: portfolioId, person_id: personId, display_name: 'Core', created_at: 'x', updated_at: 'x' } })
     mock.onGet(`/app/portfolios/${portfolioId}`).reply(200, { data: { portfolio_id: portfolioId, person_id: personId, display_name: 'Core', created_at: 'x', updated_at: 'x', holdings: [] } })
     mock.onPost(`/app/portfolios/${portfolioId}/holdings`).reply(201, { data: { holding_id: holdingId, portfolio_id: portfolioId, symbol: 'AAPL', quantity: 1, acquisition_price: 10, currency: 'EUR', buy_date: '2026-03-01', created_at: 'x', updated_at: 'x' } })
-    mock.onGet('/app/marketdata/instruments/AAPL/selection').reply(200, { data: { symbol: 'AAPL', display_name: 'Apple', company_name: 'Apple Inc.', last_price: 180, currency: 'USD' } })
+    mock.onGet('/app/marketdata/instruments/AAPL/profile').reply(200, { data: { symbol: 'AAPL', display_name: 'Apple', company_name: 'Apple Inc.', last_price: 180, currency: 'USD' } })
     mock.onDelete(`/app/portfolios/${portfolioId}/holdings/${holdingId}`).reply(204)
 
     const list = await apiClient.portfolios(personId)
     await apiClient.createPortfolio(personId, { display_name: 'Core' })
     await apiClient.portfolio(portfolioId)
-    const selection = await apiClient.marketdataSelection('AAPL')
+    const selection = await apiClient.marketdataProfile('AAPL')
     await apiClient.addHolding(portfolioId, { symbol: 'AAPL', quantity: 1, acquisition_price: 10, currency: 'EUR', buy_date: '2026-03-01' })
     await apiClient.deleteHolding(portfolioId, holdingId)
 

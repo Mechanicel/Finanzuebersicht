@@ -4,8 +4,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-import mongomock
 import pytest
+from pymongo.errors import ServerSelectionTimeoutError
 
 ROOT = Path(__file__).resolve().parents[3]
 SHARED_SRC = ROOT / "shared" / "src"
@@ -18,36 +18,21 @@ if str(SERVICE_ROOT) not in sys.path:
 
 from finanzuebersicht_shared.testing import assert_standard_health_payload, create_test_client
 
-from app.config import get_settings
 import app.dependencies as marketdata_dependencies
-from app.dependencies import (
-    get_hydrated_repository,
-    get_marketdata_service,
-    get_provider,
-    get_selection_cache_repository,
-)
+from app.config import get_settings
+from app.dependencies import get_fmp_client, get_marketdata_service, get_profile_repository
 from app.main import app
+from app.models import UpstreamServiceError
+from app.repositories import InMemoryInstrumentProfileCacheRepository
 
 
 @pytest.fixture(autouse=True)
 def reset_singletons(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("MARKETDATA_PROVIDER", "inmemory")
-    monkeypatch.setattr(marketdata_dependencies, "MongoClient", mongomock.MongoClient)
+    monkeypatch.setenv("MARKETDATA_MONGO_ENABLED", "false")
     get_settings.cache_clear()
+    get_fmp_client.cache_clear()
+    get_profile_repository.cache_clear()
     get_marketdata_service.cache_clear()
-    get_provider.cache_clear()
-    get_selection_cache_repository.cache_clear()
-    get_hydrated_repository.cache_clear()
-
-
-def test_selection_cache_repository_uses_mongo_collection_from_settings(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("MONGO_DATABASE", "finanzuebersicht_test")
-    monkeypatch.setenv("MARKETDATA_SELECTION_CACHE_COLLECTION", "marketdata_selection_cache_test")
-
-    repository = get_selection_cache_repository()
-
-    assert repository._collection.database.name == "finanzuebersicht_test"
-    assert repository._collection.name == "marketdata_selection_cache_test"
 
 
 def test_health_and_ready() -> None:
@@ -61,134 +46,126 @@ def test_health_and_ready() -> None:
     assert_standard_health_payload(ready.json(), "marketdata-service")
 
 
-def test_instrument_summary_and_prices() -> None:
+def test_repositories_fallback_to_inmemory_when_mongo_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MARKETDATA_MONGO_ENABLED", "false")
+    repository = get_profile_repository()
+    assert isinstance(repository, InMemoryInstrumentProfileCacheRepository)
+
+
+def test_repositories_fallback_to_inmemory_when_mongo_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MARKETDATA_MONGO_ENABLED", "true")
+
+    class BrokenMongoClient:
+        def __init__(self, *args, **kwargs) -> None:
+            self.admin = self
+
+        def command(self, _command: str):
+            raise ServerSelectionTimeoutError("mongo unreachable")
+
+    monkeypatch.setattr(marketdata_dependencies, "MongoClient", BrokenMongoClient)
+    get_profile_repository.cache_clear()
+
+    repository = get_profile_repository()
+
+    assert isinstance(repository, InMemoryInstrumentProfileCacheRepository)
+
+
+def test_search_endpoint_success(monkeypatch: pytest.MonkeyPatch) -> None:
+    class FakeFMPClient:
+        def search_name(self, *, query: str, limit: int):
+            assert query == "Commerzbank"
+            assert limit == 10
+            return [
+                {
+                    "symbol": "CBK.DE",
+                    "name": "Commerzbank AG",
+                    "currency": "EUR",
+                    "exchange": "XETRA",
+                    "exchangeFullName": "Deutsche Börse Xetra",
+                }
+            ]
+
+        def profile(self, *, symbol: str):
+            return []
+
+    monkeypatch.setattr(marketdata_dependencies, "get_fmp_client", lambda: FakeFMPClient())
+    get_marketdata_service.cache_clear()
+
     client = create_test_client(app)
-
-    summary = client.get("/api/v1/marketdata/instruments/AAPL/summary")
-    assert summary.status_code == 200
-    assert summary.headers["X-Request-ID"]
-    assert summary.headers["X-Correlation-ID"]
-    assert summary.json()["data"]["company_name"] == "Apple Inc."
-
-    prices = client.get(
-        "/api/v1/marketdata/instruments/AAPL/prices",
-        params={"range": "3M", "interval": "1d"},
-    )
-    assert prices.status_code == 200
-    payload = prices.json()["data"]
-    assert payload["symbol"] == "AAPL"
-    assert payload["range"] == "3M"
-    assert len(payload["points"]) == 63
-    assert payload["interval"] == "1d"
-
-    weekly = client.get(
-        "/api/v1/marketdata/instruments/AAPL/prices",
-        params={"range": "3M", "interval": "1wk"},
-    )
-    assert weekly.status_code == 200
-    assert len(weekly.json()["data"]["points"]) < len(payload["points"])
-
-
-def test_blocks_full_benchmark_and_comparison_endpoints() -> None:
-    client = create_test_client(app)
-
-    blocks = client.get("/api/v1/marketdata/instruments/MSFT/blocks")
-    assert blocks.status_code == 200
-    assert blocks.json()["data"]["snapshot"]["last_price"] > 0
-
-    full = client.get("/api/v1/marketdata/instruments/MSFT/full")
-    assert full.status_code == 200
-    assert full.json()["data"]["summary"]["symbol"] == "MSFT"
-
-    selection = client.get("/api/v1/marketdata/instruments/MSFT/selection")
-    assert selection.status_code == 200
-    assert selection.json()["data"]["symbol"] == "MSFT"
-    assert selection.json()["data"]["last_price"] > 0
-
-    benchmarks = client.get("/api/v1/marketdata/benchmarks/options")
-    assert benchmarks.status_code == 200
-    assert benchmarks.json()["data"]["total"] >= 3
-
-    search = client.get("/api/v1/marketdata/benchmarks/search", params={"q": "sp"})
-    assert search.status_code == 200
-    assert search.json()["data"]["total"] >= 1
-
-    instrument_search = client.get("/api/v1/marketdata/instruments/search", params={"q": "micro", "limit": 5})
-    assert instrument_search.status_code == 200
-    instrument_payload = instrument_search.json()["data"]
-    assert instrument_payload["total"] >= 1
-    assert instrument_payload["items"][0]["symbol"] == "MSFT"
-
-    comparison = client.post(
-        "/api/v1/marketdata/comparisons/series",
-        json={
-            "symbols": ["AAPL", "MSFT"],
-            "benchmark_id": "sp500",
-            "range": "1M",
-            "interval": "1d",
-        },
-    )
-    assert comparison.status_code == 200
-    comparison_data = comparison.json()["data"]
-    assert len(comparison_data["series"]) == 3
-    assert comparison_data["series"][0]["kind"] == "instrument"
-    assert comparison_data["series"][2]["kind"] == "benchmark"
-
-
-def test_structured_error_responses() -> None:
-    client = create_test_client(app)
-
-    missing_instrument = client.get("/api/v1/marketdata/instruments/NONE/summary")
-    assert missing_instrument.status_code == 404
-    assert missing_instrument.json()["error"] == "not_found"
-
-    missing_benchmark = client.post(
-        "/api/v1/marketdata/comparisons/series",
-        json={"symbols": ["AAPL"], "benchmark_id": "missing", "range": "1M", "interval": "1d"},
-    )
-    assert missing_benchmark.status_code == 404
-    assert missing_benchmark.json()["error"] == "not_found"
-
-    invalid_query = client.get("/api/v1/marketdata/benchmarks/search", params={"q": "x"})
-    assert invalid_query.status_code == 422
-    assert invalid_query.json()["error"] == "validation_error"
-
-
-def test_instrument_search_empty_result() -> None:
-    client = create_test_client(app)
-    response = client.get("/api/v1/marketdata/instruments/search", params={"q": "does-not-exist"})
-    assert response.status_code == 200
-    payload = response.json()["data"]
-    assert payload["total"] == 0
-    assert payload["items"] == []
-
-
-def test_selection_endpoint_triggers_background_hydration_and_persists_full_document() -> None:
-    client = create_test_client(app)
-
-    response = client.get("/api/v1/marketdata/instruments/MSFT/selection")
+    response = client.get("/api/v1/marketdata/instruments/search", params={"q": "Commerzbank", "limit": 10})
 
     assert response.status_code == 200
     payload = response.json()["data"]
-    assert payload["symbol"] == "MSFT"
-
-    hydrated_repository = get_hydrated_repository()
-    persisted = hydrated_repository._collection.find_one({"symbol": "MSFT"})
-    assert persisted is not None
-    assert persisted["identity"]["symbol"] == "MSFT"
-    assert persisted["snapshot"]["last_price"] > 0
+    assert payload["total"] == 1
+    assert payload["items"][0]["symbol"] == "CBK.DE"
+    assert payload["items"][0]["exchange_full_name"] == "Deutsche Börse Xetra"
 
 
-def test_selection_response_stays_ok_if_background_hydration_fails(monkeypatch: pytest.MonkeyPatch) -> None:
-    provider = get_provider()
+def test_search_endpoint_empty_results(monkeypatch: pytest.MonkeyPatch) -> None:
+    class FakeFMPClient:
+        def search_name(self, *, query: str, limit: int):
+            return []
 
-    def _raise_hydration(_symbol: str):
-        raise RuntimeError("failed in background")
+        def profile(self, *, symbol: str):
+            return []
 
-    monkeypatch.setattr(provider, "get_instrument_hydration_payload", _raise_hydration)
+    monkeypatch.setattr(marketdata_dependencies, "get_fmp_client", lambda: FakeFMPClient())
+    get_marketdata_service.cache_clear()
+
     client = create_test_client(app)
-
-    response = client.get("/api/v1/marketdata/instruments/MSFT/selection")
+    response = client.get("/api/v1/marketdata/instruments/search", params={"q": "NoMatch", "limit": 10})
 
     assert response.status_code == 200
-    assert response.json()["data"]["symbol"] == "MSFT"
+    assert response.json()["data"]["items"] == []
+    assert response.json()["data"]["total"] == 0
+
+
+def test_search_endpoint_upstream_error_returns_503(monkeypatch: pytest.MonkeyPatch) -> None:
+    class BrokenFMPClient:
+        def search_name(self, *, query: str, limit: int):
+            raise UpstreamServiceError("provider unavailable")
+
+        def profile(self, *, symbol: str):
+            return []
+
+    monkeypatch.setattr(marketdata_dependencies, "get_fmp_client", lambda: BrokenFMPClient())
+    get_marketdata_service.cache_clear()
+
+    client = create_test_client(app)
+    response = client.get("/api/v1/marketdata/instruments/search", params={"q": "Commerzbank", "limit": 10})
+
+    assert response.status_code == 503
+    assert response.json()["details"][0]["code"] == "upstream_unavailable"
+
+
+def test_profile_endpoint_loads_profile(monkeypatch: pytest.MonkeyPatch) -> None:
+    class FakeFMPClient:
+        def search_name(self, *, query: str, limit: int):
+            return []
+
+        def profile(self, *, symbol: str):
+            assert symbol == "CBK.DE"
+            return [{
+                "symbol": "CBK.DE",
+                "companyName": "Commerzbank AG",
+                "currency": "EUR",
+                "exchange": "XETRA",
+                "marketCap": 25000000000,
+                "address": "Kaiserplatz",
+                "zip": "60311",
+                "city": "Frankfurt am Main",
+            }]
+
+    monkeypatch.setattr(marketdata_dependencies, "get_fmp_client", lambda: FakeFMPClient())
+    get_marketdata_service.cache_clear()
+
+    client = create_test_client(app)
+    response = client.get("/api/v1/marketdata/instruments/CBK.DE/profile")
+
+    assert response.status_code == 200
+    assert response.json()["data"]["symbol"] == "CBK.DE"
+    payload = response.json()["data"]
+    assert payload["company_name"] == "Commerzbank AG"
+    assert payload["address_line"] == "Kaiserplatz, 60311 Frankfurt am Main"
+    assert "market_cap" not in payload
+    assert "payload" not in payload

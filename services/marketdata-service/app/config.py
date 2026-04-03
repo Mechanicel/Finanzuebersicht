@@ -10,16 +10,19 @@ from finanzuebersicht_shared.config import ServiceSettings
 class Settings(ServiceSettings):
     app_name: str = "marketdata-service"
     cache_enabled: bool = True
-    marketdata_provider: str = "yfinance"
-    marketdata_request_timeout_seconds: float = 8.0
-    marketdata_request_retries: int = 2
-    marketdata_request_backoff_factor: float = 0.3
-    marketdata_cache_search_ttl_seconds: int = 60
-    marketdata_cache_summary_ttl_seconds: int = 120
-    marketdata_cache_price_ttl_seconds: int = 45
-    marketdata_cache_series_ttl_seconds: int = 30
-    marketdata_cache_benchmark_ttl_seconds: int = 900
-    marketdata_cache_selection_ttl_seconds: int = 60
+
+    fmp_base_url: str = "https://financialmodelingprep.com/stable"
+    fmp_api_key: str | None = None
+    fmp_request_timeout_seconds: float = 8.0
+    fmp_request_retries: int = 2
+    fmp_request_backoff_factor: float = 0.3
+
+    marketdata_profile_cache_ttl_seconds: int = 300
+    marketdata_mongo_enabled: bool = Field(default=True, alias="MARKETDATA_MONGO_ENABLED")
+    marketdata_mongo_server_selection_timeout_ms: int = Field(
+        default=1000,
+        alias="MARKETDATA_MONGO_SERVER_SELECTION_TIMEOUT_MS",
+    )
     mongo_uri: str | None = Field(default=None, alias="MONGO_URI")
     mongo_host: str = Field(default="localhost", alias="MONGO_HOST")
     mongo_port: int = Field(default=27017, alias="MONGO_PORT")
@@ -27,13 +30,9 @@ class Settings(ServiceSettings):
     mongo_user: str | None = Field(default=None, alias="MONGO_USER")
     mongo_password: str | None = Field(default=None, alias="MONGO_PASSWORD")
     mongo_auth_source: str = Field(default="admin", alias="MONGO_AUTH_SOURCE")
-    marketdata_selection_cache_collection: str = Field(
-        default="marketdata_selection_cache",
-        alias="MARKETDATA_SELECTION_CACHE_COLLECTION",
-    )
-    marketdata_hydrated_collection: str = Field(
-        default="marketdata_hydrated_instruments",
-        alias="MARKETDATA_HYDRATED_COLLECTION",
+    marketdata_profile_cache_collection: str = Field(
+        default="marketdata_profile_cache",
+        alias="MARKETDATA_PROFILE_CACHE_COLLECTION",
     )
 
     def resolved_mongo_uri(self) -> str:

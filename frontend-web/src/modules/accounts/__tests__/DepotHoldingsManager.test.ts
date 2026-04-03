@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
+import { createMemoryHistory, createRouter } from 'vue-router'
 
 import DepotHoldingsManager from '@/modules/accounts/components/DepotHoldingsManager.vue'
 import { apiClient } from '@/shared/api/client'
@@ -12,7 +13,7 @@ vi.mock('@/shared/api/client', () => ({
     createPortfolio: vi.fn(),
     portfolio: vi.fn(),
     searchInstruments: vi.fn(),
-    marketdataSelection: vi.fn(),
+    marketdataProfile: vi.fn(),
     addHolding: vi.fn(),
     updateHolding: vi.fn(),
     deleteHolding: vi.fn(),
@@ -26,231 +27,408 @@ async function flushUi() {
   await nextTick()
 }
 
-describe('DepotHoldingsManager', () => {
+async function mountManager() {
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [{ path: '/', component: DepotHoldingsManager }],
+  })
+  await router.push('/')
+  await router.isReady()
+  const wrapper = mount(DepotHoldingsManager, {
+    props: { personId: 'person-1', depotLabel: 'Depot Core' },
+    global: { plugins: [router] },
+  })
+  return { wrapper, router }
+}
+
+describe('DepotHoldingsManager (FMP flow)', () => {
   beforeEach(() => {
     vi.useFakeTimers()
     vi.clearAllMocks()
+
     vi.mocked(apiClient.portfolios).mockResolvedValue({
       items: [{ portfolio_id: 'p1', person_id: 'person-1', display_name: 'Depot Core', created_at: 'x', updated_at: 'x' }],
       total: 1,
     })
     vi.mocked(apiClient.portfolio).mockResolvedValue({
-      portfolio_id: 'p1', person_id: 'person-1', display_name: 'Depot Core', created_at: 'x', updated_at: 'x',
-      holdings: [{ holding_id: 'h1', portfolio_id: 'p1', symbol: 'AAPL', quantity: 2, acquisition_price: 100, currency: 'USD', buy_date: '2026-03-01', created_at: 'x', updated_at: 'x' }],
+      portfolio_id: 'p1',
+      person_id: 'person-1',
+      display_name: 'Depot Core',
+      created_at: 'x',
+      updated_at: 'x',
+      holdings: [],
     })
-    vi.mocked(apiClient.searchInstruments).mockResolvedValue({ query: 'AAPL', total: 1, items: [{ symbol: 'AAPL', company_name: 'Apple', display_name: 'Apple', currency: 'USD', last_price: 170 }] })
-    vi.mocked(apiClient.marketdataSelection).mockResolvedValue({ symbol: 'AAPL', company_name: 'Apple', display_name: 'Apple', currency: 'USD', last_price: 171 })
+    vi.mocked(apiClient.createPortfolio).mockResolvedValue({ portfolio_id: 'p2', person_id: 'person-1', display_name: 'Depot Core', created_at: 'x', updated_at: 'x' })
     vi.mocked(apiClient.addHolding).mockResolvedValue({} as never)
     vi.mocked(apiClient.updateHolding).mockResolvedValue({} as never)
     vi.mocked(apiClient.deleteHolding).mockResolvedValue(undefined)
-    vi.mocked(apiClient.createPortfolio).mockResolvedValue({ portfolio_id: 'p2', person_id: 'person-1', display_name: 'Depot Core', created_at: 'x', updated_at: 'x' })
   })
 
   afterEach(() => {
     vi.useRealTimers()
   })
 
-  it('runs search while typing (debounced), no explicit search button, then adds holding', async () => {
-    const wrapper = mount(DepotHoldingsManager, { props: { personId: 'person-1', depotLabel: 'Depot Core' } })
-    await flushUi()
-    expect(wrapper.text()).toContain('Portfolio-Kontext')
-    expect(wrapper.find('select').exists()).toBe(false)
-    expect(wrapper.findAll('button').some((b) => b.text() === 'Suchen')).toBe(false)
-    await wrapper.find('input[placeholder*="Name / Symbol / ISIN / WKN"]').setValue('AAPL')
-    await vi.advanceTimersByTimeAsync(350)
-    await flushUi()
-    expect(apiClient.searchInstruments).toHaveBeenCalledWith('AAPL')
-    await wrapper.find('ul.search-list button').trigger('click')
-    await flushUi()
-    expect(apiClient.marketdataSelection).toHaveBeenCalledWith('AAPL')
-    await wrapper.find('form.holding-form').trigger('submit.prevent')
+  it('uses a higher debounce and does not fire search on every keystroke', async () => {
+    vi.mocked(apiClient.searchInstruments).mockResolvedValue({ query: 'Commerzbank', total: 1, items: [] })
+
+    const { wrapper } = await mountManager()
     await flushUi()
 
-    expect(apiClient.addHolding).toHaveBeenCalledWith('p1', expect.objectContaining({ symbol: 'AAPL' }))
-    expect(wrapper.text()).toContain('Depotbestandteil wurde erfolgreich hinzugefügt.')
-    expect((wrapper.find('[data-testid=\"holding-symbol\"]').element as HTMLInputElement).value).toBe('')
-    expect((wrapper.find('input[placeholder*=\"Name / Symbol / ISIN / WKN\"]').element as HTMLInputElement).value).toBe('')
-  })
-
-  it('refreshes results while typing and handles empty search state', async () => {
-    vi.mocked(apiClient.searchInstruments)
-      .mockResolvedValueOnce({ query: 'AAP', total: 1, items: [{ symbol: 'AAPL', company_name: 'Apple', display_name: 'Apple' }] })
-      .mockResolvedValueOnce({ query: 'ZZZ', total: 0, items: [] })
-    const wrapper = mount(DepotHoldingsManager, { props: { personId: 'person-1', depotLabel: 'Depot Core' } })
-    await flushUi()
     const input = wrapper.find('input[placeholder*="Name / Symbol / ISIN / WKN"]')
-    await input.setValue('AAP')
-    await vi.advanceTimersByTimeAsync(350)
-    await flushUi()
-    expect(wrapper.text()).toContain('Apple')
+    await input.setValue('C')
+    await input.setValue('Co')
+    await input.setValue('Com')
 
-    await input.setValue('ZZZ')
-    await vi.advanceTimersByTimeAsync(350)
+    await vi.advanceTimersByTimeAsync(900)
     await flushUi()
-    expect(wrapper.text()).toContain('Keine Treffer gefunden.')
+    expect(apiClient.searchInstruments).not.toHaveBeenCalled()
+
+    await vi.advanceTimersByTimeAsync(100)
+    await flushUi()
+    expect(apiClient.searchInstruments).toHaveBeenCalledTimes(1)
+    expect(apiClient.searchInstruments).toHaveBeenCalledWith('Com')
   })
 
-  it('prefills all available market-data fields after instrument selection', async () => {
+  it('renders search list with symbol, name, currency, exchange and exchange full name', async () => {
     vi.mocked(apiClient.searchInstruments).mockResolvedValue({
-      query: 'AAPL',
+      query: 'Commerzbank',
       total: 1,
       items: [{
-        symbol: 'AAPL',
-        company_name: 'Apple Inc.',
-        display_name: 'Apple',
-        isin: 'US0378331005',
-        wkn: '865985',
-        currency: 'USD',
-        exchange: 'NMS',
-        quote_type: 'EQUITY',
-        asset_type: 'stock',
-        last_price: 170
-      }]
-    })
-    vi.mocked(apiClient.marketdataSelection).mockResolvedValue({
-      symbol: 'AAPL',
-      company_name: 'Apple Inc. Detail',
-      display_name: 'Apple Detail',
-      isin: 'US0378331005',
-      wkn: '865985',
-      currency: 'USD',
-      exchange: 'XNAS',
-      quote_type: 'EQUITY',
-      asset_type: 'stock',
-      last_price: 171.5
-    })
-    const wrapper = mount(DepotHoldingsManager, { props: { personId: 'person-1', depotLabel: 'Depot Core' } })
-    await flushUi()
-    await wrapper.find('input[placeholder*="Name / Symbol / ISIN / WKN"]').setValue('AAPL')
-    await vi.advanceTimersByTimeAsync(350)
-    await flushUi()
-    await wrapper.find('ul.search-list button').trigger('click')
-    await flushUi()
-
-    expect((wrapper.find('[data-testid=\"holding-symbol\"]').element as HTMLInputElement).value).toBe('AAPL')
-    expect((wrapper.find('[data-testid=\"holding-isin\"]').element as HTMLInputElement).value).toBe('US0378331005')
-    expect((wrapper.find('[data-testid=\"holding-wkn\"]').element as HTMLInputElement).value).toBe('865985')
-    expect((wrapper.find('[data-testid=\"holding-company-name\"]').element as HTMLInputElement).value).toBe('Apple Inc. Detail')
-    expect((wrapper.find('[data-testid=\"holding-display-name\"]').element as HTMLInputElement).value).toBe('Apple Detail')
-    expect((wrapper.find('[data-testid=\"holding-currency\"]').element as HTMLInputElement).value).toBe('USD')
-    expect((wrapper.find('[data-testid=\"holding-exchange\"]').element as HTMLInputElement).value).toBe('XNAS')
-    expect((wrapper.find('[data-testid=\"holding-quote-type\"]').element as HTMLInputElement).value).toBe('EQUITY')
-    expect((wrapper.find('[data-testid=\"holding-asset-type\"]').element as HTMLInputElement).value).toBe('stock')
-    expect((wrapper.find('[data-testid=\"holding-acquisition-price\"]').element as HTMLInputElement).value).toBe('171.5')
-  })
-
-  it('keeps search isin/wkn when selection details return null and prefers detail price', async () => {
-    vi.mocked(apiClient.searchInstruments).mockResolvedValue({
-      query: 'MSFT',
-      total: 1,
-      items: [{
-        symbol: 'MSFT',
-        display_name: 'Microsoft',
-        company_name: 'Microsoft Corp',
-        isin: 'US5949181045',
-        wkn: '870747',
-        currency: 'USD',
-        last_price: 410
-      }]
-    })
-    vi.mocked(apiClient.marketdataSelection).mockResolvedValue({
-      symbol: 'MSFT',
-      display_name: '',
-      isin: null,
-      wkn: null,
-      currency: 'USD',
-      last_price: 415.25
-    })
-
-    const wrapper = mount(DepotHoldingsManager, { props: { personId: 'person-1', depotLabel: 'Depot Core' } })
-    await flushUi()
-    await wrapper.find('input[placeholder*="Name / Symbol / ISIN / WKN"]').setValue('MSFT')
-    await vi.advanceTimersByTimeAsync(350)
-    await flushUi()
-    await wrapper.find('ul.search-list button').trigger('click')
-    await flushUi()
-
-    expect((wrapper.find('[data-testid="holding-isin"]').element as HTMLInputElement).value).toBe('US5949181045')
-    expect((wrapper.find('[data-testid="holding-wkn"]').element as HTMLInputElement).value).toBe('870747')
-    expect((wrapper.find('[data-testid="holding-display-name"]').element as HTMLInputElement).value).toBe('Microsoft')
-    expect((wrapper.find('[data-testid="holding-acquisition-price"]').element as HTMLInputElement).value).toBe('415.25')
-  })
-
-  it('keeps search price as fallback when selection detail has no price', async () => {
-    vi.mocked(apiClient.searchInstruments).mockResolvedValue({
-      query: 'SAP',
-      total: 1,
-      items: [{
-        symbol: 'SAP',
-        display_name: 'SAP SE',
-        isin: 'DE0007164600',
-        wkn: '716460',
+        symbol: 'CBK.DE',
+        company_name: 'Commerzbank AG',
+        display_name: 'Commerzbank AG',
         currency: 'EUR',
-        last_price: 150.4
-      }]
-    })
-    vi.mocked(apiClient.marketdataSelection).mockResolvedValue({
-      symbol: 'SAP',
-      display_name: 'SAP SE Detail',
-      currency: 'EUR',
-      last_price: null
+        exchange: 'XETRA',
+        exchange_full_name: 'Deutsche Börse Xetra',
+      }],
     })
 
-    const wrapper = mount(DepotHoldingsManager, { props: { personId: 'person-1', depotLabel: 'Depot Core' } })
-    await flushUi()
-    await wrapper.find('input[placeholder*="Name / Symbol / ISIN / WKN"]').setValue('SAP')
-    await vi.advanceTimersByTimeAsync(350)
-    await flushUi()
-    await wrapper.find('ul.search-list button').trigger('click')
+    const { wrapper } = await mountManager()
     await flushUi()
 
-    expect((wrapper.find('[data-testid="holding-acquisition-price"]').element as HTMLInputElement).value).toBe('150.4')
-    expect((wrapper.find('[data-testid="holding-isin"]').element as HTMLInputElement).value).toBe('DE0007164600')
+    await wrapper.find('input[placeholder*="Name / Symbol / ISIN / WKN"]').setValue('Commerzbank')
+    await vi.advanceTimersByTimeAsync(1000)
+    await flushUi()
+
+    const listText = wrapper.find('ul.search-list').text()
+    expect(listText).toContain('CBK.DE')
+    expect(listText).toContain('Commerzbank AG')
+    expect(listText).toContain('EUR')
+    expect(listText).toContain('XETRA')
+    expect(listText).toContain('Deutsche Börse Xetra')
+    expect(wrapper.find('ul.search-list button.result-item--compact').exists()).toBe(true)
   })
 
-
-  it('falls back to search result when detail request fails', async () => {
+  it('opens detail form without separate profile overview and renders profile data in one mask', async () => {
     vi.mocked(apiClient.searchInstruments).mockResolvedValue({
-      query: 'AAPL',
+      query: 'Commerzbank',
       total: 1,
-      items: [{ symbol: 'AAPL', company_name: 'Apple Inc.', display_name: 'Apple', currency: 'USD', last_price: 170 }]
+      items: [{ symbol: 'CBK.DE', company_name: 'Commerzbank AG', display_name: 'Commerzbank AG', currency: 'EUR', exchange: 'XETRA', exchange_full_name: 'Deutsche Börse Xetra' }],
     })
-    vi.mocked(apiClient.marketdataSelection).mockRejectedValue(new Error('Detail down'))
+    vi.mocked(apiClient.marketdataProfile).mockResolvedValue({
+      symbol: 'CBK.DE',
+      company_name: 'Commerzbank AG',
+      currency: 'EUR',
+      exchange: 'XETRA',
+      exchange_full_name: 'Deutsche Börse Xetra',
+      isin: 'DE000CBK1001',
+      wkn: 'CBK100',
+      quote_type: 'NASDAQ Global Select',
+      asset_type: 'Stock',
+      industry: 'Banks',
+      website: 'www.commerzbank.de',
+      ceo: 'Bettina Orlopp',
+      sector: 'Financial Services',
+      country: 'DE',
+      phone: '+49 69 136 20',
+      address: 'Kaiserplatz',
+      zip: '60311',
+      city: 'Frankfurt am Main',
+      image: 'https://example.com/logo.png',
+      description: 'Deutsche Geschäftsbank.',
+      price: 18.35,
+    })
 
-    const wrapper = mount(DepotHoldingsManager, { props: { personId: 'person-1', depotLabel: 'Depot Core' } })
+    const { wrapper } = await mountManager()
     await flushUi()
-    await wrapper.find('input[placeholder*="Name / Symbol / ISIN / WKN"]').setValue('AAPL')
-    await vi.advanceTimersByTimeAsync(350)
+
+    await wrapper.find('input[placeholder*="Name / Symbol / ISIN / WKN"]').setValue('Commerzbank')
+    await vi.advanceTimersByTimeAsync(1000)
+    await flushUi()
+
+    await wrapper.find('ul.search-list button').trigger('click')
+    await flushUi()
+
+    expect(wrapper.find('[data-testid="detail-back-button"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain('Position bearbeiten: Commerzbank AG')
+    expect(apiClient.marketdataProfile).toHaveBeenCalledWith('CBK.DE')
+    expect(wrapper.text()).not.toContain('Profilübersicht')
+    expect(wrapper.findAll('form.holding-form').length).toBe(1)
+    const formText = wrapper.find('form.holding-form').text()
+    expect(formText).toContain('WKN')
+    expect(formText).toContain('Quote-Type')
+    expect(formText).toContain('Asset-Type')
+    expect(formText).toContain('Industrie')
+    expect(formText).toContain('Adresse')
+    expect(formText).toContain('Beschreibung')
+    expect(formText).toContain('Deutsche Geschäftsbank.')
+    expect(formText).not.toContain('ipo_date')
+    expect(formText).not.toContain('default_image')
+    expect(wrapper.findAll('.profile-description-block').some((node) => node.text() === 'Banks')).toBe(true)
+    expect(wrapper.findAll('.profile-description-block').some((node) => node.text() === 'Kaiserplatz, 60311 Frankfurt am Main')).toBe(true)
+    const websiteLink = wrapper.find('a[href="https://www.commerzbank.de"]')
+    expect(websiteLink.exists()).toBe(true)
+    expect(wrapper.find('img.profile-image--inline').attributes('src')).toBe('https://example.com/logo.png')
+    expect(wrapper.find('ul.search-list').exists()).toBe(false)
+  })
+
+  it('prefills holding form from loaded profile and keeps only quantity, buy date, notes and acquisition price editable', async () => {
+    vi.mocked(apiClient.searchInstruments).mockResolvedValue({
+      query: 'Commerzbank',
+      total: 1,
+      items: [{ symbol: 'CBK.DE', company_name: 'Commerzbank AG', display_name: 'Commerzbank AG', currency: 'EUR' }],
+    })
+    vi.mocked(apiClient.marketdataProfile).mockResolvedValue({
+      symbol: 'CBK.DE',
+      company_name: 'Commerzbank AG',
+      isin: 'DE000CBK1001',
+      exchange: 'XETRA',
+      currency: 'EUR',
+      price: 18.35,
+      website: 'www.commerzbank.de',
+    })
+
+    const { wrapper } = await mountManager()
+    await flushUi()
+
+    await wrapper.find('input[placeholder*="Name / Symbol / ISIN / WKN"]').setValue('Commerzbank')
+    await vi.advanceTimersByTimeAsync(1000)
     await flushUi()
     await wrapper.find('ul.search-list button').trigger('click')
     await flushUi()
 
-    expect((wrapper.find('[data-testid=\"holding-symbol\"]').element as HTMLInputElement).value).toBe('AAPL')
-    expect((wrapper.find('[data-testid=\"holding-acquisition-price\"]').element as HTMLInputElement).value).toBe('170')
-    expect(wrapper.text()).toContain('Detail down')
+    expect(wrapper.find('[data-testid="holding-symbol"]').text()).toBe('CBK.DE')
+    expect(wrapper.find('[data-testid="holding-isin"]').text()).toBe('DE000CBK1001')
+    expect(wrapper.find('[data-testid="holding-company-name"]').text()).toBe('Commerzbank AG')
+    expect(wrapper.find('[data-testid="holding-exchange"]').text()).toBe('XETRA')
+    expect(wrapper.find('[data-testid="holding-currency"]').text()).toBe('EUR')
+    expect((wrapper.find('[data-testid="holding-acquisition-price"]').element as HTMLInputElement).value).toBe('18.35')
+    expect(wrapper.find('[data-testid="holding-asset-type"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="holding-quote-type"]').exists()).toBe(false)
+
+    const allEditableInputs = wrapper
+      .find('form.holding-form')
+      .findAll('input')
+      .filter((input) => input.attributes('readonly') === undefined)
+      .map((input) => input.attributes('data-testid'))
+    expect(allEditableInputs).toEqual(['holding-quantity', 'holding-acquisition-price', 'holding-buy-date', 'holding-notes'])
+
+    expect(wrapper.find('[data-testid="holding-symbol"]').element.tagName).toBe('DIV')
+    expect(wrapper.find('[data-testid="holding-isin"]').element.tagName).toBe('DIV')
+    expect(wrapper.find('[data-testid="holding-currency"]').element.tagName).toBe('DIV')
+    expect(wrapper.find('a[href="https://www.commerzbank.de"]').exists()).toBe(true)
   })
 
-  it('updates and deletes an existing holding', async () => {
-    const wrapper = mount(DepotHoldingsManager, { props: { personId: 'person-1', depotLabel: 'Depot Core' } })
-    await vi.runAllTimersAsync()
+  it('does not render empty optional profile fields and keeps address in one line', async () => {
+    vi.mocked(apiClient.searchInstruments).mockResolvedValue({
+      query: 'Commerzbank',
+      total: 1,
+      items: [{ symbol: 'CBK.DE', company_name: 'Commerzbank AG', display_name: 'Commerzbank AG' }],
+    })
+    vi.mocked(apiClient.marketdataProfile).mockResolvedValue({
+      symbol: 'CBK.DE',
+      company_name: 'Commerzbank AG',
+      isin: 'DE000CBK1001',
+      currency: 'EUR',
+      price: 18.35,
+      industry: 'Banks',
+      address: 'Kaiserplatz',
+      zip: '60311',
+      city: 'Frankfurt am Main',
+      description: 'Kurzbeschreibung',
+      website: '',
+      ceo: '',
+      sector: '',
+      country: '',
+      phone: '',
+      wkn: '',
+      quote_type: '',
+      asset_type: '',
+    })
+
+    const { wrapper } = await mountManager()
+    await flushUi()
+    await wrapper.find('input[placeholder*="Name / Symbol / ISIN / WKN"]').setValue('Commerzbank')
+    await vi.advanceTimersByTimeAsync(1000)
+    await flushUi()
+    await wrapper.find('ul.search-list button').trigger('click')
     await flushUi()
 
-    expect(wrapper.text()).toContain('Bearbeiten')
-    const editButton = wrapper.findAll('button').find((b) => b.text().includes('Bearbeiten'))
-    expect(editButton).toBeTruthy()
-    await editButton!.trigger('click')
-    await flushUi()
-    const editForm = wrapper.findAll('form.holding-form').at(-1)
-    expect(editForm).toBeTruthy()
-    await editForm!.trigger('submit.prevent')
+    const formText = wrapper.find('form.holding-form').text()
+    expect(formText).toContain('Industrie')
+    expect(formText).toContain('Adresse')
+    expect(formText).toContain('Beschreibung')
+    expect(formText).not.toContain('CEO')
+    expect(formText).not.toContain('Sektor')
+    expect(formText).not.toContain('Land')
+    expect(formText).not.toContain('Telefon')
+    expect(formText).not.toContain('Quote-Type')
+    expect(formText).not.toContain('Asset-Type')
+    expect(formText).not.toContain('WKN')
+    expect(wrapper.find('.profile-link').exists()).toBe(false)
+    expect(wrapper.findAll('.profile-description-block').some((node) => node.text() === 'Kaiserplatz, 60311 Frankfurt am Main')).toBe(true)
+  })
+
+  it('keeps search query and result list after returning from detail view', async () => {
+    vi.mocked(apiClient.searchInstruments).mockResolvedValue({
+      query: 'Commerzbank',
+      total: 1,
+      items: [{ symbol: 'CBK.DE', company_name: 'Commerzbank AG', display_name: 'Commerzbank AG', currency: 'EUR' }],
+    })
+    vi.mocked(apiClient.marketdataProfile).mockResolvedValue({
+      symbol: 'CBK.DE',
+      company_name: 'Commerzbank AG',
+      currency: 'EUR',
+      price: 18.35,
+    })
+
+    const { wrapper } = await mountManager()
     await flushUi()
 
-    expect(apiClient.updateHolding).toHaveBeenCalledWith('p1', 'h1', expect.any(Object))
-
-    const deleteButton = wrapper.findAll('button').find((b) => b.text().includes('Löschen'))
-    expect(deleteButton).toBeTruthy()
-    await deleteButton!.trigger('click')
+    const input = wrapper.find('input[placeholder*="Name / Symbol / ISIN / WKN"]')
+    await input.setValue('Commerzbank')
+    await vi.advanceTimersByTimeAsync(1000)
     await flushUi()
-    expect(apiClient.deleteHolding).toHaveBeenCalledWith('p1', 'h1')
+    await wrapper.find('ul.search-list button').trigger('click')
+    await flushUi()
+    expect(wrapper.find('[data-testid="detail-back-button"]').exists()).toBe(true)
+    await wrapper.find('[data-testid="detail-back-button"]').trigger('click')
+    await flushUi()
+
+    expect((wrapper.find('input[placeholder*="Name / Symbol / ISIN / WKN"]').element as HTMLInputElement).value).toBe('Commerzbank')
+    expect(wrapper.find('ul.search-list').text()).toContain('CBK.DE')
+    expect(wrapper.find('form.holding-form').exists()).toBe(false)
+  })
+
+  it('renders top action bar right-aligned with save and back buttons and without bottom save button', async () => {
+    vi.mocked(apiClient.searchInstruments).mockResolvedValue({
+      query: 'Commerzbank',
+      total: 1,
+      items: [{ symbol: 'CBK.DE', company_name: 'Commerzbank AG', display_name: 'Commerzbank AG', currency: 'EUR' }],
+    })
+    vi.mocked(apiClient.marketdataProfile).mockResolvedValue({
+      symbol: 'CBK.DE',
+      company_name: 'Commerzbank AG',
+      currency: 'EUR',
+      price: 18.35,
+    })
+
+    const { wrapper } = await mountManager()
+    await flushUi()
+    await wrapper.find('input[placeholder*="Name / Symbol / ISIN / WKN"]').setValue('Commerzbank')
+    await vi.advanceTimersByTimeAsync(1000)
+    await flushUi()
+    await wrapper.find('ul.search-list button').trigger('click')
+    await flushUi()
+
+    const actionBar = wrapper.find('[data-testid="detail-top-actions"]')
+    expect(actionBar.exists()).toBe(true)
+    expect(actionBar.find('[data-testid="detail-save-button"]').exists()).toBe(true)
+    expect(actionBar.find('[data-testid="detail-back-button"]').exists()).toBe(true)
+    expect(wrapper.findAll('button[type="submit"]').length).toBe(1)
+  })
+
+  it('navigates back to search after successful save and preserves search state', async () => {
+    vi.mocked(apiClient.searchInstruments).mockResolvedValue({
+      query: 'Commerzbank',
+      total: 1,
+      items: [{ symbol: 'CBK.DE', company_name: 'Commerzbank AG', display_name: 'Commerzbank AG', currency: 'EUR' }],
+    })
+    vi.mocked(apiClient.marketdataProfile).mockResolvedValue({
+      symbol: 'CBK.DE',
+      company_name: 'Commerzbank AG',
+      currency: 'EUR',
+      price: 18.35,
+    })
+
+    const { wrapper } = await mountManager()
+    await flushUi()
+
+    const searchInput = wrapper.find('input[placeholder*="Name / Symbol / ISIN / WKN"]')
+    await searchInput.setValue('Commerzbank')
+    await vi.advanceTimersByTimeAsync(1000)
+    await flushUi()
+    await wrapper.find('ul.search-list button').trigger('click')
+    await flushUi()
+
+    await wrapper.find('[data-testid="holding-quantity"]').setValue('5')
+    await wrapper.find('[data-testid="holding-acquisition-price"]').setValue('19.5')
+    await wrapper.find('form#holding-create-form').trigger('submit.prevent')
+    await flushUi()
+
+    expect(apiClient.addHolding).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(apiClient.addHolding).mock.calls[0]?.[1]).toMatchObject({
+      quantity: 5,
+      acquisition_price: 19.5,
+    })
+    expect(wrapper.find('form.holding-form').exists()).toBe(false)
+    expect((wrapper.find('input[placeholder*="Name / Symbol / ISIN / WKN"]').element as HTMLInputElement).value).toBe('Commerzbank')
+    expect(wrapper.find('ul.search-list').text()).toContain('CBK.DE')
+  })
+
+  it('stays in detail view when save fails', async () => {
+    vi.mocked(apiClient.searchInstruments).mockResolvedValue({
+      query: 'Commerzbank',
+      total: 1,
+      items: [{ symbol: 'CBK.DE', company_name: 'Commerzbank AG', display_name: 'Commerzbank AG', currency: 'EUR' }],
+    })
+    vi.mocked(apiClient.marketdataProfile).mockResolvedValue({
+      symbol: 'CBK.DE',
+      company_name: 'Commerzbank AG',
+      currency: 'EUR',
+      price: 18.35,
+    })
+    vi.mocked(apiClient.addHolding).mockRejectedValueOnce(new Error('Save failed'))
+
+    const { wrapper } = await mountManager()
+    await flushUi()
+    await wrapper.find('input[placeholder*="Name / Symbol / ISIN / WKN"]').setValue('Commerzbank')
+    await vi.advanceTimersByTimeAsync(1000)
+    await flushUi()
+    await wrapper.find('ul.search-list button').trigger('click')
+    await flushUi()
+
+    await wrapper.find('form#holding-create-form').trigger('submit.prevent')
+    await flushUi()
+
+    expect(wrapper.find('form.holding-form').exists()).toBe(true)
+    expect(wrapper.text()).toContain('Save failed')
+  })
+
+  it('shows errors for failed search and failed profile requests', async () => {
+    vi.mocked(apiClient.searchInstruments).mockRejectedValueOnce(new Error('Search failed'))
+      .mockResolvedValueOnce({
+        query: 'Commerzbank',
+        total: 1,
+        items: [{ symbol: 'CBK.DE', company_name: 'Commerzbank AG', display_name: 'Commerzbank AG', currency: 'EUR' }],
+      })
+    vi.mocked(apiClient.marketdataProfile).mockRejectedValueOnce(new Error('Profile failed'))
+
+    const { wrapper } = await mountManager()
+    await flushUi()
+
+    const input = wrapper.find('input[placeholder*="Name / Symbol / ISIN / WKN"]')
+    await input.setValue('Commerzbank')
+    await vi.advanceTimersByTimeAsync(1000)
+    await flushUi()
+    expect(wrapper.text()).toContain('Search failed')
+
+    await input.setValue('Commerzbank AG')
+    await vi.advanceTimersByTimeAsync(1000)
+    await flushUi()
+    await wrapper.find('ul.search-list button').trigger('click')
+    await flushUi()
+
+    expect(wrapper.text()).toContain('Profile failed')
   })
 })

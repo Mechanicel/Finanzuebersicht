@@ -245,13 +245,9 @@ export interface InstrumentSearchItem {
   symbol: string
   company_name: string
   display_name?: string | null
-  isin?: string | null
-  wkn?: string | null
-  exchange?: string | null
-  last_price?: number | null
   currency?: string | null
-  quote_type?: string | null
-  asset_type?: string | null
+  exchange?: string | null
+  exchange_full_name?: string | null
 }
 
 export interface InstrumentSearchResult {
@@ -260,17 +256,29 @@ export interface InstrumentSearchResult {
   total: number
 }
 
-export interface InstrumentSelectionDetail {
+export interface MarketdataProfile {
   symbol: string
-  company_name?: string | null
-  display_name?: string | null
+  company_name: string
+  price?: number | null
+  currency?: string | null
   isin?: string | null
   wkn?: string | null
   exchange?: string | null
+  exchange_full_name?: string | null
   quote_type?: string | null
   asset_type?: string | null
-  currency?: string | null
-  last_price?: number | null
+  industry?: string | null
+  website?: string | null
+  description?: string | null
+  ceo?: string | null
+  sector?: string | null
+  country?: string | null
+  phone?: string | null
+  image?: string | null
+  address?: string | null
+  city?: string | null
+  zip?: string | null
+  address_line?: string | null
 }
 
 export interface DashboardReadModel {

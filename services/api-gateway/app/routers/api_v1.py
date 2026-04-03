@@ -34,6 +34,7 @@ from app.models import (
     HoldingCreatePayload,
     HoldingReadModel,
     HoldingUpdatePayload,
+    MarketdataProfileReadModel,
     TaxAllowanceReadModel,
 )
 from app.service import GatewayService
@@ -303,7 +304,7 @@ async def app_health(
 async def search_marketdata_instruments(
     service: Annotated[GatewayService, Depends(get_gateway_service)],
     q: str = Query(..., min_length=1),
-    limit: int | None = Query(default=None, ge=1, le=100),
+    limit: int | None = Query(default=None, ge=1, le=25),
 ) -> ApiResponse[dict]:
     return ApiResponse(data=await service.search_marketdata_instruments(q=q, limit=limit))
 
@@ -344,9 +345,18 @@ async def marketdata_full(
     return ApiResponse(data=await service.get_marketdata_full(symbol))
 
 
-@router.get("/app/marketdata/instruments/{symbol}/selection", response_model=ApiResponse[dict])
+@router.get("/app/marketdata/instruments/{symbol}/profile", response_model=ApiResponse[MarketdataProfileReadModel])
+async def marketdata_profile(
+    symbol: str,
+    service: Annotated[GatewayService, Depends(get_gateway_service)],
+) -> ApiResponse[MarketdataProfileReadModel]:
+    return ApiResponse(data=await service.get_marketdata_profile(symbol))
+
+
+# Deprecated: kept for backwards compatibility with older frontend clients.
+@router.get("/app/marketdata/instruments/{symbol}/selection", response_model=ApiResponse[MarketdataProfileReadModel])
 async def marketdata_selection(
     symbol: str,
     service: Annotated[GatewayService, Depends(get_gateway_service)],
-) -> ApiResponse[dict]:
-    return ApiResponse(data=await service.get_marketdata_selection(symbol))
+) -> ApiResponse[MarketdataProfileReadModel]:
+    return ApiResponse(data=await service.get_marketdata_profile(symbol))

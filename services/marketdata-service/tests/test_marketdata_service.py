@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import sys
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -13,607 +13,213 @@ SERVICE_ROOT = Path(__file__).resolve().parents[1]
 if str(SERVICE_ROOT) not in sys.path:
     sys.path.append(str(SERVICE_ROOT))
 
-import pytest
-import mongomock
-from fastapi import FastAPI
-from finanzuebersicht_shared.models import ApiResponse
-from finanzuebersicht_shared.testing import create_test_client
-
-from app.app_factory import _register_marketdata_error_handlers
-from app.models import (
-    DataInterval,
-    DataRange,
-    FundamentalsBlock,
-    InstrumentDataBlocksResponse,
-    InstrumentFullResponse,
-    InstrumentSearchItem,
-    InstrumentSelectionDetailsResponse,
-    InstrumentSummary,
-    MetricsBlock,
-    NotFoundError,
-    PricePoint,
-    RiskBlock,
-    SnapshotBlock,
-    UpstreamServiceError,
-)
-from app.repositories import InstrumentSelectionCacheRepository
-from app.repositories import InstrumentHydratedRepository
+from app.models import CachedInstrumentProfile, InstrumentProfile, PersistenceOnlyInstrumentProfile, UpstreamServiceError
+from app.repositories import InMemoryInstrumentProfileCacheRepository
 from app.service import MarketDataService
 
 
-class FakeProvider:
+class FakeFMPClient:
     def __init__(self) -> None:
-        self.summary_calls = 0
-        self.series_calls = 0
-        self.search_calls = 0
-        self.selection_calls = 0
-        self.last_interval: DataInterval | None = None
-        self.selection_response: InstrumentSelectionDetailsResponse | None = None
-        self.search_results: list[InstrumentSearchItem] | None = None
-        self.hydration_payload: dict[str, object] | None = None
-        self.hydration_calls = 0
-        self.raise_on_hydration = False
+        self.search_calls: list[tuple[str, int]] = []
+        self.profile_calls: list[str] = []
 
-    def get_instrument_summary(self, symbol: str) -> InstrumentSummary | None:
-        self.summary_calls += 1
-        if symbol == "NONE":
-            return None
-        return InstrumentSummary(symbol=symbol, company_name="Demo Corp", exchange="XETRA", currency="EUR")
-
-    def get_price_series(self, symbol: str, data_range: DataRange, interval: DataInterval) -> list[PricePoint] | None:
-        self.series_calls += 1
-        self.last_interval = interval
-        if symbol == "NONE":
-            return None
-        if interval == DataInterval.ONE_WEEK:
-            return [PricePoint(date=date(2026, 1, 1), close=100.0)]
-        return [
-            PricePoint(date=date(2026, 1, 1), close=100.0),
-            PricePoint(date=date(2026, 1, 2), close=101.0),
-        ]
-
-    def get_instrument_blocks(self, symbol: str) -> InstrumentDataBlocksResponse | None:
-        if symbol == "NONE":
-            return None
-        return InstrumentDataBlocksResponse(
-            symbol=symbol,
-            snapshot=SnapshotBlock(last_price=100.0, change_1d_pct=0.5, volume=1000),
-            fundamentals=FundamentalsBlock(),
-            metrics=MetricsBlock(),
-            risk=RiskBlock(),
-        )
-
-    def get_instrument_full(self, symbol: str) -> InstrumentFullResponse | None:
-        if symbol == "NONE":
-            return None
-        return InstrumentFullResponse(
-            summary=InstrumentSummary(symbol=symbol, company_name="Demo Corp", exchange="XETRA", currency="EUR"),
-            snapshot=SnapshotBlock(last_price=100.0, change_1d_pct=0.5, volume=1000),
-            fundamentals=FundamentalsBlock(),
-            metrics=MetricsBlock(),
-            risk=RiskBlock(),
-        )
-
-    def get_instrument_selection_details(self, symbol: str) -> InstrumentSelectionDetailsResponse | None:
-        self.selection_calls += 1
-        if symbol == "NONE":
-            return None
-        if self.selection_response is not None:
-            return self.selection_response
-        return InstrumentSelectionDetailsResponse(
-            symbol=symbol,
-            isin="US0000000001",
-            wkn="ABC123",
-            company_name="Demo Corp",
-            display_name="Demo",
-            exchange="XETRA",
-            currency="EUR",
-            quote_type="equity",
-            asset_type="stock",
-            last_price=123.45,
-            change_1d_pct=0.7,
-            volume=15000,
-            as_of=datetime.now(UTC),
-        )
-
-    def search_instruments(self, query: str, limit: int) -> list[InstrumentSearchItem]:
-        self.search_calls += 1
-        if self.search_results is not None:
-            return self.search_results[:limit]
+    def search_name(self, *, query: str, limit: int):
+        self.search_calls.append((query, limit))
         if query == "empty":
             return []
+        if query == "broken":
+            raise UpstreamServiceError("provider down")
         return [
-            InstrumentSearchItem(
-                symbol="DUM",
-                company_name="Dummy AG",
-                display_name="Dummy",
-                exchange="XETRA",
-                currency="EUR",
-            )
-        ][:limit]
+            {
+                "symbol": "CBK.DE",
+                "name": "Commerzbank AG",
+                "currency": "EUR",
+                "exchange": "XETRA",
+                "exchangeFullName": "Deutsche Börse Xetra",
+            }
+        ]
 
-    def list_benchmark_options(self):
-        return []
+    def profile(self, *, symbol: str):
+        self.profile_calls.append(symbol)
+        if symbol == "NONE":
+            return []
+        return [
+            {
+                "symbol": symbol,
+                "companyName": "Commerzbank AG",
+                "currency": "EUR",
+                "exchange": "XETRA",
+                "exchangeFullName": "Deutsche Börse Xetra",
+                "price": 18.35,
+                "isEtf": False,
+                "isFund": False,
+                "marketCap": 25000000000,
+                "cusip": "123456789",
+                "address": "Kaiserplatz",
+                "zip": "60311",
+                "city": "Frankfurt am Main",
+            }
+        ]
 
-    def get_instrument_hydration_payload(self, symbol: str) -> dict[str, object] | None:
-        self.hydration_calls += 1
-        if self.raise_on_hydration:
-            raise RuntimeError("hydration failed")
-        if self.hydration_payload is not None:
-            return self.hydration_payload
-        return {
-            "identity": {"symbol": symbol},
-            "summary": {"symbol": symbol},
-            "snapshot": {"last_price": 100.0},
-            "fundamentals": {},
-            "metrics": {},
-            "risk": {},
-            "provider_raw": {"provider": "fake"},
-        }
+
+class BrokenRepository:
+    def get(self, symbol: str):
+        raise RuntimeError("mongo unavailable")
+
+    def upsert(self, symbol: str, *, visible_profile: dict, persistence_only_profile: dict, source: str = "fmp_profile_v2"):
+        raise RuntimeError("mongo unavailable")
 
 
-def build_service(
-    provider: FakeProvider,
-    repository: InstrumentSelectionCacheRepository | None = None,
-    hydrated_repository: InstrumentHydratedRepository | None = None,
-    *,
-    cache_enabled: bool = True,
-    selection_ttl_seconds: int = 60,
-) -> MarketDataService:
-    if repository is None:
-        client = mongomock.MongoClient()
-        repository = InstrumentSelectionCacheRepository(collection=client["finanzuebersicht"]["selection_cache_test"])
-    if hydrated_repository is None:
-        client = mongomock.MongoClient()
-        hydrated_repository = InstrumentHydratedRepository(collection=client["finanzuebersicht"]["hydrated_test"])
-    return MarketDataService(
-        provider=provider,
-        cache_enabled=cache_enabled,
-        cache_search_ttl_seconds=60,
-        cache_summary_ttl_seconds=60,
-        cache_price_ttl_seconds=60,
-        cache_series_ttl_seconds=60,
-        cache_benchmark_ttl_seconds=60,
-        selection_cache_repository=repository,
-        hydrated_repository=hydrated_repository,
-        selection_cache_ttl_seconds=selection_ttl_seconds,
+def build_service(*, ttl_seconds: int = 300) -> tuple[MarketDataService, FakeFMPClient, InMemoryInstrumentProfileCacheRepository]:
+    client = FakeFMPClient()
+    repository = InMemoryInstrumentProfileCacheRepository()
+    service = MarketDataService(
+        fmp_client=client,
+        profile_repository=repository,
+        cache_enabled=True,
+        profile_cache_ttl_seconds=ttl_seconds,
     )
+    return service, client, repository
 
 
-def test_summary_uses_summary_provider_path() -> None:
-    provider = FakeProvider()
-    service = build_service(provider)
+def test_search_fmp_success_maps_fields() -> None:
+    service, client, _ = build_service()
 
-    summary = service.get_instrument_summary("dum")
+    result = service.search_instruments("Commerzbank", 10)
 
-    assert summary.symbol == "DUM"
-    assert provider.summary_calls == 1
-    assert provider.series_calls == 0
-
-
-def test_price_series_uses_interval_argument() -> None:
-    provider = FakeProvider()
-    service = build_service(provider)
-
-    payload = service.get_price_series(symbol="DUM", data_range=DataRange.THREE_MONTHS, interval=DataInterval.ONE_WEEK)
-
-    assert payload.interval == DataInterval.ONE_WEEK
-    assert len(payload.points) == 1
-    assert provider.last_interval == DataInterval.ONE_WEEK
+    assert result.total == 1
+    assert result.items[0].symbol == "CBK.DE"
+    assert result.items[0].company_name == "Commerzbank AG"
+    assert result.items[0].currency == "EUR"
+    assert result.items[0].exchange == "XETRA"
+    assert result.items[0].exchange_full_name == "Deutsche Börse Xetra"
+    assert client.search_calls == [("Commerzbank", 10)]
 
 
-def test_search_empty_result_is_valid_response() -> None:
-    provider = FakeProvider()
-    service = build_service(provider)
+def test_search_empty_result_list() -> None:
+    service, _, _ = build_service()
 
-    response = service.search_instruments("empty", limit=10)
+    result = service.search_instruments("empty", 10)
 
-    assert response.total == 0
-    assert response.items == []
-
-
-def test_search_cache_hit_avoids_second_provider_call() -> None:
-    provider = FakeProvider()
-    service = build_service(provider)
-
-    first = service.search_instruments("dummy", limit=10)
-    second = service.search_instruments("dummy", limit=10)
-
-    assert first.total == 1
-    assert second.total == 1
-    assert provider.search_calls == 1
+    assert result.total == 0
+    assert result.items == []
 
 
-def test_selection_cache_hit_for_fresh_db_record() -> None:
-    provider = FakeProvider()
-    client = mongomock.MongoClient()
-    collection = client["finanzuebersicht"]["selection_cache_test"]
-    repository = InstrumentSelectionCacheRepository(collection=collection)
-    fresh = InstrumentSelectionDetailsResponse(
-        symbol="DUM",
-        isin="US0000000001",
-        wkn="ABC123",
-        company_name="Demo Cached",
-        display_name="Demo Cached",
-        exchange="XETRA",
-        currency="EUR",
-        quote_type="equity",
-        asset_type="stock",
-        last_price=99.0,
-    )
-    collection.insert_one(
-        {
-            "symbol": "DUM",
-            "payload": fresh.model_dump(mode="json"),
-            "fetched_at": datetime.now(UTC) - timedelta(seconds=10),
-        }
-    )
-    service = build_service(provider, repository, cache_enabled=False, selection_ttl_seconds=60)
+def test_search_upstream_error_is_raised() -> None:
+    service, _, _ = build_service()
 
-    response = service.get_instrument_selection_details("dum")
-
-    assert response.company_name == "Demo Cached"
-    assert provider.selection_calls == 0
+    try:
+        service.search_instruments("broken", 10)
+        raise AssertionError("Expected UpstreamServiceError")
+    except UpstreamServiceError as exc:
+        assert "provider down" in exc.message
 
 
-def test_selection_stale_cache_refreshes_provider_and_updates_db() -> None:
-    provider = FakeProvider()
-    client = mongomock.MongoClient()
-    collection = client["finanzuebersicht"]["selection_cache_test"]
-    repository = InstrumentSelectionCacheRepository(collection=collection)
-    stale = InstrumentSelectionDetailsResponse(
-        symbol="DUM",
-        company_name="Stale",
-        exchange="XETRA",
-        currency="EUR",
-        last_price=10.0,
-    )
-    collection.insert_one(
-        {
-            "symbol": "DUM",
-            "payload": stale.model_dump(mode="json"),
-            "fetched_at": datetime.now(UTC) - timedelta(seconds=120),
-        }
-    )
-    service = build_service(provider, repository, cache_enabled=False, selection_ttl_seconds=30)
+def test_profile_cache_miss_calls_fmp_and_upserts_structured_document() -> None:
+    service, client, repository = build_service()
 
-    response = service.get_instrument_selection_details("DUM")
+    profile = service.get_instrument_profile("cbk.de")
 
-    assert response.last_price > 0
-    assert provider.selection_calls == 1
-    persisted = collection.find_one({"symbol": "DUM"})
-    assert persisted is not None
-    assert persisted["payload"]["company_name"] == "Demo Corp"
+    assert profile.symbol == "CBK.DE"
+    assert client.profile_calls == ["CBK.DE"]
+    cached = repository.get("CBK.DE")
+    assert cached is not None
+    assert cached.visible_profile.company_name == "Commerzbank AG"
+    assert cached.persistence_only_profile.market_cap == 25000000000
+    assert cached.persistence_only_profile.cusip == "123456789"
 
 
-def test_selection_cache_miss_loads_from_provider_and_inserts_db() -> None:
-    provider = FakeProvider()
-    client = mongomock.MongoClient()
-    collection = client["finanzuebersicht"]["selection_cache_test"]
-    repository = InstrumentSelectionCacheRepository(collection=collection)
-    service = build_service(provider, repository, cache_enabled=False, selection_ttl_seconds=60)
-
-    response = service.get_instrument_selection_details("DUM")
-
-    assert response.symbol == "DUM"
-    assert provider.selection_calls == 1
-    persisted = collection.find_one({"symbol": "DUM"})
-    assert persisted is not None
-    assert persisted["payload"]["symbol"] == "DUM"
-
-
-def test_selection_merge_keeps_cached_isin_and_wkn_when_refresh_returns_null() -> None:
-    provider = FakeProvider()
-    provider.selection_response = InstrumentSelectionDetailsResponse(
-        symbol="DUM",
-        isin=None,
-        wkn=None,
-        company_name="Fresh Corp",
-        display_name="Fresh",
-        exchange="XETRA",
-        currency="EUR",
-        quote_type="equity",
-        asset_type="stock",
-        last_price=321.0,
-    )
-    provider.search_results = []
-    client = mongomock.MongoClient()
-    collection = client["finanzuebersicht"]["selection_cache_test"]
-    repository = InstrumentSelectionCacheRepository(collection=collection)
-    stale = InstrumentSelectionDetailsResponse(
-        symbol="DUM",
-        isin="US0000000001",
-        wkn="ABC123",
-        company_name="Cached Corp",
-        display_name="Cached",
-        exchange="XETRA",
-        currency="EUR",
-        quote_type="equity",
-        asset_type="stock",
-        last_price=100.0,
-    )
-    collection.insert_one(
-        {
-            "symbol": "DUM",
-            "payload": stale.model_dump(mode="json"),
-            "fetched_at": datetime.now(UTC) - timedelta(seconds=120),
-        }
-    )
-    service = build_service(provider, repository, cache_enabled=False, selection_ttl_seconds=30)
-
-    response = service.get_instrument_selection_details("DUM")
-
-    assert response.isin == "US0000000001"
-    assert response.wkn == "ABC123"
-    persisted = collection.find_one({"symbol": "DUM"})
-    assert persisted is not None
-    assert persisted["payload"]["isin"] == "US0000000001"
-    assert persisted["payload"]["wkn"] == "ABC123"
-
-
-def test_selection_merge_uses_fresh_price_and_keeps_cached_identity_fields() -> None:
-    provider = FakeProvider()
-    provider.selection_response = InstrumentSelectionDetailsResponse(
-        symbol="DUM",
-        isin=None,
-        wkn=None,
-        company_name="",
-        display_name="",
-        exchange="",
-        currency="",
-        quote_type=None,
-        asset_type=None,
-        last_price=250.5,
-        change_1d_pct=2.2,
-        volume=8888,
-    )
-    provider.search_results = []
-    client = mongomock.MongoClient()
-    collection = client["finanzuebersicht"]["selection_cache_test"]
-    repository = InstrumentSelectionCacheRepository(collection=collection)
-    stale = InstrumentSelectionDetailsResponse(
-        symbol="DUM",
-        isin="US0000000001",
-        wkn="ABC123",
-        company_name="Cached Corp",
-        display_name="Cached Display",
-        exchange="XETRA",
-        currency="EUR",
-        quote_type="equity",
-        asset_type="stock",
-        last_price=100.0,
-        change_1d_pct=0.1,
-        volume=1000,
-    )
-    collection.insert_one(
-        {
-            "symbol": "DUM",
-            "payload": stale.model_dump(mode="json"),
-            "fetched_at": datetime.now(UTC) - timedelta(seconds=120),
-        }
-    )
-    service = build_service(provider, repository, cache_enabled=False, selection_ttl_seconds=30)
-
-    response = service.get_instrument_selection_details("DUM")
-
-    assert response.last_price == 250.5
-    assert response.change_1d_pct == 2.2
-    assert response.volume == 8888
-    assert response.company_name == "Cached Corp"
-    assert response.display_name == "Cached Display"
-    assert response.exchange == "XETRA"
-    assert response.currency == "EUR"
-
-
-def test_selection_merge_ignores_whitespace_identity_updates() -> None:
-    provider = FakeProvider()
-    provider.selection_response = InstrumentSelectionDetailsResponse(
-        symbol="DUM",
-        isin="   ",
-        wkn="\t",
-        company_name="   ",
-        display_name="  ",
-        exchange=" ",
-        currency=" ",
-        quote_type=" ",
-        asset_type=" ",
-        last_price=200.0,
-    )
-    provider.search_results = []
-    client = mongomock.MongoClient()
-    collection = client["finanzuebersicht"]["selection_cache_test"]
-    repository = InstrumentSelectionCacheRepository(collection=collection)
-    stale = InstrumentSelectionDetailsResponse(
-        symbol="DUM",
-        isin="US0000000001",
-        wkn="ABC123",
-        company_name="Cached Corp",
-        display_name="Cached Display",
-        exchange="XETRA",
-        currency="EUR",
-        quote_type="equity",
-        asset_type="stock",
-        last_price=100.0,
-    )
-    collection.insert_one(
-        {
-            "symbol": "DUM",
-            "payload": stale.model_dump(mode="json"),
-            "fetched_at": datetime.now(UTC) - timedelta(seconds=120),
-        }
-    )
-    service = build_service(provider, repository, cache_enabled=False, selection_ttl_seconds=30)
-
-    response = service.get_instrument_selection_details("DUM")
-
-    assert response.isin == "US0000000001"
-    assert response.wkn == "ABC123"
-    assert response.company_name == "Cached Corp"
-    assert response.display_name == "Cached Display"
-    assert response.exchange == "XETRA"
-    assert response.currency == "EUR"
-    assert response.quote_type == "equity"
-    assert response.asset_type == "stock"
-
-
-def test_selection_response_contains_positive_last_price() -> None:
-    provider = FakeProvider()
-    service = build_service(provider)
-
-    response = service.get_instrument_selection_details("DUM")
-
-    assert response.last_price > 0
-
-
-def test_selection_enriches_missing_isin_from_search_result() -> None:
-    provider = FakeProvider()
-    provider.selection_response = InstrumentSelectionDetailsResponse(
+def test_profile_cache_hit_fresh_avoids_fmp_call() -> None:
+    service, client, repository = build_service()
+    repository._data["CBK.DE"] = CachedInstrumentProfile(
         symbol="CBK.DE",
-        isin=None,
-        wkn="CBK123",
-        company_name="Commerzbank AG",
-        display_name="Commerzbank",
-        exchange="XETRA",
-        currency="EUR",
-        quote_type="equity",
-        asset_type="stock",
-        last_price=20.5,
-        change_1d_pct=1.3,
-        volume=123456,
-    )
-    provider.search_results = [
-        InstrumentSearchItem(
+        source="fmp_profile_v2",
+        visible_profile=InstrumentProfile(
             symbol="CBK.DE",
-            company_name="Commerzbank AG",
-            display_name="Commerzbank AG",
-            isin="DE000CBK1001",
-        )
-    ]
-    service = build_service(provider)
+            company_name="Cached Commerzbank",
+            currency="EUR",
+            address="Kaiserplatz",
+            zip="60311",
+            city="Frankfurt",
+            address_line="Kaiserplatz, 60311 Frankfurt",
+        ),
+        persistence_only_profile=PersistenceOnlyInstrumentProfile(),
+        fetched_at=datetime.now(UTC),
+    )
 
-    response = service.get_instrument_selection_details("CBK.DE")
+    profile = service.get_instrument_profile("cbk.de")
 
-    assert response.isin == "DE000CBK1001"
+    assert profile.company_name == "Cached Commerzbank"
+    assert profile.address_line == "Kaiserplatz, 60311 Frankfurt"
+    assert client.profile_calls == []
 
 
-def test_selection_enriches_missing_wkn_from_search_result() -> None:
-    provider = FakeProvider()
-    provider.selection_response = InstrumentSelectionDetailsResponse(
+def test_profile_cache_stale_refreshes_from_fmp() -> None:
+    service, client, repository = build_service(ttl_seconds=60)
+    repository._data["CBK.DE"] = CachedInstrumentProfile(
         symbol="CBK.DE",
-        isin="DE000CBK1001",
-        wkn=None,
-        company_name="Commerzbank AG",
-        display_name="Commerzbank",
-        exchange="XETRA",
-        currency="EUR",
-        quote_type="equity",
-        asset_type="stock",
-        last_price=20.5,
-        change_1d_pct=1.3,
-        volume=123456,
+        source="fmp_profile_v2",
+        visible_profile=InstrumentProfile(symbol="CBK.DE", company_name="Old Commerzbank", currency="EUR"),
+        persistence_only_profile=PersistenceOnlyInstrumentProfile(),
+        fetched_at=datetime.now(UTC) - timedelta(hours=2),
     )
-    provider.search_results = [
-        InstrumentSearchItem(
-            symbol="CBK.DE",
-            company_name="Commerzbank AG",
-            wkn="CBK100",
-        )
-    ]
-    service = build_service(provider)
 
-    response = service.get_instrument_selection_details("CBK.DE")
+    profile = service.get_instrument_profile("CBK.DE")
 
-    assert response.wkn == "CBK100"
+    assert profile.company_name == "Commerzbank AG"
+    assert profile.address_line == "Kaiserplatz, 60311 Frankfurt am Main"
+    assert client.profile_calls == ["CBK.DE"]
 
 
-def test_selection_keeps_snapshot_price_and_ignores_search_price() -> None:
-    provider = FakeProvider()
-    provider.selection_response = InstrumentSelectionDetailsResponse(
-        symbol="CBK.DE",
-        isin=None,
-        wkn=None,
-        company_name="Commerzbank AG",
-        display_name="Commerzbank",
-        exchange="XETRA",
-        currency="EUR",
-        quote_type="equity",
-        asset_type="stock",
-        last_price=99.9,
-        change_1d_pct=2.5,
-        volume=777,
+def test_profile_with_unavailable_repository_falls_back_to_fmp() -> None:
+    client = FakeFMPClient()
+    service = MarketDataService(
+        fmp_client=client,
+        profile_repository=BrokenRepository(),
+        cache_enabled=True,
+        profile_cache_ttl_seconds=300,
     )
-    provider.search_results = [
-        InstrumentSearchItem(
-            symbol="CBK.DE",
-            company_name="Commerzbank AG",
-            isin="DE000CBK1001",
-            wkn="CBK100",
-            last_price=10.0,
-        )
-    ]
-    service = build_service(provider)
 
-    response = service.get_instrument_selection_details("CBK.DE")
+    profile = service.get_instrument_profile("CBK.DE")
 
-    assert response.last_price == 99.9
-    assert response.change_1d_pct == 2.5
-    assert response.volume == 777
+    assert profile.company_name == "Commerzbank AG"
+    assert client.profile_calls == ["CBK.DE"]
 
 
-@pytest.mark.parametrize(
-    "method,argument",
-    [
-        ("get_instrument_summary", "NONE"),
-        ("get_instrument_blocks", "NONE"),
-        ("get_instrument_full", "NONE"),
-        ("get_instrument_selection_details", "NONE"),
-    ],
-)
-def test_not_found_paths_raise_not_found(method: str, argument: str) -> None:
-    provider = FakeProvider()
-    service = build_service(provider)
+def test_instrument_profile_model_validates_curated_payload() -> None:
+    payload = {
+        "symbol": "CBK.DE",
+        "price": 18.35,
+        "companyName": "Commerzbank AG",
+        "currency": "EUR",
+        "isin": "DE000CBK1001",
+        "exchangeFullName": "Deutsche Börse Xetra",
+        "exchange": "XETRA",
+        "industry": "Banks",
+        "website": "https://www.commerzbank.de",
+        "description": "Banking services",
+        "ceo": "Bettina Orlopp",
+        "sector": "Financial Services",
+        "country": "DE",
+        "phone": "+49-69-13620",
+        "address": "Kaiserplatz",
+        "city": "Frankfurt",
+        "zip": "60311",
+        "image": "https://example.test/logo.png",
+        "address_line": "Kaiserplatz, 60311 Frankfurt",
+    }
 
-    with pytest.raises(NotFoundError):
-        getattr(service, method)(argument)
+    profile = InstrumentProfile.model_validate(payload)
 
-
-def test_upstream_service_error_is_mapped_to_structured_503() -> None:
-    app = FastAPI()
-    _register_marketdata_error_handlers(app)
-
-    @app.get("/boom", response_model=ApiResponse[dict])
-    async def boom() -> ApiResponse[dict]:
-        raise UpstreamServiceError("Temporary provider timeout")
-
-    client = create_test_client(app)
-    response = client.get("/boom")
-
-    assert response.status_code == 503
-    body = response.json()
-    assert body["error"] == "upstream_unavailable"
-    assert body["details"][0]["code"] == "upstream_unavailable"
+    assert profile.symbol == "CBK.DE"
+    assert profile.company_name == "Commerzbank AG"
+    assert profile.exchange_full_name == "Deutsche Börse Xetra"
+    assert profile.address_line == "Kaiserplatz, 60311 Frankfurt"
 
 
-def test_background_hydration_persists_full_document() -> None:
-    provider = FakeProvider()
-    client = mongomock.MongoClient()
-    hydrated_collection = client["finanzuebersicht"]["hydrated_test"]
-    hydrated_repository = InstrumentHydratedRepository(collection=hydrated_collection)
-    service = build_service(provider, hydrated_repository=hydrated_repository)
+def test_address_line_builder_ignores_missing_segments() -> None:
+    service, _, _ = build_service()
 
-    service.hydrate_instrument_in_background("dum")
-
-    persisted = hydrated_collection.find_one({"symbol": "DUM"})
-    assert persisted is not None
-    assert persisted["identity"]["symbol"] == "DUM"
-    assert "hydrated_at" in persisted
-
-
-def test_background_hydration_errors_do_not_raise() -> None:
-    provider = FakeProvider()
-    provider.raise_on_hydration = True
-    service = build_service(provider)
-
-    service.hydrate_instrument_in_background("dum")
-
-    assert provider.hydration_calls == 1
+    assert service._build_address_line("Kaiserplatz", "60311", "Frankfurt") == "Kaiserplatz, 60311 Frankfurt"
+    assert service._build_address_line("", "60311", "") == "60311"
+    assert service._build_address_line(None, None, None) is None

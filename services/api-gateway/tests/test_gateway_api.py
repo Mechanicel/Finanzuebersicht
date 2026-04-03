@@ -327,8 +327,14 @@ class StubGatewayService:
     async def get_marketdata_full(self, symbol: str) -> dict:
         return {"symbol": symbol, "summary": {"name": "Apple Inc."}, "prices": {"points": []}}
 
-    async def get_marketdata_selection(self, symbol: str) -> dict:
-        return {"symbol": symbol, "name": "Apple Inc.", "quote": {"price": 100.0, "currency": "USD"}}
+    async def get_marketdata_profile(self, symbol: str) -> dict:
+        return {
+            "symbol": symbol,
+            "company_name": "Apple Inc.",
+            "price": 100.0,
+            "currency": "USD",
+            "address_line": "One Apple Park Way, 95014 Cupertino",
+        }
 
 
 def test_health_endpoint() -> None:
@@ -406,7 +412,7 @@ def test_app_endpoints_for_vue_pages() -> None:
         == 200
     )
     assert client.get("/api/v1/app/marketdata/instruments/AAPL/full").status_code == 200
-    assert client.get("/api/v1/app/marketdata/instruments/AAPL/selection").status_code == 200
+    assert client.get("/api/v1/app/marketdata/instruments/AAPL/profile").status_code == 200
     assert (
         client.patch(
             f"/api/v1/app/persons/{PERSON_ID}/accounts/10000000-0000-0000-0000-000000000001",
@@ -492,7 +498,7 @@ def test_marketdata_routes_return_downstream_payloads() -> None:
         "/api/v1/app/marketdata/instruments/AAPL/prices",
         params={"range": "1mo", "interval": "1d"},
     )
-    selection_response = client.get("/api/v1/app/marketdata/instruments/AAPL/selection")
+    profile_response = client.get("/api/v1/app/marketdata/instruments/AAPL/profile")
 
     assert search_response.status_code == 200
     assert search_response.json()["data"]["items"][0]["symbol"] == "AAPL"
@@ -500,20 +506,32 @@ def test_marketdata_routes_return_downstream_payloads() -> None:
     assert summary_response.json()["data"]["symbol"] == "AAPL"
     assert prices_response.status_code == 200
     assert prices_response.json()["data"]["symbol"] == "AAPL"
-    assert selection_response.status_code == 200
-    assert selection_response.json()["data"]["quote"]["price"] == 100.0
+    assert profile_response.status_code == 200
+    assert profile_response.json()["data"]["price"] == 100.0
+    assert "quote" not in profile_response.json()["data"]
+    app.dependency_overrides.clear()
+
+
+def test_marketdata_selection_route_is_deprecated_alias_for_profile() -> None:
+    app.dependency_overrides[get_gateway_service] = lambda: StubGatewayService()
+    client = create_test_client(app)
+
+    response = client.get("/api/v1/app/marketdata/instruments/AAPL/selection")
+
+    assert response.status_code == 200
+    assert response.json()["data"]["price"] == 100.0
     app.dependency_overrides.clear()
 
 
 def test_marketdata_404_is_forwarded() -> None:
     class NotFoundMarketdataStub(StubGatewayService):
-        async def get_marketdata_selection(self, symbol: str) -> dict:
+        async def get_marketdata_profile(self, symbol: str) -> dict:
             raise HTTPException(status_code=404, detail="Instrument nicht gefunden")
 
     app.dependency_overrides[get_gateway_service] = lambda: NotFoundMarketdataStub()
     client = create_test_client(app)
 
-    response = client.get("/api/v1/app/marketdata/instruments/UNKNOWN/selection")
+    response = client.get("/api/v1/app/marketdata/instruments/UNKNOWN/profile")
 
     assert response.status_code == 404
     assert response.json()["detail"] == "Instrument nicht gefunden"
@@ -522,7 +540,7 @@ def test_marketdata_404_is_forwarded() -> None:
 
 def test_marketdata_502_is_forwarded_when_downstream_unreachable() -> None:
     class DownstreamUnavailableMarketdataStub(StubGatewayService):
-        async def get_marketdata_selection(self, symbol: str) -> dict:
+        async def get_marketdata_profile(self, symbol: str) -> dict:
             raise HTTPException(
                 status_code=502,
                 detail="Marketdata-Service ist derzeit nicht erreichbar. Bitte später erneut versuchen.",
@@ -531,8 +549,16 @@ def test_marketdata_502_is_forwarded_when_downstream_unreachable() -> None:
     app.dependency_overrides[get_gateway_service] = lambda: DownstreamUnavailableMarketdataStub()
     client = create_test_client(app)
 
-    response = client.get("/api/v1/app/marketdata/instruments/AAPL/selection")
+    response = client.get("/api/v1/app/marketdata/instruments/AAPL/profile")
 
     assert response.status_code == 502
     assert response.json()["detail"] == "Marketdata-Service ist derzeit nicht erreichbar. Bitte später erneut versuchen."
+
+
+def test_marketdata_search_limit_matches_backend_contract() -> None:
+    client = create_test_client(app)
+
+    response = client.get("/api/v1/app/marketdata/instruments/search", params={"q": "apple", "limit": 26})
+
+    assert response.status_code == 422
     app.dependency_overrides.clear()
