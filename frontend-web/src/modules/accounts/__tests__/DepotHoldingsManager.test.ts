@@ -12,7 +12,7 @@ vi.mock('@/shared/api/client', () => ({
     createPortfolio: vi.fn(),
     portfolio: vi.fn(),
     searchInstruments: vi.fn(),
-    marketdataSelection: vi.fn(),
+    marketdataProfile: vi.fn(),
     addHolding: vi.fn(),
     updateHolding: vi.fn(),
     deleteHolding: vi.fn(),
@@ -39,7 +39,7 @@ describe('DepotHoldingsManager', () => {
       holdings: [{ holding_id: 'h1', portfolio_id: 'p1', symbol: 'AAPL', quantity: 2, acquisition_price: 100, currency: 'USD', buy_date: '2026-03-01', created_at: 'x', updated_at: 'x' }],
     })
     vi.mocked(apiClient.searchInstruments).mockResolvedValue({ query: 'AAPL', total: 1, items: [{ symbol: 'AAPL', company_name: 'Apple', display_name: 'Apple', currency: 'USD', last_price: 170, change_1d_pct: 0.5 }] })
-    vi.mocked(apiClient.marketdataSelection).mockResolvedValue({ symbol: 'AAPL', company_name: 'Apple', display_name: 'Apple', currency: 'USD', last_price: 171, change_1d_pct: 0.7 })
+    vi.mocked(apiClient.marketdataProfile).mockResolvedValue({ symbol: 'AAPL', company_name: 'Apple', display_name: 'Apple', currency: 'USD', last_price: 171, change_1d_pct: 0.7 })
     vi.mocked(apiClient.addHolding).mockResolvedValue({} as never)
     vi.mocked(apiClient.updateHolding).mockResolvedValue({} as never)
     vi.mocked(apiClient.deleteHolding).mockResolvedValue(undefined)
@@ -62,7 +62,7 @@ describe('DepotHoldingsManager', () => {
     expect(apiClient.searchInstruments).toHaveBeenCalledWith('AAPL')
     await wrapper.find('ul.search-list button').trigger('click')
     await flushUi()
-    expect(apiClient.marketdataSelection).toHaveBeenCalledWith('AAPL')
+    expect(apiClient.marketdataProfile).toHaveBeenCalledWith('AAPL')
     await wrapper.find('form.holding-form').trigger('submit.prevent')
     await flushUi()
 
@@ -107,7 +107,7 @@ describe('DepotHoldingsManager', () => {
         last_price: 170
       }]
     })
-    vi.mocked(apiClient.marketdataSelection).mockResolvedValue({
+    vi.mocked(apiClient.marketdataProfile).mockResolvedValue({
       symbol: 'AAPL',
       company_name: 'Apple Inc. Detail',
       display_name: 'Apple Detail',
@@ -194,7 +194,7 @@ describe('DepotHoldingsManager', () => {
         last_price: 410
       }]
     })
-    vi.mocked(apiClient.marketdataSelection).mockResolvedValue({
+    vi.mocked(apiClient.marketdataProfile).mockResolvedValue({
       symbol: 'MSFT',
       display_name: '',
       isin: null,
@@ -230,7 +230,7 @@ describe('DepotHoldingsManager', () => {
         last_price: null
       }]
     })
-    vi.mocked(apiClient.marketdataSelection).mockResolvedValue({
+    vi.mocked(apiClient.marketdataProfile).mockResolvedValue({
       symbol: 'SAP',
       display_name: 'SAP SE Detail',
       currency: 'EUR',
@@ -256,7 +256,7 @@ describe('DepotHoldingsManager', () => {
       total: 1,
       items: [{ symbol: 'AAPL', company_name: 'Apple Inc.', display_name: 'Apple', currency: 'USD', last_price: 170 }]
     })
-    vi.mocked(apiClient.marketdataSelection).mockRejectedValue(new Error('Detail down'))
+    vi.mocked(apiClient.marketdataProfile).mockRejectedValue(new Error('Detail down'))
 
     const wrapper = mount(DepotHoldingsManager, { props: { personId: 'person-1', depotLabel: 'Depot Core' } })
     await flushUi()

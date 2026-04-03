@@ -4,7 +4,7 @@ import type {
   HoldingCreatePayload,
   HoldingReadModel,
   HoldingUpdatePayload,
-  InstrumentSelectionDetail,
+  MarketdataProfile,
   InstrumentSearchResult,
   PortfolioCreatePayload,
   PortfolioDetailReadModel,
@@ -40,6 +40,6 @@ export async function searchInstruments(q: string, limit = 10) {
   return (await http.get<ApiEnvelope<InstrumentSearchResult>>('/app/marketdata/instruments/search', { params: { q, limit } })).data.data
 }
 
-export async function marketdataSelection(symbol: string) {
-  return (await http.get<ApiEnvelope<InstrumentSelectionDetail>>(`/app/marketdata/instruments/${symbol}/profile`)).data.data
+export async function marketdataProfile(symbol: string) {
+  return (await http.get<ApiEnvelope<MarketdataProfile>>(`/app/marketdata/instruments/${symbol}/profile`)).data.data
 }

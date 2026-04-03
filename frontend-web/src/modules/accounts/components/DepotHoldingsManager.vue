@@ -15,32 +15,55 @@
     <div v-if="selectedPortfolioId" class="manager-grid">
       <section v-if="showAddSection">
         <h4>Position hinzufügen</h4>
-        <div>
+
+        <div class="search-panel">
           <label>Instrument-Suche</label>
           <input class="input" v-model.trim="searchQuery" :placeholder="`Name / Symbol / ISIN / WKN (mind. ${MIN_SEARCH_LENGTH} Zeichen)`" />
-        </div>
-        <p v-if="searchHint" class="muted">{{ searchHint }}</p>
-        <LoadingState v-if="searching" />
-        <ErrorState v-else-if="searchError" :message="searchError" />
-        <EmptyState v-else-if="showEmptySearch">Keine Treffer gefunden.</EmptyState>
+          <p v-if="searchHint" class="muted">{{ searchHint }}</p>
+          <LoadingState v-if="searching" />
+          <ErrorState v-else-if="searchError" :message="searchError" />
+          <EmptyState v-else-if="showEmptySearch">Keine Treffer gefunden.</EmptyState>
 
-        <ul v-else-if="searchResults.length" class="search-list">
-          <li v-for="item in searchResults" :key="`${item.symbol}-${item.isin || ''}`">
-            <button class="btn secondary result-item" type="button" :disabled="selectingSymbol === item.symbol" @click="selectInstrument(item)">
-              <strong>{{ item.symbol }}</strong>
-              <span>{{ item.display_name || item.company_name || 'Unbenanntes Instrument' }}</span>
-              <small v-if="item.isin">ISIN: {{ item.isin }}</small>
-              <small v-if="item.last_price != null">Letzter Preis: {{ item.last_price }} {{ item.currency || '' }}</small>
-              <small v-if="item.change_1d_pct != null" :class="changeClass(item.change_1d_pct)">
-                1D: {{ item.change_1d_pct }}%
-              </small>
-              <small v-if="selectingSymbol === item.symbol">Lade Instrumentdetails…</small>
-            </button>
-          </li>
-        </ul>
+          <ul v-else-if="searchResults.length" class="search-list">
+            <li v-for="item in searchResults" :key="item.symbol">
+              <button class="btn secondary result-item" type="button" :disabled="profileLoading && selectingSymbol === item.symbol" @click="selectInstrument(item)">
+                <div class="result-top-row">
+                  <strong>{{ item.symbol }}</strong>
+                  <small>{{ item.currency || '—' }}</small>
+                </div>
+                <span>{{ item.display_name || item.company_name || 'Unbenanntes Instrument' }}</span>
+                <small>Börse: {{ item.exchange || '—' }} · {{ item.exchange_full_name || '—' }}</small>
+                <small v-if="profileLoading && selectingSymbol === item.symbol">Lade Profil…</small>
+              </button>
+            </li>
+          </ul>
+        </div>
+
+        <div class="profile-panel">
+          <h5>Geladenes Profil</h5>
+          <LoadingState v-if="profileLoading" />
+          <ErrorState v-else-if="profileError" :message="profileError" />
+          <p v-else-if="!selectedProfile" class="muted">Noch kein Profil geladen. Wähle einen Suchtreffer aus.</p>
+          <div v-else class="profile-details">
+            <img v-if="selectedProfile.image" :src="selectedProfile.image" :alt="`Logo ${selectedProfile.companyName || selectedProfile.symbol}`" class="profile-image" />
+            <dl>
+              <template v-for="entry in profileEntries" :key="entry.key">
+                <dt>{{ entry.label }}</dt>
+                <dd>
+                  <template v-if="entry.key === 'website' && typeof entry.value === 'string'">
+                    <a :href="entry.value" target="_blank" rel="noopener noreferrer">{{ entry.value }}</a>
+                  </template>
+                  <template v-else>
+                    {{ entry.value }}
+                  </template>
+                </dd>
+              </template>
+            </dl>
+          </div>
+        </div>
 
         <form class="holding-form" @submit.prevent="createHolding">
-          <p class="muted">{{ selectedInstrument ? `Vorausgefüllt aus Suche: ${selectedInstrument.symbol}` : 'Ohne Suche möglich: Symbol direkt eintragen.' }}</p>
+          <p class="muted">{{ selectedProfile ? `Vorausgefüllt aus Profil: ${selectedProfile.symbol}` : 'Ohne Suche möglich: Symbol direkt eintragen.' }}</p>
           <div class="grid three-col">
             <div><label>Symbol</label><input data-testid="holding-symbol" class="input" v-model.trim="draftHolding.symbol" required /></div>
             <div><label>ISIN</label><input data-testid="holding-isin" class="input" v-model.trim="draftHolding.isin" /></div>
@@ -98,7 +121,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { apiClient } from '@/shared/api/client'
-import type { HoldingCreatePayload, HoldingReadModel, InstrumentSearchItem, InstrumentSelectionDetail, PortfolioDetailReadModel, PortfolioReadModel } from '@/shared/model/types'
+import type { HoldingCreatePayload, HoldingReadModel, InstrumentSearchItem, MarketdataProfile, PortfolioDetailReadModel, PortfolioReadModel } from '@/shared/model/types'
 import ErrorState from '@/shared/ui/ErrorState.vue'
 import LoadingState from '@/shared/ui/LoadingState.vue'
 import EmptyState from '@/shared/ui/EmptyState.vue'
@@ -117,16 +140,20 @@ const portfolioDetail = ref<PortfolioDetailReadModel | null>(null)
 const loading = ref(false)
 const saving = ref(false)
 const searching = ref(false)
+const profileLoading = ref(false)
 const searchQuery = ref('')
 const searchResults = ref<InstrumentSearchItem[]>([])
-const selectedInstrument = ref<InstrumentSearchItem | null>(null)
+const selectedProfile = ref<MarketdataProfile | null>(null)
 const selectingSymbol = ref<string | null>(null)
 const searchError = ref<string | null>(null)
+const profileError = ref<string | null>(null)
 const searched = ref(false)
 const errorMessage = ref<string | null>(null)
 const feedbackMessage = ref('')
 const feedbackBannerRef = ref<HTMLElement | null>(null)
 const editHoldingId = ref('')
+let activeSearchRequestId = 0
+let activeProfileRequestId = 0
 
 type HoldingDraftState = HoldingCreatePayload & {
   acquisition_price: number | null
@@ -138,7 +165,7 @@ type HoldingDraftState = HoldingCreatePayload & {
 const draftHolding = ref<HoldingDraftState>(createDefaultDraftHolding())
 const editHolding = ref({ quantity: 1, acquisition_price: 0, currency: 'EUR', buy_date: new Date().toISOString().slice(0, 10), notes: '' })
 const MIN_SEARCH_LENGTH = 2
-const SEARCH_DEBOUNCE_MS = 350
+const SEARCH_DEBOUNCE_MS = 1000
 let searchDebounceHandle: ReturnType<typeof setTimeout> | null = null
 
 const showEmptySearch = computed(() => searched.value && !searching.value && !searchError.value && searchResults.value.length === 0 && searchQuery.value.length >= MIN_SEARCH_LENGTH)
@@ -146,6 +173,13 @@ const searchHint = computed(() => {
   if (!searchQuery.value.length) return 'Suche startet beim Tippen.'
   if (searchQuery.value.length < MIN_SEARCH_LENGTH) return `Bitte mindestens ${MIN_SEARCH_LENGTH} Zeichen eingeben.`
   return null
+})
+
+const profileEntries = computed(() => {
+  if (!selectedProfile.value) return []
+  return Object.entries(selectedProfile.value)
+    .filter(([, value]) => hasValue(value))
+    .map(([key, value]) => ({ key, label: key, value: String(value) }))
 })
 
 function cleanOptional(value?: string | null) {
@@ -169,11 +203,12 @@ function createDefaultDraftHolding(): HoldingDraftState {
 
 function resetDraftHoldingForm() {
   draftHolding.value = createDefaultDraftHolding()
-  selectedInstrument.value = null
+  selectedProfile.value = null
   searchQuery.value = ''
   searchResults.value = []
   searched.value = false
   searchError.value = null
+  profileError.value = null
 }
 
 async function showSuccessFeedback(message: string) {
@@ -217,7 +252,7 @@ async function refreshPortfolio() {
   portfolioDetail.value = await apiClient.portfolio(selectedPortfolioId.value)
 }
 
-async function searchInstrument() {
+async function searchInstrument(requestId: number) {
   if (searchQuery.value.length < MIN_SEARCH_LENGTH) {
     searchResults.value = []
     searched.value = false
@@ -229,12 +264,16 @@ async function searchInstrument() {
   searched.value = true
   try {
     const result = await apiClient.searchInstruments(searchQuery.value)
+    if (requestId !== activeSearchRequestId) return
     searchResults.value = result.items
   } catch (e) {
+    if (requestId !== activeSearchRequestId) return
     searchError.value = e instanceof Error ? e.message : 'Instrumentensuche fehlgeschlagen.'
     searchResults.value = []
   } finally {
-    searching.value = false
+    if (requestId === activeSearchRequestId) {
+      searching.value = false
+    }
   }
 }
 
@@ -244,67 +283,58 @@ function hasValue<T>(value: T | null | undefined) {
   return true
 }
 
-function mergeInstrumentData(searchItem: InstrumentSearchItem, selectionDetails: InstrumentSelectionDetail) {
-  const merged = { ...searchItem }
-  for (const [key, value] of Object.entries(selectionDetails) as [keyof InstrumentSelectionDetail, InstrumentSelectionDetail[keyof InstrumentSelectionDetail]][]) {
-    if (hasValue(value)) {
-      merged[key as keyof InstrumentSearchItem] = value as never
-    }
-  }
-  return merged
-}
-
-function changeClass(change: number | null | undefined) {
-  if (change == null || change === 0) return 'change-neutral'
-  return change > 0 ? 'change-positive' : 'change-negative'
-}
-
-function buildDraftHoldingFromInstrument(item: InstrumentSearchItem | InstrumentSelectionDetail) {
+function buildDraftHoldingFromProfile(profile: MarketdataProfile) {
   return {
-    symbol: item.symbol,
-    isin: item.isin,
-    wkn: item.wkn,
-    display_name: item.display_name,
-    company_name: item.company_name,
-    exchange: item.exchange,
-    quote_type: item.quote_type,
-    asset_type: item.asset_type,
+    symbol: profile.symbol,
+    isin: typeof profile.isin === 'string' ? profile.isin : null,
+    wkn: null,
+    display_name: typeof profile.companyName === 'string' ? profile.companyName : null,
+    company_name: typeof profile.companyName === 'string' ? profile.companyName : null,
+    exchange: typeof profile.exchange === 'string' ? profile.exchange : null,
+    quote_type: null,
+    asset_type: profile.isEtf ? 'ETF' : profile.isFund ? 'Fund' : 'Stock',
     quantity: 1,
-    acquisition_price: item.last_price ?? null,
-    currency: item.currency ?? 'EUR',
+    acquisition_price: typeof profile.price === 'number' ? profile.price : null,
+    currency: typeof profile.currency === 'string' ? profile.currency : 'EUR',
     buy_date: new Date().toISOString().slice(0, 10),
     notes: null,
   }
 }
 
 async function selectInstrument(item: InstrumentSearchItem) {
-  selectedInstrument.value = item
   selectingSymbol.value = item.symbol
-  errorMessage.value = null
+  profileError.value = null
+  const requestId = ++activeProfileRequestId
+  profileLoading.value = true
   try {
-    const selectionDetails = await apiClient.marketdataSelection(item.symbol)
-    const mergedInstrument = mergeInstrumentData(item, selectionDetails)
-    selectedInstrument.value = mergedInstrument
-    draftHolding.value = buildDraftHoldingFromInstrument(mergedInstrument)
+    const profile = await apiClient.marketdataProfile(item.symbol)
+    if (requestId !== activeProfileRequestId) return
+    selectedProfile.value = profile
+    draftHolding.value = buildDraftHoldingFromProfile(profile)
   } catch (e) {
-    errorMessage.value = e instanceof Error ? e.message : 'Instrumentdetails konnten nicht geladen werden.'
-    draftHolding.value = buildDraftHoldingFromInstrument(item)
+    if (requestId !== activeProfileRequestId) return
+    profileError.value = e instanceof Error ? e.message : 'Profil konnte nicht geladen werden.'
   } finally {
-    selectingSymbol.value = null
+    if (requestId === activeProfileRequestId) {
+      profileLoading.value = false
+      selectingSymbol.value = null
+    }
   }
 }
 
 function scheduleSearch() {
   if (searchDebounceHandle) clearTimeout(searchDebounceHandle)
   if (searchQuery.value.length < MIN_SEARCH_LENGTH) {
+    activeSearchRequestId += 1
     searching.value = false
     searchError.value = null
     searchResults.value = []
     searched.value = false
     return
   }
+  const requestId = ++activeSearchRequestId
   searchDebounceHandle = setTimeout(() => {
-    void searchInstrument()
+    void searchInstrument(requestId)
   }, SEARCH_DEBOUNCE_MS)
 }
 
@@ -420,9 +450,14 @@ onBeforeUnmount(() => {
 .row-actions { display: flex; gap: .5rem; margin-top: .5rem; }
 .search-list { list-style: none; padding: 0; display: grid; gap: .5rem; margin-top: .5rem; }
 .result-item { width: 100%; text-align: left; display: grid; gap: .2rem; }
-.change-positive { color: #166534; }
-.change-negative { color: #b91c1c; }
-.change-neutral { color: #475569; }
+.result-top-row { display: flex; justify-content: space-between; align-items: center; }
+.search-panel,
+.profile-panel { border: 1px solid #e2e8f0; border-radius: 8px; padding: .75rem; margin-bottom: .75rem; }
+.profile-details { display: grid; gap: .75rem; }
+.profile-details dl { display: grid; grid-template-columns: minmax(140px, 220px) 1fr; gap: .35rem .75rem; margin: 0; }
+.profile-details dt { font-weight: 600; color: #334155; }
+.profile-details dd { margin: 0; white-space: pre-wrap; word-break: break-word; }
+.profile-image { max-width: 100px; max-height: 100px; object-fit: contain; }
 .feedback-banner {
   margin-top: .75rem;
   margin-bottom: .5rem;
