@@ -14,80 +14,88 @@
 
     <div v-if="selectedPortfolioId" class="manager-grid">
       <section v-if="showAddSection">
-        <h4>Position hinzufügen</h4>
+        <template v-if="isSearchView">
+          <h4>Position hinzufügen</h4>
 
-        <div class="search-panel">
-          <label>Instrument-Suche</label>
-          <input class="input" v-model.trim="searchQuery" :placeholder="`Name / Symbol / ISIN / WKN (mind. ${MIN_SEARCH_LENGTH} Zeichen)`" />
-          <p v-if="searchHint" class="muted">{{ searchHint }}</p>
-          <LoadingState v-if="searching" />
-          <ErrorState v-else-if="searchError" :message="searchError" />
-          <EmptyState v-else-if="showEmptySearch">Keine Treffer gefunden.</EmptyState>
+          <div class="search-panel">
+            <label>Instrument-Suche</label>
+            <input class="input" v-model.trim="searchQuery" :placeholder="`Name / Symbol / ISIN / WKN (mind. ${MIN_SEARCH_LENGTH} Zeichen)`" />
+            <p v-if="searchHint" class="muted">{{ searchHint }}</p>
+            <LoadingState v-if="searching" />
+            <ErrorState v-else-if="searchError" :message="searchError" />
+            <EmptyState v-else-if="showEmptySearch">Keine Treffer gefunden.</EmptyState>
 
-          <ul v-else-if="searchResults.length" class="search-list">
-            <li v-for="item in searchResults" :key="item.symbol">
-              <button
-                class="result-item result-item--compact"
-                type="button"
-                :class="{ 'result-item--active': isSelectedResult(item) }"
-                :disabled="profileLoading && selectingSymbol === item.symbol"
-                @click="selectInstrument(item)"
-              >
-                <div class="result-row">
-                  <strong class="result-symbol">{{ item.symbol }}</strong>
-                  <span class="result-name">{{ item.display_name || item.company_name || 'Unbenanntes Instrument' }}</span>
-                </div>
-                <div class="result-row result-row--meta">
-                  <small v-if="item.currency">{{ item.currency }}</small>
-                  <small v-if="item.exchange">{{ item.exchange }}</small>
-                  <small v-if="item.exchange_full_name">{{ item.exchange_full_name }}</small>
-                </div>
-                <small v-if="profileLoading && selectingSymbol === item.symbol" class="result-loading">Lade Profil…</small>
-              </button>
-            </li>
-          </ul>
-        </div>
-
-        <form class="holding-form" @submit.prevent="createHolding">
-          <LoadingState v-if="profileLoading" />
-          <ErrorState v-if="profileError" :message="profileError" />
-          <div class="grid three-col">
-            <div><label>Symbol</label><input data-testid="holding-symbol" class="input" v-model.trim="draftHolding.symbol" required /></div>
-            <div><label>ISIN</label><input data-testid="holding-isin" class="input" v-model.trim="draftHolding.isin" /></div>
-            <div><label>WKN</label><input data-testid="holding-wkn" class="input" v-model.trim="draftHolding.wkn" /></div>
-            <div><label>Stückzahl</label><input class="input" v-model.number="draftHolding.quantity" type="number" min="0.000001" step="0.000001" required /></div>
-            <div><label>Kaufkurs</label><input data-testid="holding-acquisition-price" class="input" v-model.number="draftHolding.acquisition_price" type="number" min="0.000001" step="0.000001" required /></div>
-            <div><label>Währung</label><input data-testid="holding-currency" class="input" v-model.trim="draftHolding.currency" maxlength="3" required /></div>
-            <div><label>Kaufdatum</label><input class="input" v-model="draftHolding.buy_date" type="date" required /></div>
-            <div><label>Name</label><input data-testid="holding-display-name" class="input" v-model.trim="draftHolding.display_name" /></div>
-            <div><label>Unternehmen</label><input data-testid="holding-company-name" class="input" v-model.trim="draftHolding.company_name" /></div>
-            <div><label>Börse</label><input data-testid="holding-exchange" class="input" v-model.trim="draftHolding.exchange" /></div>
-            <div><label>Quote-Type</label><input data-testid="holding-quote-type" class="input" v-model.trim="draftHolding.quote_type" /></div>
-            <div><label>Asset-Type</label><input data-testid="holding-asset-type" class="input" v-model.trim="draftHolding.asset_type" /></div>
-            <div class="wide"><label>Notiz</label><input class="input" v-model.trim="draftHolding.notes" /></div>
-
-            <div v-if="selectedProfile?.image" class="profile-logo-field">
-              <label>Bild</label>
-              <img
-                :src="selectedProfile.image"
-                :alt="`Logo ${selectedProfile.company_name || selectedProfile.symbol}`"
-                class="profile-image profile-image--inline"
-              />
-            </div>
-            <div v-if="profileIndustry"><label>Industrie</label><input class="input" :value="profileIndustry" readonly /></div>
-            <div v-if="profileWebsite"><label>Website</label><a class="profile-link" :href="normalizeUrl(profileWebsite)" target="_blank" rel="noopener noreferrer">{{ profileWebsite }}</a></div>
-            <div v-if="profileCeo"><label>CEO</label><input class="input" :value="profileCeo" readonly /></div>
-            <div v-if="profileSector"><label>Sektor</label><input class="input" :value="profileSector" readonly /></div>
-            <div v-if="profileCountry"><label>Land</label><input class="input" :value="profileCountry" readonly /></div>
-            <div v-if="profilePhone"><label>Telefon</label><input class="input" :value="profilePhone" readonly /></div>
-            <div v-if="profileAddressLine" class="wide"><label>Adresse</label><input class="input" :value="profileAddressLine" readonly /></div>
-            <div v-if="profileDescription" class="wide">
-              <label>Beschreibung</label>
-              <div class="profile-description-block">{{ profileDescription }}</div>
+            <div v-else-if="searchResults.length" ref="searchListContainerRef">
+              <ul class="search-list">
+                <li v-for="item in searchResults" :key="item.symbol">
+                  <button
+                    class="result-item result-item--compact"
+                    type="button"
+                    :class="{ 'result-item--active': selectedInstrumentSymbol === item.symbol }"
+                    @click="openInstrumentDetail(item)"
+                  >
+                    <div class="result-row">
+                      <strong class="result-symbol">{{ item.symbol }}</strong>
+                      <span class="result-name">{{ item.display_name || item.company_name || 'Unbenanntes Instrument' }}</span>
+                    </div>
+                    <div class="result-row result-row--meta">
+                      <small v-if="item.currency">{{ item.currency }}</small>
+                      <small v-if="item.exchange">{{ item.exchange }}</small>
+                      <small v-if="item.exchange_full_name">{{ item.exchange_full_name }}</small>
+                    </div>
+                  </button>
+                </li>
+              </ul>
             </div>
           </div>
-          <button class="btn" type="submit" :disabled="saving">Holding hinzufügen</button>
-        </form>
+        </template>
+
+        <template v-else>
+          <div class="detail-header">
+            <button class="btn secondary" type="button" @click="backToSearch">← Zurück</button>
+            <h4>Position bearbeiten: {{ detailHeading }}</h4>
+          </div>
+          <LoadingState v-if="profileLoading" />
+          <ErrorState v-if="profileError" :message="profileError" />
+          <form class="holding-form" @submit.prevent="createHolding">
+            <div class="grid three-col">
+              <div><label>Symbol</label><input data-testid="holding-symbol" class="input" v-model.trim="draftHolding.symbol" required /></div>
+              <div><label>ISIN</label><input data-testid="holding-isin" class="input" v-model.trim="draftHolding.isin" /></div>
+              <div><label>WKN</label><input data-testid="holding-wkn" class="input" v-model.trim="draftHolding.wkn" /></div>
+              <div><label>Stückzahl</label><input class="input" v-model.number="draftHolding.quantity" type="number" min="0.000001" step="0.000001" required /></div>
+              <div><label>Kaufkurs</label><input data-testid="holding-acquisition-price" class="input" v-model.number="draftHolding.acquisition_price" type="number" min="0.000001" step="0.000001" required /></div>
+              <div><label>Währung</label><input data-testid="holding-currency" class="input" v-model.trim="draftHolding.currency" maxlength="3" required /></div>
+              <div><label>Kaufdatum</label><input class="input" v-model="draftHolding.buy_date" type="date" required /></div>
+              <div><label>Name</label><input data-testid="holding-display-name" class="input" v-model.trim="draftHolding.display_name" /></div>
+              <div><label>Unternehmen</label><input data-testid="holding-company-name" class="input" v-model.trim="draftHolding.company_name" /></div>
+              <div><label>Börse</label><input data-testid="holding-exchange" class="input" v-model.trim="draftHolding.exchange" /></div>
+              <div><label>Quote-Type</label><input data-testid="holding-quote-type" class="input" v-model.trim="draftHolding.quote_type" /></div>
+              <div><label>Asset-Type</label><input data-testid="holding-asset-type" class="input" v-model.trim="draftHolding.asset_type" /></div>
+              <div class="wide"><label>Notiz</label><input class="input" v-model.trim="draftHolding.notes" /></div>
+
+              <div v-if="selectedProfile?.image" class="profile-logo-field">
+                <label>Bild</label>
+                <img
+                  :src="selectedProfile.image"
+                  :alt="`Logo ${selectedProfile.company_name || selectedProfile.symbol}`"
+                  class="profile-image profile-image--inline"
+                />
+              </div>
+              <div v-if="profileIndustry"><label>Industrie</label><input class="input" :value="profileIndustry" readonly /></div>
+              <div v-if="profileWebsite"><label>Website</label><a class="profile-link" :href="normalizeUrl(profileWebsite)" target="_blank" rel="noopener noreferrer">{{ profileWebsite }}</a></div>
+              <div v-if="profileCeo"><label>CEO</label><input class="input" :value="profileCeo" readonly /></div>
+              <div v-if="profileSector"><label>Sektor</label><input class="input" :value="profileSector" readonly /></div>
+              <div v-if="profileCountry"><label>Land</label><input class="input" :value="profileCountry" readonly /></div>
+              <div v-if="profilePhone"><label>Telefon</label><input class="input" :value="profilePhone" readonly /></div>
+              <div v-if="profileAddressLine" class="wide"><label>Adresse</label><input class="input" :value="profileAddressLine" readonly /></div>
+              <div v-if="profileDescription" class="wide">
+                <label>Beschreibung</label>
+                <div class="profile-description-block">{{ profileDescription }}</div>
+              </div>
+            </div>
+            <button class="btn" type="submit" :disabled="saving">Holding hinzufügen</button>
+          </form>
+        </template>
       </section>
 
       <section v-if="showHoldingsSection">
@@ -127,6 +135,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { apiClient } from '@/shared/api/client'
 import type { HoldingCreatePayload, HoldingReadModel, InstrumentSearchItem, MarketdataProfile, PortfolioDetailReadModel, PortfolioReadModel } from '@/shared/model/types'
 import ErrorState from '@/shared/ui/ErrorState.vue'
@@ -161,6 +170,19 @@ const feedbackBannerRef = ref<HTMLElement | null>(null)
 const editHoldingId = ref('')
 let activeSearchRequestId = 0
 let activeProfileRequestId = 0
+const route = useRoute()
+const router = useRouter()
+const searchListContainerRef = ref<HTMLElement | null>(null)
+
+type SearchViewSnapshot = {
+  searchQuery: string
+  searchResults: InstrumentSearchItem[]
+  searched: boolean
+  selectedInstrumentSymbol: string | null
+  scrollTop: number
+}
+
+const viewStateByContext = new Map<string, SearchViewSnapshot>()
 
 type HoldingDraftState = HoldingCreatePayload & {
   acquisition_price: number | null
@@ -174,8 +196,14 @@ const editHolding = ref({ quantity: 1, acquisition_price: 0, currency: 'EUR', bu
 const MIN_SEARCH_LENGTH = 2
 const SEARCH_DEBOUNCE_MS = 1000
 let searchDebounceHandle: ReturnType<typeof setTimeout> | null = null
+const selectedInstrumentSymbol = ref<string | null>(null)
 
 const showEmptySearch = computed(() => searched.value && !searching.value && !searchError.value && searchResults.value.length === 0 && searchQuery.value.length >= MIN_SEARCH_LENGTH)
+const selectedSymbolFromRoute = computed(() => (typeof route.query.symbol === 'string' ? route.query.symbol : ''))
+const selectedDetailSymbol = ref('')
+const isSearchView = computed(() => !selectedDetailSymbol.value)
+const detailHeading = computed(() => selectedProfile.value?.company_name || selectedDetailSymbol.value)
+const stateKey = computed(() => `${props.personId}::${props.depotLabel}`)
 const searchHint = computed(() => {
   if (!searchQuery.value.length) return 'Suche startet beim Tippen.'
   if (searchQuery.value.length < MIN_SEARCH_LENGTH) return `Bitte mindestens ${MIN_SEARCH_LENGTH} Zeichen eingeben.`
@@ -222,9 +250,6 @@ function createDefaultDraftHolding(): HoldingDraftState {
 function resetDraftHoldingForm() {
   draftHolding.value = createDefaultDraftHolding()
   selectedProfile.value = null
-  searchQuery.value = ''
-  searchResults.value = []
-  searched.value = false
   searchError.value = null
   profileError.value = null
 }
@@ -312,10 +337,6 @@ function normalizeUrl(url: string) {
   return `https://${url}`
 }
 
-function isSelectedResult(item: InstrumentSearchItem) {
-  return selectedProfile.value?.symbol === item.symbol
-}
-
 function buildDraftHoldingFromProfile(profile: MarketdataProfile) {
   return {
     symbol: profile.symbol,
@@ -334,16 +355,38 @@ function buildDraftHoldingFromProfile(profile: MarketdataProfile) {
   }
 }
 
-async function selectInstrument(item: InstrumentSearchItem) {
-  selectingSymbol.value = item.symbol
+function preserveSearchScroll() {
+  if (!searchListContainerRef.value) return
+  const snapshot = viewStateByContext.get(stateKey.value)
+  if (!snapshot) return
+  snapshot.scrollTop = searchListContainerRef.value.scrollTop
+}
+
+async function openInstrumentDetail(item: InstrumentSearchItem) {
+  preserveSearchScroll()
+  selectedDetailSymbol.value = item.symbol
+  selectedInstrumentSymbol.value = item.symbol
+  void fetchInstrumentProfile(item.symbol)
+  await router.push({
+    query: {
+      ...route.query,
+      symbol: item.symbol,
+      instrumentName: item.display_name || item.company_name || '',
+    },
+  })
+}
+
+async function fetchInstrumentProfile(symbol: string) {
+  selectingSymbol.value = symbol
   profileError.value = null
   const requestId = ++activeProfileRequestId
   profileLoading.value = true
   try {
-    const profile = await apiClient.marketdataProfile(item.symbol)
+    const profile = await apiClient.marketdataProfile(symbol)
     if (requestId !== activeProfileRequestId) return
     selectedProfile.value = profile
     draftHolding.value = buildDraftHoldingFromProfile(profile)
+    selectedInstrumentSymbol.value = symbol
   } catch (e) {
     if (requestId !== activeProfileRequestId) return
     profileError.value = e instanceof Error ? e.message : 'Profil konnte nicht geladen werden.'
@@ -353,6 +396,11 @@ async function selectInstrument(item: InstrumentSearchItem) {
       selectingSymbol.value = null
     }
   }
+}
+
+async function backToSearch() {
+  selectedDetailSymbol.value = ''
+  await router.push({ query: { ...route.query, symbol: undefined, instrumentName: undefined } })
 }
 
 function scheduleSearch() {
@@ -466,9 +514,44 @@ watch(searchQuery, () => {
   searchError.value = null
   scheduleSearch()
 })
+watch([searchQuery, searchResults, searched, selectedInstrumentSymbol], () => {
+  viewStateByContext.set(stateKey.value, {
+    searchQuery: searchQuery.value,
+    searchResults: [...searchResults.value],
+    searched: searched.value,
+    selectedInstrumentSymbol: selectedInstrumentSymbol.value,
+    scrollTop: searchListContainerRef.value?.scrollTop ?? 0,
+  })
+}, { deep: true })
+watch(selectedSymbolFromRoute, (symbol) => {
+  selectedDetailSymbol.value = symbol
+  if (!selectedDetailSymbol.value) {
+    profileError.value = null
+    profileLoading.value = false
+    nextTick(() => {
+      const snapshot = viewStateByContext.get(stateKey.value)
+      if (!snapshot || !searchListContainerRef.value) return
+      searchListContainerRef.value.scrollTop = snapshot.scrollTop
+    })
+    return
+  }
+  if (selectedProfile.value?.symbol === selectedDetailSymbol.value || selectingSymbol.value === selectedDetailSymbol.value) {
+    return
+  }
+  void fetchInstrumentProfile(selectedDetailSymbol.value)
+}, { immediate: true })
 onMounted(() => { void load() })
+onMounted(() => {
+  const snapshot = viewStateByContext.get(stateKey.value)
+  if (!snapshot) return
+  searchQuery.value = snapshot.searchQuery
+  searchResults.value = [...snapshot.searchResults]
+  searched.value = snapshot.searched
+  selectedInstrumentSymbol.value = snapshot.selectedInstrumentSymbol
+})
 onBeforeUnmount(() => {
   if (searchDebounceHandle) clearTimeout(searchDebounceHandle)
+  preserveSearchScroll()
 })
 </script>
 
@@ -511,6 +594,7 @@ onBeforeUnmount(() => {
 }
 .result-loading { color: #334155; }
 .search-panel { border: 1px solid #e2e8f0; border-radius: 8px; padding: .75rem; margin-bottom: .75rem; }
+.detail-header { display: flex; align-items: center; gap: .75rem; margin-bottom: .75rem; }
 .profile-image { width: 48px; height: 48px; object-fit: contain; border-radius: 6px; border: 1px solid #e2e8f0; background: #fff; }
 .profile-image--inline { display: block; margin-top: .35rem; }
 .profile-logo-field { display: flex; flex-direction: column; justify-content: flex-start; }

@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
+import { createMemoryHistory, createRouter } from 'vue-router'
 
 import DepotHoldingsManager from '@/modules/accounts/components/DepotHoldingsManager.vue'
 import { apiClient } from '@/shared/api/client'
@@ -24,6 +25,20 @@ async function flushUi() {
   await nextTick()
   await Promise.resolve()
   await nextTick()
+}
+
+async function mountManager() {
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [{ path: '/', component: DepotHoldingsManager }],
+  })
+  await router.push('/')
+  await router.isReady()
+  const wrapper = mount(DepotHoldingsManager, {
+    props: { personId: 'person-1', depotLabel: 'Depot Core' },
+    global: { plugins: [router] },
+  })
+  return { wrapper, router }
 }
 
 describe('DepotHoldingsManager (FMP flow)', () => {
@@ -56,7 +71,7 @@ describe('DepotHoldingsManager (FMP flow)', () => {
   it('uses a higher debounce and does not fire search on every keystroke', async () => {
     vi.mocked(apiClient.searchInstruments).mockResolvedValue({ query: 'Commerzbank', total: 1, items: [] })
 
-    const wrapper = mount(DepotHoldingsManager, { props: { personId: 'person-1', depotLabel: 'Depot Core' } })
+    const { wrapper } = await mountManager()
     await flushUi()
 
     const input = wrapper.find('input[placeholder*="Name / Symbol / ISIN / WKN"]')
@@ -88,7 +103,7 @@ describe('DepotHoldingsManager (FMP flow)', () => {
       }],
     })
 
-    const wrapper = mount(DepotHoldingsManager, { props: { personId: 'person-1', depotLabel: 'Depot Core' } })
+    const { wrapper } = await mountManager()
     await flushUi()
 
     await wrapper.find('input[placeholder*="Name / Symbol / ISIN / WKN"]').setValue('Commerzbank')
@@ -104,7 +119,7 @@ describe('DepotHoldingsManager (FMP flow)', () => {
     expect(wrapper.find('ul.search-list button.result-item--compact').exists()).toBe(true)
   })
 
-  it('loads profile into the single form and renders only the relevant integrated profile fields', async () => {
+  it('opens a dedicated detail view for selected instrument and loads profile fields there', async () => {
     vi.mocked(apiClient.searchInstruments).mockResolvedValue({
       query: 'Commerzbank',
       total: 1,
@@ -131,7 +146,7 @@ describe('DepotHoldingsManager (FMP flow)', () => {
       price: 18.35,
     })
 
-    const wrapper = mount(DepotHoldingsManager, { props: { personId: 'person-1', depotLabel: 'Depot Core' } })
+    const { wrapper } = await mountManager()
     await flushUi()
 
     await wrapper.find('input[placeholder*="Name / Symbol / ISIN / WKN"]').setValue('Commerzbank')
@@ -141,6 +156,8 @@ describe('DepotHoldingsManager (FMP flow)', () => {
     await wrapper.find('ul.search-list button').trigger('click')
     await flushUi()
 
+    expect(wrapper.text()).toContain('← Zurück')
+    expect(wrapper.text()).toContain('Position bearbeiten: Commerzbank AG')
     expect(apiClient.marketdataProfile).toHaveBeenCalledWith('CBK.DE')
     expect(wrapper.text()).not.toContain('Profilübersicht')
     const formText = wrapper.find('form.holding-form').text()
@@ -155,7 +172,7 @@ describe('DepotHoldingsManager (FMP flow)', () => {
     const websiteLink = wrapper.find('a[href="https://www.commerzbank.de"]')
     expect(websiteLink.exists()).toBe(true)
     expect(wrapper.find('img.profile-image--inline').attributes('src')).toBe('https://example.com/logo.png')
-    expect(wrapper.find('button.result-item--active').exists()).toBe(true)
+    expect(wrapper.find('ul.search-list').exists()).toBe(false)
   })
 
   it('prefills holding form from loaded profile', async () => {
@@ -173,7 +190,7 @@ describe('DepotHoldingsManager (FMP flow)', () => {
       price: 18.35,
     })
 
-    const wrapper = mount(DepotHoldingsManager, { props: { personId: 'person-1', depotLabel: 'Depot Core' } })
+    const { wrapper } = await mountManager()
     await flushUi()
 
     await wrapper.find('input[placeholder*="Name / Symbol / ISIN / WKN"]').setValue('Commerzbank')
@@ -191,6 +208,37 @@ describe('DepotHoldingsManager (FMP flow)', () => {
     expect((wrapper.find('[data-testid="holding-asset-type"]').element as HTMLInputElement).value).toBe('')
   })
 
+  it('keeps search query and result list after returning from detail view', async () => {
+    vi.mocked(apiClient.searchInstruments).mockResolvedValue({
+      query: 'Commerzbank',
+      total: 1,
+      items: [{ symbol: 'CBK.DE', company_name: 'Commerzbank AG', display_name: 'Commerzbank AG', currency: 'EUR' }],
+    })
+    vi.mocked(apiClient.marketdataProfile).mockResolvedValue({
+      symbol: 'CBK.DE',
+      company_name: 'Commerzbank AG',
+      currency: 'EUR',
+      price: 18.35,
+    })
+
+    const { wrapper } = await mountManager()
+    await flushUi()
+
+    const input = wrapper.find('input[placeholder*="Name / Symbol / ISIN / WKN"]')
+    await input.setValue('Commerzbank')
+    await vi.advanceTimersByTimeAsync(1000)
+    await flushUi()
+    await wrapper.find('ul.search-list button').trigger('click')
+    await flushUi()
+    expect(wrapper.text()).toContain('← Zurück')
+    await wrapper.find('button.btn.secondary').trigger('click')
+    await flushUi()
+
+    expect((wrapper.find('input[placeholder*="Name / Symbol / ISIN / WKN"]').element as HTMLInputElement).value).toBe('Commerzbank')
+    expect(wrapper.find('ul.search-list').text()).toContain('CBK.DE')
+    expect(wrapper.find('form.holding-form').exists()).toBe(false)
+  })
+
   it('shows errors for failed search and failed profile requests', async () => {
     vi.mocked(apiClient.searchInstruments).mockRejectedValueOnce(new Error('Search failed'))
       .mockResolvedValueOnce({
@@ -200,7 +248,7 @@ describe('DepotHoldingsManager (FMP flow)', () => {
       })
     vi.mocked(apiClient.marketdataProfile).mockRejectedValueOnce(new Error('Profile failed'))
 
-    const wrapper = mount(DepotHoldingsManager, { props: { personId: 'person-1', depotLabel: 'Depot Core' } })
+    const { wrapper } = await mountManager()
     await flushUi()
 
     const input = wrapper.find('input[placeholder*="Name / Symbol / ISIN / WKN"]')
