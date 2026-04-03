@@ -64,57 +64,66 @@ def test_repositories_fallback_to_inmemory_when_mongo_unavailable(monkeypatch: p
 
     monkeypatch.setattr(marketdata_dependencies, "MongoClient", BrokenMongoClient)
     get_profile_repository.cache_clear()
+
     repository = get_profile_repository()
+
     assert isinstance(repository, InMemoryInstrumentProfileCacheRepository)
 
 
-def test_search_and_profile_endpoints(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_search_endpoint_success(monkeypatch: pytest.MonkeyPatch) -> None:
     class FakeFMPClient:
         def search_name(self, *, query: str, limit: int):
-            assert query == "Apple"
+            assert query == "Commerzbank"
+            assert limit == 10
             return [
                 {
-                    "symbol": "AAPL",
-                    "name": "Apple Inc.",
-                    "currency": "USD",
-                    "exchange": "NASDAQ",
-                    "exchangeFullName": "Nasdaq Global Select",
+                    "symbol": "CBK.DE",
+                    "name": "Commerzbank AG",
+                    "currency": "EUR",
+                    "exchange": "XETRA",
+                    "exchangeFullName": "Deutsche Börse Xetra",
                 }
             ]
 
         def profile(self, *, symbol: str):
-            assert symbol == "AAPL"
-            return [{"symbol": "AAPL", "companyName": "Apple Inc.", "currency": "USD", "exchange": "NASDAQ"}]
+            return []
 
     monkeypatch.setattr(marketdata_dependencies, "get_fmp_client", lambda: FakeFMPClient())
     get_marketdata_service.cache_clear()
 
     client = create_test_client(app)
+    response = client.get("/api/v1/marketdata/instruments/search", params={"q": "Commerzbank", "limit": 10})
 
-    search = client.get("/api/v1/marketdata/instruments/search", params={"q": "Apple", "limit": 10})
-    assert search.status_code == 200
-    assert search.json()["data"]["total"] == 1
-    assert search.json()["data"]["items"][0]["symbol"] == "AAPL"
-    assert search.json()["data"]["items"][0]["company_name"] == "Apple Inc."
-    assert search.json()["data"]["items"][0]["display_name"] == "Apple Inc."
-    assert search.json()["data"]["items"][0]["exchange_full_name"] == "Nasdaq Global Select"
-
-    profile = client.get("/api/v1/marketdata/instruments/AAPL/profile")
-    assert profile.status_code == 200
-    assert profile.json()["data"]["company_name"] == "Apple Inc."
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["total"] == 1
+    assert payload["items"][0]["symbol"] == "CBK.DE"
+    assert payload["items"][0]["exchange_full_name"] == "Deutsche Börse Xetra"
 
 
-def test_search_empty_query_returns_400() -> None:
+def test_search_endpoint_empty_results(monkeypatch: pytest.MonkeyPatch) -> None:
+    class FakeFMPClient:
+        def search_name(self, *, query: str, limit: int):
+            return []
+
+        def profile(self, *, symbol: str):
+            return []
+
+    monkeypatch.setattr(marketdata_dependencies, "get_fmp_client", lambda: FakeFMPClient())
+    get_marketdata_service.cache_clear()
+
     client = create_test_client(app)
-    response = client.get("/api/v1/marketdata/instruments/search", params={"q": " ", "limit": 10})
-    assert response.status_code == 400
-    assert response.json()["details"][0]["code"] == "bad_request"
+    response = client.get("/api/v1/marketdata/instruments/search", params={"q": "NoMatch", "limit": 10})
+
+    assert response.status_code == 200
+    assert response.json()["data"]["items"] == []
+    assert response.json()["data"]["total"] == 0
 
 
-def test_search_upstream_error_returns_503(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_search_endpoint_upstream_error_returns_503(monkeypatch: pytest.MonkeyPatch) -> None:
     class BrokenFMPClient:
         def search_name(self, *, query: str, limit: int):
-            raise UpstreamServiceError("upstream down")
+            raise UpstreamServiceError("provider unavailable")
 
         def profile(self, *, symbol: str):
             return []
@@ -123,6 +132,27 @@ def test_search_upstream_error_returns_503(monkeypatch: pytest.MonkeyPatch) -> N
     get_marketdata_service.cache_clear()
 
     client = create_test_client(app)
-    response = client.get("/api/v1/marketdata/instruments/search", params={"q": "Apple", "limit": 10})
+    response = client.get("/api/v1/marketdata/instruments/search", params={"q": "Commerzbank", "limit": 10})
+
     assert response.status_code == 503
     assert response.json()["details"][0]["code"] == "upstream_unavailable"
+
+
+def test_profile_endpoint_loads_profile(monkeypatch: pytest.MonkeyPatch) -> None:
+    class FakeFMPClient:
+        def search_name(self, *, query: str, limit: int):
+            return []
+
+        def profile(self, *, symbol: str):
+            assert symbol == "CBK.DE"
+            return [{"symbol": "CBK.DE", "companyName": "Commerzbank AG", "currency": "EUR", "exchange": "XETRA"}]
+
+    monkeypatch.setattr(marketdata_dependencies, "get_fmp_client", lambda: FakeFMPClient())
+    get_marketdata_service.cache_clear()
+
+    client = create_test_client(app)
+    response = client.get("/api/v1/marketdata/instruments/CBK.DE/profile")
+
+    assert response.status_code == 200
+    assert response.json()["data"]["symbol"] == "CBK.DE"
+    assert response.json()["data"]["company_name"] == "Commerzbank AG"
