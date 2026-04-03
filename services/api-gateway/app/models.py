@@ -237,6 +237,13 @@ class PortfolioDetailReadModel(PortfolioReadModel):
     holdings: list[HoldingReadModel]
 
 
+class HoldingsRefreshStubReadModel(BaseModel):
+    portfolio_id: UUID
+    status: str
+    accepted: bool
+    detail: str
+
+
 
 
 class MarketdataProfileReadModel(BaseModel):

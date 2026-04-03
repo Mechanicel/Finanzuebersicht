@@ -273,6 +273,14 @@ class StubGatewayService:
     async def delete_holding(self, portfolio_id: UUID, holding_id: UUID) -> None:
         return None
 
+    async def refresh_holdings_prices(self, portfolio_id: UUID) -> dict:
+        return {
+            "portfolio_id": str(portfolio_id),
+            "status": "not_implemented_yet",
+            "accepted": False,
+            "detail": "Technischer Refresh-Flow vorbereitet. Marktpreislogik folgt in einem späteren Schritt.",
+        }
+
     async def get_analytics_overview(self, person_id: UUID) -> dict:
         return {"labels": ["2026-02-28"], "series": []}
 
@@ -427,6 +435,9 @@ def test_app_endpoints_for_vue_pages() -> None:
         == 204
     )
     assert client.get(f"/api/v1/app/persons/{PERSON_ID}/portfolios").status_code == 200
+    assert client.post(
+        "/api/v1/app/portfolios/20000000-0000-0000-0000-000000000001/holdings/refresh-current-prices"
+    ).status_code == 200
     assert client.get(f"/api/v1/app/persons/{PERSON_ID}/analytics/overview").status_code == 200
 
     payload = client.get(f"/api/v1/app/persons/{PERSON_ID}/dashboard").json()["data"]

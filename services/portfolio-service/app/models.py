@@ -118,3 +118,10 @@ class PortfolioDetailResponse(BaseModel):
 class PortfolioListResponse(BaseModel):
     items: list[Portfolio]
     total: int
+
+
+class HoldingsRefreshStubResponse(BaseModel):
+    portfolio_id: UUID
+    status: str
+    accepted: bool
+    detail: str

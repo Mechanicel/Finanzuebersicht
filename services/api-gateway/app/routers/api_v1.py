@@ -32,6 +32,7 @@ from app.models import (
     PortfolioListReadModel,
     PortfolioReadModel,
     HoldingCreatePayload,
+    HoldingsRefreshStubReadModel,
     HoldingReadModel,
     HoldingUpdatePayload,
     MarketdataProfileReadModel,
@@ -279,6 +280,17 @@ async def remove_holding(
 ) -> Response:
     await service.delete_holding(portfolio_id, holding_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
+    "/app/portfolios/{portfolio_id}/holdings/refresh-current-prices",
+    response_model=ApiResponse[HoldingsRefreshStubReadModel],
+)
+async def refresh_holdings_prices(
+    portfolio_id: UUID,
+    service: Annotated[GatewayService, Depends(get_gateway_service)],
+) -> ApiResponse[HoldingsRefreshStubReadModel]:
+    return ApiResponse(data=await service.refresh_holdings_prices(portfolio_id))
 
 
 @router.get("/app/persons/{person_id}/analytics/overview", response_model=ApiResponse[dict])

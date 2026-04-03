@@ -682,6 +682,15 @@ async def test_gateway_portfolio_passthrough(monkeypatch: pytest.MonkeyPatch) ->
             def json() -> dict:
                 if method == "GET" and "/persons/" in url:
                     return {"data": {"items": [], "total": 0}}
+                if method == "POST" and url.endswith("/holdings/refresh-current-prices"):
+                    return {
+                        "data": {
+                            "portfolio_id": "20000000-0000-0000-0000-000000000001",
+                            "status": "not_implemented_yet",
+                            "accepted": False,
+                            "detail": "Technischer Refresh-Flow vorbereitet. Marktpreislogik folgt in einem späteren Schritt.",
+                        }
+                    }
                 if method == "POST":
                     return {"data": {"portfolio_id": "20000000-0000-0000-0000-000000000001", "person_id": "00000000-0000-0000-0000-000000000101", "display_name": "Core", "created_at": "2026-01-01T00:00:00+00:00", "updated_at": "2026-01-01T00:00:00+00:00"}}
                 return {"data": {"portfolio_id": "20000000-0000-0000-0000-000000000001", "person_id": "00000000-0000-0000-0000-000000000101", "display_name": "Core", "created_at": "2026-01-01T00:00:00+00:00", "updated_at": "2026-01-01T00:00:00+00:00", "holdings": []}}
@@ -696,9 +705,12 @@ async def test_gateway_portfolio_passthrough(monkeypatch: pytest.MonkeyPatch) ->
 
     await service.list_portfolios(person_id)
     await service.create_portfolio(person_id, PortfolioCreatePayload(display_name="Core"))
+    refresh = await service.refresh_holdings_prices(UUID("20000000-0000-0000-0000-000000000001"))
 
     assert calls[0][1].endswith(f"/api/v1/persons/{person_id}/portfolios")
     assert calls[1][1].endswith("/api/v1/portfolios")
+    assert calls[2][1].endswith("/api/v1/portfolios/20000000-0000-0000-0000-000000000001/holdings/refresh-current-prices")
+    assert refresh.status == "not_implemented_yet"
 
 
 @pytest.mark.anyio

@@ -113,7 +113,18 @@
       </section>
 
       <section v-if="showHoldingsSection">
-        <h4>Vorhandene Positionen</h4>
+        <div class="holdings-header">
+          <h4>Vorhandene Positionen</h4>
+          <button
+            type="button"
+            class="btn secondary"
+            data-testid="holdings-refresh-button"
+            :disabled="!selectedPortfolioId || refreshingPrices || loading"
+            @click="refreshHoldingPrices"
+          >
+            {{ refreshingPrices ? 'Aktualisieren läuft…' : 'Aktualisieren' }}
+          </button>
+        </div>
         <div class="holding-filter">
           <label for="holding-filter-input">Position suchen</label>
           <input
@@ -196,6 +207,7 @@ const selectedPortfolioId = ref('')
 const portfolioDetail = ref<PortfolioDetailReadModel | null>(null)
 const loading = ref(false)
 const saving = ref(false)
+const refreshingPrices = ref(false)
 const searching = ref(false)
 const profileLoading = ref(false)
 const searchQuery = ref('')
@@ -560,6 +572,22 @@ async function removeHolding(holdingId: string) {
   }
 }
 
+async function refreshHoldingPrices() {
+  if (!selectedPortfolioId.value) return
+  refreshingPrices.value = true
+  errorMessage.value = null
+  feedbackMessage.value = ''
+  try {
+    const response = await apiClient.refreshHoldingPrices(selectedPortfolioId.value)
+    await showSuccessFeedback(`Aktualisierung ausgelöst: ${response.detail}`)
+  } catch (e) {
+    feedbackMessage.value = ''
+    errorMessage.value = e instanceof Error ? e.message : 'Kurs-Aktualisierung konnte nicht ausgelöst werden.'
+  } finally {
+    refreshingPrices.value = false
+  }
+}
+
 watch(() => [props.personId, props.depotLabel], () => { void load() })
 watch(searchQuery, () => {
   searchError.value = null
@@ -612,6 +640,7 @@ onBeforeUnmount(() => {
 .wide { grid-column: span 3; }
 .context-panel { display: flex; align-items: center; justify-content: space-between; gap: .75rem; margin-top: .75rem; }
 .manager-grid { display: grid; gap: 1rem; }
+.holdings-header { display: flex; align-items: center; justify-content: space-between; gap: .75rem; }
 .holding-list { list-style: none; padding: 0; display: grid; gap: .75rem; }
 .holding-item { border: 1px solid #e2e8f0; border-radius: 8px; padding: .75rem; }
 .holding-item-layout { display: grid; grid-template-columns: auto 1fr; align-items: stretch; gap: .6rem; }

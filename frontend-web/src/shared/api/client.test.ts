@@ -215,6 +215,14 @@ describe('apiClient portfolio and holdings endpoints', () => {
     mock.onPost(`/app/persons/${personId}/portfolios`).reply(201, { data: { portfolio_id: portfolioId, person_id: personId, display_name: 'Core', created_at: 'x', updated_at: 'x' } })
     mock.onGet(`/app/portfolios/${portfolioId}`).reply(200, { data: { portfolio_id: portfolioId, person_id: personId, display_name: 'Core', created_at: 'x', updated_at: 'x', holdings: [] } })
     mock.onPost(`/app/portfolios/${portfolioId}/holdings`).reply(201, { data: { holding_id: holdingId, portfolio_id: portfolioId, symbol: 'AAPL', quantity: 1, acquisition_price: 10, currency: 'EUR', buy_date: '2026-03-01', created_at: 'x', updated_at: 'x' } })
+    mock.onPost(`/app/portfolios/${portfolioId}/holdings/refresh-current-prices`).reply(200, {
+      data: {
+        portfolio_id: portfolioId,
+        status: 'not_implemented_yet',
+        accepted: false,
+        detail: 'Technischer Refresh-Flow vorbereitet. Marktpreislogik folgt in einem späteren Schritt.'
+      }
+    })
     mock.onGet('/app/marketdata/instruments/AAPL/profile').reply(200, { data: { symbol: 'AAPL', display_name: 'Apple', company_name: 'Apple Inc.', last_price: 180, currency: 'USD' } })
     mock.onDelete(`/app/portfolios/${portfolioId}/holdings/${holdingId}`).reply(204)
 
@@ -223,9 +231,11 @@ describe('apiClient portfolio and holdings endpoints', () => {
     await apiClient.portfolio(portfolioId)
     const selection = await apiClient.marketdataProfile('AAPL')
     await apiClient.addHolding(portfolioId, { symbol: 'AAPL', quantity: 1, acquisition_price: 10, currency: 'EUR', buy_date: '2026-03-01' })
+    const refreshResponse = await apiClient.refreshHoldingPrices(portfolioId)
     await apiClient.deleteHolding(portfolioId, holdingId)
 
     expect(list.total).toBe(0)
     expect(selection.last_price).toBe(180)
+    expect(refreshResponse.status).toBe('not_implemented_yet')
   })
 })

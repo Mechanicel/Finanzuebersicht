@@ -241,6 +241,13 @@ export interface HoldingUpdatePayload {
   notes?: string | null
 }
 
+export interface HoldingsRefreshStubResponse {
+  portfolio_id: string
+  status: string
+  accepted: boolean
+  detail: string
+}
+
 export interface InstrumentSearchItem {
   symbol: string
   company_name: string
