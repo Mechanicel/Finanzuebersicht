@@ -221,7 +221,7 @@ describe('apiClient portfolio and holdings endpoints', () => {
     const list = await apiClient.portfolios(personId)
     await apiClient.createPortfolio(personId, { display_name: 'Core' })
     await apiClient.portfolio(portfolioId)
-    const selection = await apiClient.marketdataSelection('AAPL')
+    const selection = await apiClient.marketdataProfile('AAPL')
     await apiClient.addHolding(portfolioId, { symbol: 'AAPL', quantity: 1, acquisition_price: 10, currency: 'EUR', buy_date: '2026-03-01' })
     await apiClient.deleteHolding(portfolioId, holdingId)
 

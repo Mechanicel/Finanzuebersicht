@@ -245,14 +245,9 @@ export interface InstrumentSearchItem {
   symbol: string
   company_name: string
   display_name?: string | null
-  isin?: string | null
-  wkn?: string | null
-  exchange?: string | null
-  last_price?: number | null
-  change_1d_pct?: number | null
   currency?: string | null
-  quote_type?: string | null
-  asset_type?: string | null
+  exchange?: string | null
+  exchange_full_name?: string | null
 }
 
 export interface InstrumentSearchResult {
@@ -261,18 +256,43 @@ export interface InstrumentSearchResult {
   total: number
 }
 
-export interface InstrumentSelectionDetail {
+export interface MarketdataProfile {
   symbol: string
-  company_name?: string | null
-  display_name?: string | null
-  isin?: string | null
-  wkn?: string | null
-  exchange?: string | null
-  quote_type?: string | null
-  asset_type?: string | null
+  companyName?: string | null
+  price?: number | null
+  marketCap?: number | null
+  beta?: number | null
+  lastDividend?: number | null
+  range?: string | null
+  change?: number | null
+  changePercentage?: number | null
+  volume?: number | null
+  averageVolume?: number | null
   currency?: string | null
-  last_price?: number | null
-  change_1d_pct?: number | null
+  isin?: string | null
+  cusip?: string | null
+  exchangeFullName?: string | null
+  exchange?: string | null
+  industry?: string | null
+  website?: string | null
+  description?: string | null
+  ceo?: string | null
+  sector?: string | null
+  country?: string | null
+  fullTimeEmployees?: string | number | null
+  phone?: string | null
+  address?: string | null
+  city?: string | null
+  state?: string | null
+  zip?: string | null
+  image?: string | null
+  ipoDate?: string | null
+  defaultImage?: boolean | null
+  isEtf?: boolean | null
+  isActivelyTrading?: boolean | null
+  isAdr?: boolean | null
+  isFund?: boolean | null
+  [key: string]: unknown
 }
 
 export interface DashboardReadModel {
