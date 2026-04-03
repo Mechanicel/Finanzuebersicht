@@ -48,38 +48,9 @@
           </ul>
         </div>
 
-        <div class="profile-panel">
-          <h5>Profilübersicht</h5>
-          <LoadingState v-if="profileLoading" />
-          <ErrorState v-else-if="profileError" :message="profileError" />
-          <p v-else-if="!selectedProfile" class="muted">Noch kein Profil geladen. Wähle einen Suchtreffer aus.</p>
-          <div v-else class="profile-card">
-            <div class="profile-main">
-              <img
-                v-if="selectedProfile.image"
-                :src="selectedProfile.image"
-                :alt="`Logo ${selectedProfile.company_name || selectedProfile.symbol}`"
-                class="profile-image"
-              />
-              <dl class="profile-grid">
-                <template v-for="entry in profileEntries" :key="entry.key">
-                  <dt>{{ entry.label }}</dt>
-                  <dd>
-                    <a v-if="entry.isLink" :href="entry.href" target="_blank" rel="noopener noreferrer">{{ entry.value }}</a>
-                    <template v-else>{{ entry.value }}</template>
-                  </dd>
-                </template>
-              </dl>
-            </div>
-            <div v-if="profileDescription" class="profile-description">
-              <h6>Beschreibung</h6>
-              <p>{{ profileDescription }}</p>
-            </div>
-          </div>
-        </div>
-
         <form class="holding-form" @submit.prevent="createHolding">
-          <p class="muted">{{ selectedProfile ? `Vorausgefüllt aus Profil: ${selectedProfile.symbol}` : 'Ohne Suche möglich: Symbol direkt eintragen.' }}</p>
+          <LoadingState v-if="profileLoading" />
+          <ErrorState v-if="profileError" :message="profileError" />
           <div class="grid three-col">
             <div><label>Symbol</label><input data-testid="holding-symbol" class="input" v-model.trim="draftHolding.symbol" required /></div>
             <div><label>ISIN</label><input data-testid="holding-isin" class="input" v-model.trim="draftHolding.isin" /></div>
@@ -94,6 +65,26 @@
             <div><label>Quote-Type</label><input data-testid="holding-quote-type" class="input" v-model.trim="draftHolding.quote_type" /></div>
             <div><label>Asset-Type</label><input data-testid="holding-asset-type" class="input" v-model.trim="draftHolding.asset_type" /></div>
             <div class="wide"><label>Notiz</label><input class="input" v-model.trim="draftHolding.notes" /></div>
+
+            <div v-if="selectedProfile?.image" class="profile-logo-field">
+              <label>Bild</label>
+              <img
+                :src="selectedProfile.image"
+                :alt="`Logo ${selectedProfile.company_name || selectedProfile.symbol}`"
+                class="profile-image profile-image--inline"
+              />
+            </div>
+            <div v-if="profileIndustry"><label>Industrie</label><input class="input" :value="profileIndustry" readonly /></div>
+            <div v-if="profileWebsite"><label>Website</label><a class="profile-link" :href="normalizeUrl(profileWebsite)" target="_blank" rel="noopener noreferrer">{{ profileWebsite }}</a></div>
+            <div v-if="profileCeo"><label>CEO</label><input class="input" :value="profileCeo" readonly /></div>
+            <div v-if="profileSector"><label>Sektor</label><input class="input" :value="profileSector" readonly /></div>
+            <div v-if="profileCountry"><label>Land</label><input class="input" :value="profileCountry" readonly /></div>
+            <div v-if="profilePhone"><label>Telefon</label><input class="input" :value="profilePhone" readonly /></div>
+            <div v-if="profileAddressLine" class="wide"><label>Adresse</label><input class="input" :value="profileAddressLine" readonly /></div>
+            <div v-if="profileDescription" class="wide">
+              <label>Beschreibung</label>
+              <div class="profile-description-block">{{ profileDescription }}</div>
+            </div>
           </div>
           <button class="btn" type="submit" :disabled="saving">Holding hinzufügen</button>
         </form>
@@ -191,37 +182,23 @@ const searchHint = computed(() => {
   return null
 })
 
-const profileDescription = computed(() => {
-  if (!selectedProfile.value) return null
-  return hasValue(selectedProfile.value.description) ? String(selectedProfile.value.description) : null
-})
-
-const profileEntries = computed(() => {
-  if (!selectedProfile.value) return []
+const profileIndustry = computed(() => asText(selectedProfile.value?.industry))
+const profileWebsite = computed(() => asText(selectedProfile.value?.website))
+const profileCeo = computed(() => asText(selectedProfile.value?.ceo))
+const profileSector = computed(() => asText(selectedProfile.value?.sector))
+const profileCountry = computed(() => asText(selectedProfile.value?.country))
+const profilePhone = computed(() => asText(selectedProfile.value?.phone))
+const profileDescription = computed(() => asText(selectedProfile.value?.description))
+const profileAddressLine = computed(() => {
   const profile = selectedProfile.value
-  return [
-    asProfileEntry('company_name', 'Name', profile.company_name),
-    asProfileEntry('symbol', 'Symbol', profile.symbol),
-    asProfileEntry('price', 'Kurs', formatPrice(profile.price, profile.currency)),
-    asProfileEntry('exchange', 'Börse', formatExchange(profile.exchange, profile.exchange_full_name)),
-    asProfileEntry('isin', 'ISIN', profile.isin),
-    asProfileEntry('industry', 'Industrie', profile.industry),
-    asProfileEntry('website', 'Website', profile.website, true),
-    asProfileEntry('ceo', 'CEO', profile.ceo),
-    asProfileEntry('sector', 'Sektor', profile.sector),
-    asProfileEntry('country', 'Land', profile.country),
-    asProfileEntry('phone', 'Telefon', profile.phone),
-    asProfileEntry('address_line', 'Adresse', profile.address_line),
-  ].filter((entry): entry is ProfileEntry => entry !== null)
+  if (!profile) return null
+  if (hasValue(profile.address_line)) return String(profile.address_line).trim()
+  const street = asText(profile.address)
+  const zip = asText(profile.zip)
+  const city = asText(profile.city)
+  if (street && zip && city) return `${street}, ${zip} ${city}`
+  return null
 })
-
-interface ProfileEntry {
-  key: string
-  label: string
-  value: string
-  isLink: boolean
-  href?: string
-}
 
 function cleanOptional(value?: string | null) {
   const trimmed = (value ?? '').trim()
@@ -324,33 +301,15 @@ function hasValue<T>(value: T | null | undefined) {
   return true
 }
 
-function asProfileEntry(key: string, label: string, value: unknown, isLink = false): ProfileEntry | null {
+function asText(value: unknown) {
   if (!hasValue(value)) return null
   const text = String(value).trim()
-  if (!text) return null
-  return {
-    key,
-    label,
-    value: text,
-    isLink,
-    href: isLink ? normalizeUrl(text) : undefined,
-  }
+  return text.length ? text : null
 }
 
 function normalizeUrl(url: string) {
   if (url.startsWith('http://') || url.startsWith('https://')) return url
   return `https://${url}`
-}
-
-function formatPrice(price?: number | null, currency?: string | null) {
-  if (typeof price !== 'number') return null
-  const hasCurrency = hasValue(currency)
-  return hasCurrency ? `${price} ${String(currency).trim()}` : `${price}`
-}
-
-function formatExchange(exchange?: string | null, exchangeFullName?: string | null) {
-  const parts = [exchange, exchangeFullName].filter(hasValue).map((value) => String(value).trim())
-  return parts.length ? parts.join(' · ') : null
 }
 
 function isSelectedResult(item: InstrumentSearchItem) {
@@ -551,17 +510,21 @@ onBeforeUnmount(() => {
   line-height: 1.3;
 }
 .result-loading { color: #334155; }
-.search-panel,
-.profile-panel { border: 1px solid #e2e8f0; border-radius: 8px; padding: .75rem; margin-bottom: .75rem; }
-.profile-card { display: grid; gap: .6rem; }
-.profile-main { display: grid; grid-template-columns: auto 1fr; gap: .75rem; align-items: start; }
-.profile-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .35rem .75rem; margin: 0; }
-.profile-grid dt { font-weight: 600; color: #334155; font-size: .82rem; }
-.profile-grid dd { margin: 0; white-space: pre-wrap; word-break: break-word; font-size: .85rem; }
+.search-panel { border: 1px solid #e2e8f0; border-radius: 8px; padding: .75rem; margin-bottom: .75rem; }
 .profile-image { width: 48px; height: 48px; object-fit: contain; border-radius: 6px; border: 1px solid #e2e8f0; background: #fff; }
-.profile-description { border-top: 1px solid #e2e8f0; padding-top: .55rem; }
-.profile-description h6 { margin: 0 0 .2rem; font-size: .82rem; color: #334155; }
-.profile-description p { margin: 0; font-size: .85rem; line-height: 1.4; }
+.profile-image--inline { display: block; margin-top: .35rem; }
+.profile-logo-field { display: flex; flex-direction: column; justify-content: flex-start; }
+.profile-link { display: inline-block; margin-top: .45rem; color: #1d4ed8; text-decoration: underline; word-break: break-all; }
+.profile-description-block {
+  margin-top: .35rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #f8fafc;
+  padding: .6rem .7rem;
+  font-size: .9rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
 .feedback-banner {
   margin-top: .75rem;
   margin-bottom: .5rem;

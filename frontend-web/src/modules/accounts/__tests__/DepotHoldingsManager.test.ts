@@ -104,7 +104,7 @@ describe('DepotHoldingsManager (FMP flow)', () => {
     expect(wrapper.find('ul.search-list button.result-item--compact').exists()).toBe(true)
   })
 
-  it('loads profile when clicking search result and shows structured profile fields only when present', async () => {
+  it('loads profile into the single form and renders only the relevant integrated profile fields', async () => {
     vi.mocked(apiClient.searchInstruments).mockResolvedValue({
       query: 'Commerzbank',
       total: 1,
@@ -123,7 +123,9 @@ describe('DepotHoldingsManager (FMP flow)', () => {
       sector: 'Financial Services',
       country: 'DE',
       phone: '+49 69 136 20',
-      address_line: 'Kaiserplatz, 60311 Frankfurt am Main, Germany',
+      address: 'Kaiserplatz',
+      zip: '60311',
+      city: 'Frankfurt am Main',
       image: 'https://example.com/logo.png',
       description: 'Deutsche Geschäftsbank.',
       price: 18.35,
@@ -140,21 +142,19 @@ describe('DepotHoldingsManager (FMP flow)', () => {
     await flushUi()
 
     expect(apiClient.marketdataProfile).toHaveBeenCalledWith('CBK.DE')
-    const profilePanel = wrapper.find('.profile-panel')
-    const profilePanelText = profilePanel.text()
-    expect(profilePanelText).toContain('Commerzbank AG')
-    expect(profilePanelText).toContain('Industrie')
-    expect(profilePanelText).toContain('Banks')
-    expect(profilePanelText).toContain('Adresse')
-    expect(profilePanelText).toContain('Kaiserplatz, 60311 Frankfurt am Main, Germany')
-    expect(profilePanelText).toContain('Beschreibung')
-    expect(profilePanelText).toContain('Deutsche Geschäftsbank.')
-    expect(profilePanelText).not.toContain('exchange_full_name')
-    expect(profilePanelText).not.toContain('city')
-    expect(profilePanelText).not.toContain('zip')
-    const websiteLink = profilePanel.find('a[href="https://www.commerzbank.de"]')
+    expect(wrapper.text()).not.toContain('Profilübersicht')
+    const formText = wrapper.find('form.holding-form').text()
+    expect(formText).toContain('Industrie')
+    expect(formText).toContain('Adresse')
+    expect(formText).toContain('Beschreibung')
+    expect(formText).toContain('Deutsche Geschäftsbank.')
+    expect(formText).not.toContain('ipo_date')
+    expect(formText).not.toContain('default_image')
+    expect((wrapper.find('input[readonly][value="Banks"]').element as HTMLInputElement).value).toBe('Banks')
+    expect((wrapper.find('input[readonly][value="Kaiserplatz, 60311 Frankfurt am Main"]').element as HTMLInputElement).value).toBe('Kaiserplatz, 60311 Frankfurt am Main')
+    const websiteLink = wrapper.find('a[href="https://www.commerzbank.de"]')
     expect(websiteLink.exists()).toBe(true)
-    expect(profilePanel.find('img.profile-image').attributes('src')).toBe('https://example.com/logo.png')
+    expect(wrapper.find('img.profile-image--inline').attributes('src')).toBe('https://example.com/logo.png')
     expect(wrapper.find('button.result-item--active').exists()).toBe(true)
   })
 
