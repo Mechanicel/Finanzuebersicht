@@ -8,6 +8,8 @@ from app.repositories import InMemoryInstrumentProfileCacheRepository, Instrumen
 
 
 class MarketDataService:
+    MAX_SEARCH_LIMIT = 20
+
     def __init__(
         self,
         *,
@@ -26,25 +28,26 @@ class MarketDataService:
         cleaned_query = query.strip()
         if len(cleaned_query) < 1:
             raise BadRequestError("query must contain at least 1 character")
+        bounded_limit = max(1, min(limit, self.MAX_SEARCH_LIMIT))
 
-        cache_key = (cleaned_query.lower(), limit)
+        cache_key = (cleaned_query.lower(), bounded_limit)
         if self._cache_enabled and cache_key in self._search_cache:
             return self._search_cache[cache_key]
 
-        rows = self._fmp_client.search_name(query=cleaned_query, limit=limit)
+        rows = self._fmp_client.search_name(query=cleaned_query, limit=bounded_limit)
         items = [
             InstrumentSearchItem.model_validate(
                 {
                     "symbol": row.get("symbol", ""),
-                    "name": row.get("name") or row.get("companyName") or "",
+                    "company_name": row.get("name") or "",
+                    "display_name": row.get("name") or "",
                     "currency": row.get("currency"),
-                    "exchange": row.get("exchange") or row.get("stockExchange"),
-                    "exchange_short_name": row.get("exchangeShortName"),
-                    "type": row.get("type"),
+                    "exchange": row.get("exchange"),
+                    "exchange_full_name": row.get("exchangeFullName"),
                 }
             )
             for row in rows
-            if row.get("symbol") and (row.get("name") or row.get("companyName"))
+            if row.get("symbol") and row.get("name")
         ]
         response = InstrumentSearchResponse(query=cleaned_query, items=items, total=len(items))
         if self._cache_enabled:
@@ -64,26 +67,9 @@ class MarketDataService:
         if not rows:
             raise NotFoundError(f"Instrument '{normalized}' not found")
 
-        row = rows[0]
-        profile = InstrumentProfile(
-            symbol=row.get("symbol") or normalized,
-            company_name=row.get("companyName") or normalized,
-            currency=row.get("currency"),
-            exchange=row.get("exchange") or row.get("stockExchange"),
-            exchange_short_name=row.get("exchangeShortName"),
-            industry=row.get("industry"),
-            sector=row.get("sector"),
-            country=row.get("country"),
-            description=row.get("description"),
-            website=row.get("website"),
-            image=row.get("image"),
-            market_cap=row.get("mktCap"),
-            price=row.get("price"),
-            beta=row.get("beta"),
-        )
-
-        stored_at = self._profile_repository.upsert(normalized, profile)
-        return profile.model_copy(update={"as_of": stored_at})
+        profile = InstrumentProfile.model_validate(rows[0] | {"symbol": normalized})
+        self._profile_repository.upsert(normalized, profile)
+        return profile
 
     def _is_fresh(self, fetched_at) -> bool:
         return utcnow() - fetched_at <= timedelta(seconds=self._profile_cache_ttl_seconds)
