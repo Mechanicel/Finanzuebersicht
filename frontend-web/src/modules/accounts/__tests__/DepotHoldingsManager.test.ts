@@ -431,4 +431,130 @@ describe('DepotHoldingsManager (FMP flow)', () => {
 
     expect(wrapper.text()).toContain('Profile failed')
   })
+
+  it('opens holding edit view by clicking the full holding row and has no Bearbeiten button', async () => {
+    vi.mocked(apiClient.portfolio).mockResolvedValueOnce({
+      portfolio_id: 'p1',
+      person_id: 'person-1',
+      display_name: 'Depot Core',
+      created_at: 'x',
+      updated_at: 'x',
+      holdings: [{
+        holding_id: 'h1',
+        symbol: 'CBK.DE',
+        isin: 'DE000CBK1001',
+        display_name: 'Commerzbank AG',
+        company_name: 'Commerzbank AG',
+        quantity: 10,
+        acquisition_price: 18.4,
+        currency: 'EUR',
+        buy_date: '2026-01-10',
+        notes: 'Langfristig',
+      }],
+    })
+
+    const { wrapper } = await mountManager()
+    await flushUi()
+
+    expect(wrapper.text()).not.toContain('Bearbeiten')
+    expect(wrapper.find('button.holding-row-button').exists()).toBe(true)
+    expect(wrapper.find('form.holding-form').exists()).toBe(false)
+
+    await wrapper.find('button.holding-row-button').trigger('click')
+    await flushUi()
+
+    expect(wrapper.find('form.holding-form').exists()).toBe(true)
+  })
+
+  it('uses delete icon as separate action with confirm dialog and hover-target class', async () => {
+    vi.mocked(apiClient.portfolio).mockResolvedValueOnce({
+      portfolio_id: 'p1',
+      person_id: 'person-1',
+      display_name: 'Depot Core',
+      created_at: 'x',
+      updated_at: 'x',
+      holdings: [{
+        holding_id: 'h1',
+        symbol: 'CBK.DE',
+        quantity: 10,
+        acquisition_price: 18.4,
+        currency: 'EUR',
+        buy_date: '2026-01-10',
+        notes: null,
+      }],
+    } as never)
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+
+    const { wrapper } = await mountManager()
+    await flushUi()
+
+    const deleteButton = wrapper.find('button.holding-delete-button')
+    expect(deleteButton.exists()).toBe(true)
+    expect(deleteButton.find('svg.delete-icon').exists()).toBe(true)
+
+    await deleteButton.trigger('click')
+    await flushUi()
+
+    expect(confirmSpy).toHaveBeenCalledWith('Position wirklich löschen?')
+    expect(apiClient.deleteHolding).toHaveBeenCalledWith('p1', 'h1')
+    expect(wrapper.find('form.holding-form').exists()).toBe(false)
+  })
+
+  it('filters holdings list client-side by symbol, isin and company name', async () => {
+    vi.mocked(apiClient.portfolio).mockResolvedValueOnce({
+      portfolio_id: 'p1',
+      person_id: 'person-1',
+      display_name: 'Depot Core',
+      created_at: 'x',
+      updated_at: 'x',
+      holdings: [
+        {
+          holding_id: 'h1',
+          symbol: 'CBK.DE',
+          isin: 'DE000CBK1001',
+          display_name: 'Commerzbank AG',
+          company_name: 'Commerzbank AG',
+          quantity: 10,
+          acquisition_price: 18.4,
+          currency: 'EUR',
+          buy_date: '2026-01-10',
+          notes: null,
+        },
+        {
+          holding_id: 'h2',
+          symbol: 'AAPL',
+          isin: 'US0378331005',
+          display_name: 'Apple Inc.',
+          company_name: 'Apple Inc.',
+          quantity: 5,
+          acquisition_price: 199,
+          currency: 'USD',
+          buy_date: '2026-02-02',
+          notes: null,
+        }
+      ],
+    } as never)
+
+    const { wrapper } = await mountManager()
+    await flushUi()
+
+    const filterInput = wrapper.find('#holding-filter-input')
+    expect(wrapper.text()).toContain('CBK.DE')
+    expect(wrapper.text()).toContain('AAPL')
+
+    await filterInput.setValue('US0378331005')
+    await flushUi()
+    expect(wrapper.text()).toContain('AAPL')
+    expect(wrapper.text()).not.toContain('CBK.DE')
+
+    await filterInput.setValue('Commerzbank')
+    await flushUi()
+    expect(wrapper.text()).toContain('CBK.DE')
+    expect(wrapper.text()).not.toContain('AAPL')
+
+    await filterInput.setValue('')
+    await flushUi()
+    expect(wrapper.text()).toContain('CBK.DE')
+    expect(wrapper.text()).toContain('AAPL')
+  })
 })
