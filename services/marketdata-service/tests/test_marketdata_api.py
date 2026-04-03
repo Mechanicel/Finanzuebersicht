@@ -145,7 +145,16 @@ def test_profile_endpoint_loads_profile(monkeypatch: pytest.MonkeyPatch) -> None
 
         def profile(self, *, symbol: str):
             assert symbol == "CBK.DE"
-            return [{"symbol": "CBK.DE", "companyName": "Commerzbank AG", "currency": "EUR", "exchange": "XETRA"}]
+            return [{
+                "symbol": "CBK.DE",
+                "companyName": "Commerzbank AG",
+                "currency": "EUR",
+                "exchange": "XETRA",
+                "marketCap": 25000000000,
+                "address": "Kaiserplatz",
+                "zip": "60311",
+                "city": "Frankfurt am Main",
+            }]
 
     monkeypatch.setattr(marketdata_dependencies, "get_fmp_client", lambda: FakeFMPClient())
     get_marketdata_service.cache_clear()
@@ -155,4 +164,8 @@ def test_profile_endpoint_loads_profile(monkeypatch: pytest.MonkeyPatch) -> None
 
     assert response.status_code == 200
     assert response.json()["data"]["symbol"] == "CBK.DE"
-    assert response.json()["data"]["company_name"] == "Commerzbank AG"
+    payload = response.json()["data"]
+    assert payload["company_name"] == "Commerzbank AG"
+    assert payload["address_line"] == "Kaiserplatz, 60311 Frankfurt am Main"
+    assert "market_cap" not in payload
+    assert "payload" not in payload

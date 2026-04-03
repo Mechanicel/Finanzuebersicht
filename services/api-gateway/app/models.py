@@ -237,6 +237,29 @@ class PortfolioDetailReadModel(PortfolioReadModel):
     holdings: list[HoldingReadModel]
 
 
+
+
+class MarketdataProfileReadModel(BaseModel):
+    symbol: str
+    company_name: str
+    price: float | None = None
+    currency: str | None = None
+    isin: str | None = None
+    exchange: str | None = None
+    exchange_full_name: str | None = None
+    industry: str | None = None
+    website: str | None = None
+    description: str | None = None
+    ceo: str | None = None
+    sector: str | None = None
+    country: str | None = None
+    phone: str | None = None
+    image: str | None = None
+    address: str | None = None
+    city: str | None = None
+    zip: str | None = None
+    address_line: str | None = None
+
 class DashboardReadModel(BaseModel):
     person_id: UUID
     overview: dict

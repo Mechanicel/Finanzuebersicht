@@ -34,6 +34,7 @@ from app.models import (
     HoldingCreatePayload,
     HoldingReadModel,
     HoldingUpdatePayload,
+    MarketdataProfileReadModel,
     TaxAllowanceReadModel,
 )
 from app.service import GatewayService
@@ -344,18 +345,18 @@ async def marketdata_full(
     return ApiResponse(data=await service.get_marketdata_full(symbol))
 
 
-@router.get("/app/marketdata/instruments/{symbol}/profile", response_model=ApiResponse[dict])
+@router.get("/app/marketdata/instruments/{symbol}/profile", response_model=ApiResponse[MarketdataProfileReadModel])
 async def marketdata_profile(
     symbol: str,
     service: Annotated[GatewayService, Depends(get_gateway_service)],
-) -> ApiResponse[dict]:
+) -> ApiResponse[MarketdataProfileReadModel]:
     return ApiResponse(data=await service.get_marketdata_profile(symbol))
 
 
 # Deprecated: kept for backwards compatibility with older frontend clients.
-@router.get("/app/marketdata/instruments/{symbol}/selection", response_model=ApiResponse[dict])
+@router.get("/app/marketdata/instruments/{symbol}/selection", response_model=ApiResponse[MarketdataProfileReadModel])
 async def marketdata_selection(
     symbol: str,
     service: Annotated[GatewayService, Depends(get_gateway_service)],
-) -> ApiResponse[dict]:
+) -> ApiResponse[MarketdataProfileReadModel]:
     return ApiResponse(data=await service.get_marketdata_profile(symbol))
