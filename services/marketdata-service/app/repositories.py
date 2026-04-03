@@ -5,42 +5,42 @@ from datetime import UTC, datetime
 from pymongo import ASCENDING
 from pymongo.collection import Collection
 
-from app.models import InstrumentSelectionDetailsResponse
+from app.models import CachedInstrumentProfile, InstrumentProfile, utcnow
 
 
-def _drop_none(value: object) -> object:
-    if isinstance(value, dict):
-        return {key: _drop_none(item) for key, item in value.items() if item is not None}
-    if isinstance(value, list):
-        return [_drop_none(item) for item in value]
-    return value
-
-
-class InstrumentSelectionCacheRepository:
+class InstrumentProfileCacheRepository:
     def __init__(self, collection: Collection) -> None:
         self._collection = collection
-        self._initialize()
+        self._collection.create_index([("symbol", ASCENDING)], unique=True)
 
-    def get(self, symbol: str, identity_source: str) -> tuple[InstrumentSelectionDetailsResponse, datetime] | None:
-        document = self._collection.find_one({"symbol": symbol, "identity_source": identity_source})
+    def get(self, symbol: str) -> CachedInstrumentProfile | None:
+        document = self._collection.find_one({"symbol": symbol})
         if document is None:
             return None
 
-        payload = InstrumentSelectionDetailsResponse.model_validate(document["payload"])
-        fetched_at = document["fetched_at"]
+        fetched_at = document.get("fetched_at")
+        if not isinstance(fetched_at, datetime):
+            return None
         if fetched_at.tzinfo is None:
             fetched_at = fetched_at.replace(tzinfo=UTC)
-        return payload, fetched_at
 
-    def upsert(self, symbol: str, payload: InstrumentSelectionDetailsResponse, identity_source: str) -> datetime:
-        fetched_at = datetime.now(UTC)
+        profile_payload = document.get("profile")
+        if not isinstance(profile_payload, dict):
+            return None
+
+        return CachedInstrumentProfile(
+            profile=InstrumentProfile.model_validate(profile_payload),
+            fetched_at=fetched_at,
+        )
+
+    def upsert(self, symbol: str, profile: InstrumentProfile) -> datetime:
+        fetched_at = utcnow()
         self._collection.update_one(
-            {"symbol": symbol, "identity_source": identity_source},
+            {"symbol": symbol},
             {
                 "$set": {
                     "symbol": symbol,
-                    "identity_source": identity_source,
-                    "payload": payload.model_dump(mode="json", exclude_none=True),
+                    "profile": profile.model_dump(mode="json", exclude_none=True),
                     "fetched_at": fetched_at,
                 }
             },
@@ -48,60 +48,15 @@ class InstrumentSelectionCacheRepository:
         )
         return fetched_at
 
-    def _initialize(self) -> None:
-        self._collection.create_index([("symbol", ASCENDING), ("identity_source", ASCENDING)], unique=True)
 
+class InMemoryInstrumentProfileCacheRepository:
+    def __init__(self) -> None:
+        self._data: dict[str, CachedInstrumentProfile] = {}
 
-class NoOpInstrumentSelectionCacheRepository:
-    def get(self, symbol: str, identity_source: str) -> tuple[InstrumentSelectionDetailsResponse, datetime] | None:
-        return None
+    def get(self, symbol: str) -> CachedInstrumentProfile | None:
+        return self._data.get(symbol)
 
-    def upsert(self, symbol: str, payload: InstrumentSelectionDetailsResponse, identity_source: str) -> datetime:
-        return datetime.now(UTC)
-
-
-class InstrumentHydratedRepository:
-    def __init__(self, collection: Collection) -> None:
-        self._collection = collection
-        self._initialize()
-
-    def upsert(self, symbol: str, payload: dict[str, object]) -> datetime:
-        hydrated_at = datetime.now(UTC)
-        payload_without_none = _drop_none(payload)
-        if not isinstance(payload_without_none, dict):
-            payload_without_none = {}
-        self._collection.update_one(
-            {"symbol": symbol},
-            {
-                "$set": {
-                    "symbol": symbol,
-                    **payload_without_none,
-                    "hydrated_at": hydrated_at,
-                }
-            },
-            upsert=True,
-        )
-        return hydrated_at
-
-    def get_hydrated_at(self, symbol: str) -> datetime | None:
-        document = self._collection.find_one({"symbol": symbol}, {"hydrated_at": 1})
-        if document is None:
-            return None
-
-        hydrated_at = document.get("hydrated_at")
-        if not isinstance(hydrated_at, datetime):
-            return None
-        if hydrated_at.tzinfo is None:
-            hydrated_at = hydrated_at.replace(tzinfo=UTC)
-        return hydrated_at
-
-    def _initialize(self) -> None:
-        self._collection.create_index([("symbol", ASCENDING)], unique=True)
-
-
-class NoOpInstrumentHydratedRepository:
-    def upsert(self, symbol: str, payload: dict[str, object]) -> datetime:
-        return datetime.now(UTC)
-
-    def get_hydrated_at(self, symbol: str) -> datetime | None:
-        return None
+    def upsert(self, symbol: str, profile: InstrumentProfile) -> datetime:
+        fetched_at = utcnow()
+        self._data[symbol] = CachedInstrumentProfile(profile=profile, fetched_at=fetched_at)
+        return fetched_at
