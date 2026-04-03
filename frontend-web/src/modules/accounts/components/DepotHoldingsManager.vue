@@ -63,40 +63,50 @@
           <LoadingState v-if="profileLoading" />
           <ErrorState v-if="profileError" :message="profileError" />
           <form id="holding-create-form" class="holding-form" @submit.prevent="createHolding">
-            <div class="grid three-col">
-              <div v-if="hasValue(draftHolding.symbol)"><label>Symbol</label><div data-testid="holding-symbol" class="profile-description-block">{{ draftHolding.symbol }}</div></div>
-              <div v-if="hasValue(draftHolding.isin)"><label>ISIN</label><div data-testid="holding-isin" class="profile-description-block">{{ draftHolding.isin }}</div></div>
-              <div v-if="profileWkn"><label>WKN</label><div data-testid="holding-wkn" class="profile-description-block">{{ profileWkn }}</div></div>
-              <div><label>Stückzahl</label><input data-testid="holding-quantity" class="input" v-model.number="draftHolding.quantity" type="number" min="0.000001" step="0.000001" required /></div>
-              <div><label>Kaufkurs</label><input data-testid="holding-acquisition-price" class="input" v-model.number="draftHolding.acquisition_price" type="number" min="0.000001" step="0.000001" required /></div>
-              <div v-if="hasValue(draftHolding.currency)"><label>Währung</label><div data-testid="holding-currency" class="profile-description-block">{{ draftHolding.currency }}</div></div>
-              <div><label>Kaufdatum</label><input data-testid="holding-buy-date" class="input" v-model="draftHolding.buy_date" type="date" required /></div>
-              <div v-if="hasValue(draftHolding.display_name)"><label>Name</label><div data-testid="holding-display-name" class="profile-description-block">{{ draftHolding.display_name }}</div></div>
-              <div v-if="hasValue(draftHolding.company_name)"><label>Unternehmen</label><div data-testid="holding-company-name" class="profile-description-block">{{ draftHolding.company_name }}</div></div>
-              <div v-if="hasValue(draftHolding.exchange)"><label>Börse</label><div data-testid="holding-exchange" class="profile-description-block">{{ draftHolding.exchange }}</div></div>
-              <div v-if="profileQuoteType"><label>Quote-Type</label><div data-testid="holding-quote-type" class="profile-description-block">{{ profileQuoteType }}</div></div>
-              <div v-if="profileAssetType"><label>Asset-Type</label><div data-testid="holding-asset-type" class="profile-description-block">{{ profileAssetType }}</div></div>
-              <div class="wide"><label>Notiz</label><input data-testid="holding-notes" class="input" v-model.trim="draftHolding.notes" /></div>
+            <div class="detail-section">
+              <h5>Instrument & Position</h5>
+              <div class="grid three-col">
+                <div v-if="hasValue(draftHolding.symbol)"><label>Symbol</label><div data-testid="holding-symbol" class="profile-description-block">{{ draftHolding.symbol }}</div></div>
+                <div v-if="hasValue(draftHolding.isin)"><label>ISIN</label><div data-testid="holding-isin" class="profile-description-block">{{ draftHolding.isin }}</div></div>
+                <div v-if="profileWkn"><label>WKN</label><div data-testid="holding-wkn" class="profile-description-block">{{ profileWkn }}</div></div>
+                <div v-if="hasValue(draftHolding.display_name)"><label>Name</label><div data-testid="holding-display-name" class="profile-description-block">{{ draftHolding.display_name }}</div></div>
+                <div v-if="hasValue(draftHolding.company_name)"><label>Unternehmen</label><div data-testid="holding-company-name" class="profile-description-block">{{ draftHolding.company_name }}</div></div>
+                <div v-if="hasValue(draftHolding.exchange)"><label>Börse</label><div data-testid="holding-exchange" class="profile-description-block">{{ draftHolding.exchange }}</div></div>
+                <div v-if="profileExchangeFullName"><label>Börsenplatz</label><div class="profile-description-block">{{ profileExchangeFullName }}</div></div>
+                <div v-if="hasValue(draftHolding.currency)"><label>Währung</label><div data-testid="holding-currency" class="profile-description-block">{{ draftHolding.currency }}</div></div>
+                <div><label>Stückzahl</label><input data-testid="holding-quantity" class="input" v-model.number="draftHolding.quantity" type="number" min="0.000001" step="0.000001" required /></div>
+                <div><label>Kaufkurs</label><input data-testid="holding-acquisition-price" class="input" v-model.number="draftHolding.acquisition_price" type="number" min="0.000001" step="0.000001" required /></div>
+                <div><label>Kaufdatum</label><input data-testid="holding-buy-date" class="input" v-model="draftHolding.buy_date" type="date" required /></div>
+                <div class="wide"><label>Notiz</label><input data-testid="holding-notes" class="input" v-model.trim="draftHolding.notes" /></div>
+              </div>
+            </div>
 
-              <div v-if="selectedProfile?.image" class="profile-logo-field">
-                <label>Bild</label>
-                <img
-                  :src="selectedProfile.image"
-                  :alt="`Logo ${selectedProfile.company_name || selectedProfile.symbol}`"
-                  class="profile-image profile-image--inline"
-                />
+            <div class="detail-section">
+              <h5>Unternehmensprofil</h5>
+              <div class="grid three-col">
+                <div v-if="selectedProfile?.image" class="profile-logo-field">
+                  <label>Bild</label>
+                  <img
+                    :src="selectedProfile.image"
+                    :alt="`Logo ${selectedProfile.company_name || selectedProfile.symbol}`"
+                    class="profile-image profile-image--inline"
+                  />
+                </div>
+                <div v-if="profileIndustry"><label>Industrie</label><div class="profile-description-block">{{ profileIndustry }}</div></div>
+                <div v-if="profileSector"><label>Sektor</label><div class="profile-description-block">{{ profileSector }}</div></div>
+                <div v-if="profileQuoteType"><label>Quote-Type</label><div data-testid="holding-quote-type" class="profile-description-block">{{ profileQuoteType }}</div></div>
+                <div v-if="profileAssetType"><label>Asset-Type</label><div data-testid="holding-asset-type" class="profile-description-block">{{ profileAssetType }}</div></div>
+                <div v-if="profileWebsite"><label>Website</label><div class="profile-description-block"><a data-testid="holding-website-link" class="profile-link" :href="normalizeUrl(profileWebsite)" target="_blank" rel="noopener noreferrer">{{ profileWebsite }}</a></div></div>
+                <div v-if="profileCeo"><label>CEO</label><div class="profile-description-block">{{ profileCeo }}</div></div>
+                <div v-if="profileCountry"><label>Land</label><div class="profile-description-block">{{ profileCountry }}</div></div>
+                <div v-if="profilePhone"><label>Telefon</label><div class="profile-description-block">{{ profilePhone }}</div></div>
+                <div v-if="profileAddressLine" class="wide"><label>Adresse</label><div data-testid="holding-address" class="profile-description-block">{{ profileAddressLine }}</div></div>
               </div>
-              <div v-if="profileIndustry"><label>Industrie</label><div class="profile-description-block">{{ profileIndustry }}</div></div>
-              <div v-if="profileWebsite"><label>Website</label><div class="profile-description-block"><a class="profile-link" :href="normalizeUrl(profileWebsite)" target="_blank" rel="noopener noreferrer">{{ profileWebsite }}</a></div></div>
-              <div v-if="profileCeo"><label>CEO</label><div class="profile-description-block">{{ profileCeo }}</div></div>
-              <div v-if="profileSector"><label>Sektor</label><div class="profile-description-block">{{ profileSector }}</div></div>
-              <div v-if="profileCountry"><label>Land</label><div class="profile-description-block">{{ profileCountry }}</div></div>
-              <div v-if="profilePhone"><label>Telefon</label><div class="profile-description-block">{{ profilePhone }}</div></div>
-              <div v-if="profileAddressLine" class="wide"><label>Adresse</label><div class="profile-description-block">{{ profileAddressLine }}</div></div>
-              <div v-if="profileDescription" class="wide">
-                <label>Beschreibung</label>
-                <div class="profile-description-block">{{ profileDescription }}</div>
-              </div>
+            </div>
+
+            <div v-if="profileDescription" class="detail-section">
+              <h5>Beschreibung</h5>
+              <div data-testid="holding-description" class="profile-description-block profile-description-block--long">{{ profileDescription }}</div>
             </div>
           </form>
         </template>
@@ -222,6 +232,7 @@ const profileDescription = computed(() => asText(selectedProfile.value?.descript
 const profileWkn = computed(() => asText(selectedProfile.value?.wkn))
 const profileQuoteType = computed(() => asText(selectedProfile.value?.quote_type))
 const profileAssetType = computed(() => asText(selectedProfile.value?.asset_type))
+const profileExchangeFullName = computed(() => asText(selectedProfile.value?.exchange_full_name))
 const profileAddressLine = computed(() => {
   const profile = selectedProfile.value
   if (!profile) return null
@@ -597,6 +608,8 @@ onBeforeUnmount(() => {
 .search-panel { border: 1px solid #e2e8f0; border-radius: 8px; padding: .75rem; margin-bottom: .75rem; }
 .detail-header { display: flex; justify-content: space-between; align-items: flex-start; gap: .75rem; margin-bottom: .75rem; }
 .detail-actions { display: flex; justify-content: flex-end; gap: .5rem; }
+.detail-section { margin-bottom: 1rem; }
+.detail-section h5 { margin: 0 0 .5rem; font-size: .95rem; }
 .profile-image { width: 48px; height: 48px; object-fit: contain; border-radius: 6px; border: 1px solid #e2e8f0; background: #fff; }
 .profile-image--inline { display: block; margin-top: .35rem; }
 .profile-logo-field { display: flex; flex-direction: column; justify-content: flex-start; }
@@ -611,6 +624,7 @@ onBeforeUnmount(() => {
   line-height: 1.45;
   white-space: pre-wrap;
 }
+.profile-description-block--long { max-height: 260px; overflow: auto; }
 .feedback-banner {
   margin-top: .75rem;
   margin-bottom: .5rem;
