@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Any
 
 from pymongo import ASCENDING
 from pymongo.collection import Collection
 
-from app.models import CachedInstrumentProfile, InstrumentProfile, utcnow
+from app.models import CachedInstrumentProfile, utcnow
 
 
 class InstrumentProfileCacheRepository:
@@ -24,24 +25,25 @@ class InstrumentProfileCacheRepository:
         if fetched_at.tzinfo is None:
             fetched_at = fetched_at.replace(tzinfo=UTC)
 
-        profile_payload = document.get("profile")
-        if not isinstance(profile_payload, dict):
+        payload = document.get("payload")
+        if not isinstance(payload, dict):
             return None
 
         return CachedInstrumentProfile(
-            profile=InstrumentProfile.model_validate(profile_payload),
+            payload=payload,
             fetched_at=fetched_at,
         )
 
-    def upsert(self, symbol: str, profile: InstrumentProfile) -> datetime:
+    def upsert(self, symbol: str, payload: dict[str, Any], source: str = "fmp_profile_v1") -> datetime:
         fetched_at = utcnow()
         self._collection.update_one(
             {"symbol": symbol},
             {
                 "$set": {
                     "symbol": symbol,
-                    "profile": profile.model_dump(mode="json", exclude_none=True),
+                    "payload": payload,
                     "fetched_at": fetched_at,
+                    "source": source,
                 }
             },
             upsert=True,
@@ -56,7 +58,7 @@ class InMemoryInstrumentProfileCacheRepository:
     def get(self, symbol: str) -> CachedInstrumentProfile | None:
         return self._data.get(symbol)
 
-    def upsert(self, symbol: str, profile: InstrumentProfile) -> datetime:
+    def upsert(self, symbol: str, payload: dict[str, Any], source: str = "fmp_profile_v1") -> datetime:
         fetched_at = utcnow()
-        self._data[symbol] = CachedInstrumentProfile(profile=profile, fetched_at=fetched_at)
+        self._data[symbol] = CachedInstrumentProfile(payload=payload, fetched_at=fetched_at)
         return fetched_at

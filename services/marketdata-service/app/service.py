@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 from datetime import timedelta
+import logging
 
 from app.clients.fmp_client import FMPClient
 from app.models import BadRequestError, InstrumentProfile, InstrumentSearchItem, InstrumentSearchResponse, NotFoundError, utcnow
 from app.repositories import InMemoryInstrumentProfileCacheRepository, InstrumentProfileCacheRepository
+
+LOGGER = logging.getLogger(__name__)
 
 
 class MarketDataService:
@@ -59,16 +62,25 @@ class MarketDataService:
         if not normalized:
             raise BadRequestError("symbol must not be empty")
 
-        cached = self._profile_repository.get(normalized)
+        try:
+            cached = self._profile_repository.get(normalized)
+        except Exception:
+            LOGGER.warning("profile cache read failed for symbol '%s'", normalized, exc_info=True)
+            cached = None
+
         if cached is not None and self._is_fresh(cached.fetched_at):
-            return cached.profile
+            return InstrumentProfile.model_validate(cached.payload | {"symbol": normalized})
 
         rows = self._fmp_client.profile(symbol=normalized)
         if not rows:
             raise NotFoundError(f"Instrument '{normalized}' not found")
 
-        profile = InstrumentProfile.model_validate(rows[0] | {"symbol": normalized})
-        self._profile_repository.upsert(normalized, profile)
+        full_payload = rows[0] | {"symbol": normalized}
+        profile = InstrumentProfile.model_validate(full_payload)
+        try:
+            self._profile_repository.upsert(normalized, full_payload)
+        except Exception:
+            LOGGER.warning("profile cache write failed for symbol '%s'", normalized, exc_info=True)
         return profile
 
     def _is_fresh(self, fetched_at) -> bool:
