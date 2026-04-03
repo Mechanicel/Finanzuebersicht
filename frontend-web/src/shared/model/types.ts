@@ -262,8 +262,11 @@ export interface MarketdataProfile {
   price?: number | null
   currency?: string | null
   isin?: string | null
+  wkn?: string | null
   exchange?: string | null
   exchange_full_name?: string | null
+  quote_type?: string | null
+  asset_type?: string | null
   industry?: string | null
   website?: string | null
   description?: string | null
