@@ -344,6 +344,18 @@ class StubGatewayService:
             "address_line": "One Apple Park Way, 95014 Cupertino",
         }
 
+    async def refresh_marketdata_price(self, symbol: str) -> dict:
+        return {
+            "symbol": symbol,
+            "trade_date": "2026-04-03",
+            "current_price": 31.48,
+            "price_source": "cache_today",
+            "price_cache_hit": True,
+            "history_cache_present": True,
+            "history_action": "enrich_in_background",
+            "fetched_at": "2026-04-03T12:34:56Z",
+        }
+
 
 def test_health_endpoint() -> None:
     client = create_test_client(app)
@@ -421,6 +433,7 @@ def test_app_endpoints_for_vue_pages() -> None:
     )
     assert client.get("/api/v1/app/marketdata/instruments/AAPL/full").status_code == 200
     assert client.get("/api/v1/app/marketdata/instruments/AAPL/profile").status_code == 200
+    assert client.post("/api/v1/app/marketdata/instruments/AAPL/refresh-price").status_code == 200
     assert (
         client.patch(
             f"/api/v1/app/persons/{PERSON_ID}/accounts/10000000-0000-0000-0000-000000000001",
@@ -510,6 +523,7 @@ def test_marketdata_routes_return_downstream_payloads() -> None:
         params={"range": "1mo", "interval": "1d"},
     )
     profile_response = client.get("/api/v1/app/marketdata/instruments/AAPL/profile")
+    refresh_response = client.post("/api/v1/app/marketdata/instruments/AAPL/refresh-price")
 
     assert search_response.status_code == 200
     assert search_response.json()["data"]["items"][0]["symbol"] == "AAPL"
@@ -520,6 +534,8 @@ def test_marketdata_routes_return_downstream_payloads() -> None:
     assert profile_response.status_code == 200
     assert profile_response.json()["data"]["price"] == 100.0
     assert "quote" not in profile_response.json()["data"]
+    assert refresh_response.status_code == 200
+    assert refresh_response.json()["data"]["history_action"] == "enrich_in_background"
     app.dependency_overrides.clear()
 
 
@@ -572,4 +588,22 @@ def test_marketdata_search_limit_matches_backend_contract() -> None:
     response = client.get("/api/v1/app/marketdata/instruments/search", params={"q": "apple", "limit": 26})
 
     assert response.status_code == 422
+    app.dependency_overrides.clear()
+
+
+def test_marketdata_refresh_price_502_is_forwarded_when_downstream_unreachable() -> None:
+    class DownstreamUnavailableMarketdataStub(StubGatewayService):
+        async def refresh_marketdata_price(self, symbol: str) -> dict:
+            raise HTTPException(
+                status_code=502,
+                detail="Marketdata-Service ist derzeit nicht erreichbar. Bitte später erneut versuchen.",
+            )
+
+    app.dependency_overrides[get_gateway_service] = lambda: DownstreamUnavailableMarketdataStub()
+    client = create_test_client(app)
+
+    response = client.post("/api/v1/app/marketdata/instruments/AAPL/refresh-price")
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == "Marketdata-Service ist derzeit nicht erreichbar. Bitte später erneut versuchen."
     app.dependency_overrides.clear()

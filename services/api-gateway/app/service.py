@@ -165,6 +165,9 @@ class GatewayService:
     async def get_marketdata_profile(self, symbol: str) -> dict:
         return await self._request_marketdata_service("GET", f"/api/v1/marketdata/instruments/{symbol}/profile")
 
+    async def refresh_marketdata_price(self, symbol: str) -> dict:
+        return await self._request_marketdata_service("POST", f"/api/v1/marketdata/instruments/{symbol}/refresh-price")
+
     # Deprecated: kept for backwards compatibility with older frontend clients.
     async def get_marketdata_selection(self, symbol: str) -> dict:
         return await self.get_marketdata_profile(symbol)

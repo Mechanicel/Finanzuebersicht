@@ -224,6 +224,18 @@ describe('apiClient portfolio and holdings endpoints', () => {
       }
     })
     mock.onGet('/app/marketdata/instruments/AAPL/profile').reply(200, { data: { symbol: 'AAPL', display_name: 'Apple', company_name: 'Apple Inc.', last_price: 180, currency: 'USD' } })
+    mock.onPost('/app/marketdata/instruments/AAPL/refresh-price').reply(200, {
+      data: {
+        symbol: 'AAPL',
+        trade_date: '2026-04-03',
+        current_price: 180.42,
+        price_source: 'yfinance_1d_1m',
+        price_cache_hit: false,
+        history_cache_present: true,
+        history_action: 'enrich_in_background',
+        fetched_at: '2026-04-03T12:34:56Z'
+      }
+    })
     mock.onDelete(`/app/portfolios/${portfolioId}/holdings/${holdingId}`).reply(204)
 
     const list = await apiClient.portfolios(personId)
@@ -232,10 +244,36 @@ describe('apiClient portfolio and holdings endpoints', () => {
     const selection = await apiClient.marketdataProfile('AAPL')
     await apiClient.addHolding(portfolioId, { symbol: 'AAPL', quantity: 1, acquisition_price: 10, currency: 'EUR', buy_date: '2026-03-01' })
     const refreshResponse = await apiClient.refreshHoldingPrices(portfolioId)
+    const instrumentRefresh = await apiClient.refreshInstrumentPrice('AAPL')
     await apiClient.deleteHolding(portfolioId, holdingId)
 
     expect(list.total).toBe(0)
     expect(selection.last_price).toBe(180)
     expect(refreshResponse.status).toBe('not_implemented_yet')
+    expect(instrumentRefresh.price_source).toBe('yfinance_1d_1m')
+    expect(mock.history.post.some((entry) => entry.url === '/app/marketdata/instruments/AAPL/refresh-price')).toBe(true)
+  })
+})
+
+
+describe('apiClient refresh instrument price typing', () => {
+  it('matches InstrumentPriceRefreshResponse contract', async () => {
+    mock.onPost('/app/marketdata/instruments/CBK.DE/refresh-price').reply(200, {
+      data: {
+        symbol: 'CBK.DE',
+        trade_date: '2026-04-03',
+        current_price: 31.48,
+        price_source: 'cache_today',
+        price_cache_hit: true,
+        history_cache_present: false,
+        history_action: 'seed_max_in_background',
+        fetched_at: '2026-04-03T12:34:56Z'
+      }
+    })
+
+    const payload = await apiClient.refreshInstrumentPrice('CBK.DE')
+
+    expect(payload.symbol).toBe('CBK.DE')
+    expect(payload.history_action).toBe('seed_max_in_background')
   })
 })

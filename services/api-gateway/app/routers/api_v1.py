@@ -365,7 +365,14 @@ async def marketdata_profile(
     return ApiResponse(data=await service.get_marketdata_profile(symbol))
 
 
-# Deprecated: kept for backwards compatibility with older frontend clients.
+@router.post("/app/marketdata/instruments/{symbol}/refresh-price", response_model=ApiResponse[dict])
+async def marketdata_refresh_price(
+    symbol: str,
+    service: Annotated[GatewayService, Depends(get_gateway_service)],
+) -> ApiResponse[dict]:
+    return ApiResponse(data=await service.refresh_marketdata_price(symbol))
+
+
 @router.get("/app/marketdata/instruments/{symbol}/selection", response_model=ApiResponse[MarketdataProfileReadModel])
 async def marketdata_selection(
     symbol: str,

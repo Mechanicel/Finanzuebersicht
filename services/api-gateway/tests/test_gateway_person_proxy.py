@@ -599,17 +599,21 @@ async def test_gateway_marketdata_forwarding_success(monkeypatch: pytest.MonkeyP
     summary = await service.get_marketdata_summary("AAPL")
     prices = await service.get_marketdata_prices("AAPL", range_value="1mo", interval="1d")
     profile = await service.get_marketdata_profile("AAPL")
+    refresh = await service.refresh_marketdata_price("AAPL")
 
     assert search["total"] == 1
     assert summary["symbol"] == "AAPL"
     assert prices["symbol"] == "AAPL"
     assert profile["symbol"] == "AAPL"
+    assert refresh["symbol"] == "AAPL"
     assert calls[0][1].endswith("/api/v1/marketdata/instruments/search")
     assert calls[0][3] == {"q": "apple", "limit": 5}
     assert calls[1][1].endswith("/api/v1/marketdata/instruments/AAPL/summary")
     assert calls[2][1].endswith("/api/v1/marketdata/instruments/AAPL/prices")
     assert calls[2][3] == {"range": "1mo", "interval": "1d"}
     assert calls[3][1].endswith("/api/v1/marketdata/instruments/AAPL/profile")
+    assert calls[4][0] == "POST"
+    assert calls[4][1].endswith("/api/v1/marketdata/instruments/AAPL/refresh-price")
 
 
 @pytest.mark.anyio
@@ -737,3 +741,27 @@ async def test_gateway_portfolio_404_and_502(monkeypatch: pytest.MonkeyPatch) ->
     with pytest.raises(HTTPException) as upstream:
         await service.list_portfolios(UUID("00000000-0000-0000-0000-000000000101"))
     assert upstream.value.status_code == 502
+
+
+@pytest.mark.anyio
+async def test_gateway_marketdata_refresh_price_connect_error_is_translated(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def fake_request(self, method: str, url: str, json: dict | None = None, params: dict | None = None):
+        raise ConnectError("connection failed", request=Request(method, url))
+
+    monkeypatch.setattr("httpx.AsyncClient.request", fake_request)
+
+    service = GatewayService(
+        analytics_base_url="http://analytics",
+        person_base_url="http://localhost:8002",
+        masterdata_base_url="http://localhost:8001",
+        account_base_url="http://localhost:8003",
+        portfolio_base_url="http://localhost:8004",
+        marketdata_base_url="http://localhost:8005",
+        timeout_seconds=1.0,
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        await service.refresh_marketdata_price("AAPL")
+
+    assert exc.value.status_code == 502
+    assert exc.value.detail == "Marketdata-Service ist derzeit nicht erreichbar. Bitte später erneut versuchen."
