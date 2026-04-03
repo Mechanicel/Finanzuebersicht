@@ -15,6 +15,7 @@ vi.mock('@/shared/api/client', () => ({
     searchInstruments: vi.fn(),
     marketdataProfile: vi.fn(),
     addHolding: vi.fn(),
+    refreshHoldingPrices: vi.fn(),
     updateHolding: vi.fn(),
     deleteHolding: vi.fn(),
   }
@@ -60,6 +61,12 @@ describe('DepotHoldingsManager (FMP flow)', () => {
     })
     vi.mocked(apiClient.createPortfolio).mockResolvedValue({ portfolio_id: 'p2', person_id: 'person-1', display_name: 'Depot Core', created_at: 'x', updated_at: 'x' })
     vi.mocked(apiClient.addHolding).mockResolvedValue({} as never)
+    vi.mocked(apiClient.refreshHoldingPrices).mockResolvedValue({
+      portfolio_id: 'p1',
+      status: 'not_implemented_yet',
+      accepted: false,
+      detail: 'Technischer Refresh-Flow vorbereitet. Marktpreislogik folgt in einem späteren Schritt.',
+    } as never)
     vi.mocked(apiClient.updateHolding).mockResolvedValue({} as never)
     vi.mocked(apiClient.deleteHolding).mockResolvedValue(undefined)
   })
@@ -503,6 +510,30 @@ describe('DepotHoldingsManager (FMP flow)', () => {
     expect(confirmSpy).toHaveBeenCalledWith('Position wirklich löschen?')
     expect(apiClient.deleteHolding).toHaveBeenCalledWith('p1', 'h1')
     expect(wrapper.find('form.holding-form').exists()).toBe(false)
+  })
+
+  it('shows refresh button and triggers refresh flow through api client', async () => {
+    vi.mocked(apiClient.portfolio).mockResolvedValueOnce({
+      portfolio_id: 'p1',
+      person_id: 'person-1',
+      display_name: 'Depot Core',
+      created_at: 'x',
+      updated_at: 'x',
+      holdings: [],
+    })
+
+    const { wrapper } = await mountManager()
+    await flushUi()
+
+    const refreshButton = wrapper.find('[data-testid="holdings-refresh-button"]')
+    expect(refreshButton.exists()).toBe(true)
+    expect(refreshButton.text()).toContain('Aktualisieren')
+
+    await refreshButton.trigger('click')
+    await flushUi()
+
+    expect(apiClient.refreshHoldingPrices).toHaveBeenCalledWith('p1')
+    expect(wrapper.text()).toContain('Aktualisierung ausgelöst:')
   })
 
   it('filters holdings list client-side by symbol, isin and company name', async () => {

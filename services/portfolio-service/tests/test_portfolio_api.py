@@ -88,6 +88,24 @@ def test_portfolio_and_holding_crud_flow() -> None:
     assert detail_after.json()["data"]["holdings"] == []
 
 
+def test_refresh_holdings_prices_stub_endpoint() -> None:
+    client = create_test_client(app)
+    person_id = str(uuid4())
+
+    created = client.post("/api/v1/portfolios", json={"person_id": person_id, "display_name": "Trading Depot"})
+    assert created.status_code == 201
+    portfolio_id = created.json()["data"]["portfolio_id"]
+
+    refresh = client.post(f"/api/v1/portfolios/{portfolio_id}/holdings/refresh-current-prices")
+    assert refresh.status_code == 200
+    assert refresh.json()["data"] == {
+        "portfolio_id": portfolio_id,
+        "status": "not_implemented_yet",
+        "accepted": False,
+        "detail": "Technischer Refresh-Flow vorbereitet. Marktpreislogik folgt in einem späteren Schritt.",
+    }
+
+
 def test_not_found_and_validation() -> None:
     client = create_test_client(app)
     unknown_portfolio = str(uuid4())

@@ -9,6 +9,7 @@ from app.dependencies import get_portfolio_service
 from app.models import (
     Holding,
     HoldingCreatePayload,
+    HoldingsRefreshStubResponse,
     HoldingUpdatePayload,
     Portfolio,
     PortfolioCreatePayload,
@@ -75,3 +76,14 @@ async def delete_holding(
 ) -> Response:
     service.delete_holding(portfolio_id, holding_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
+    "/portfolios/{portfolio_id}/holdings/refresh-current-prices",
+    response_model=ApiResponse[HoldingsRefreshStubResponse],
+)
+async def refresh_holdings_prices(
+    portfolio_id: UUID,
+    service: PortfolioService = Depends(get_portfolio_service),
+) -> ApiResponse[HoldingsRefreshStubResponse]:
+    return ApiResponse(data=service.refresh_holdings_prices(portfolio_id))

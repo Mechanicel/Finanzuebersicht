@@ -8,6 +8,7 @@ from fastapi import HTTPException, status
 from app.models import (
     Holding,
     HoldingCreatePayload,
+    HoldingsRefreshStubResponse,
     HoldingUpdatePayload,
     Portfolio,
     PortfolioCreatePayload,
@@ -65,3 +66,14 @@ class PortfolioService:
         deleted = self.repository.delete_holding(portfolio_id, holding_id)
         if not deleted:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Holding nicht gefunden")
+
+    def refresh_holdings_prices(self, portfolio_id: UUID) -> HoldingsRefreshStubResponse:
+        portfolio = self.repository.get_portfolio(portfolio_id)
+        if portfolio is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Portfolio nicht gefunden")
+        return HoldingsRefreshStubResponse(
+            portfolio_id=portfolio_id,
+            status="not_implemented_yet",
+            accepted=False,
+            detail="Technischer Refresh-Flow vorbereitet. Marktpreislogik folgt in einem späteren Schritt.",
+        )

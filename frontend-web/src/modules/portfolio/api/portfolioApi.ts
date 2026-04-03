@@ -3,6 +3,7 @@ import type {
   ApiEnvelope,
   HoldingCreatePayload,
   HoldingReadModel,
+  HoldingsRefreshStubResponse,
   HoldingUpdatePayload,
   MarketdataProfile,
   InstrumentSearchResult,
@@ -34,6 +35,12 @@ export async function updateHolding(portfolioId: string, holdingId: string, payl
 
 export async function deleteHolding(portfolioId: string, holdingId: string) {
   await http.delete(`/app/portfolios/${portfolioId}/holdings/${holdingId}`)
+}
+
+export async function refreshHoldingPrices(portfolioId: string) {
+  return (
+    await http.post<ApiEnvelope<HoldingsRefreshStubResponse>>(`/app/portfolios/${portfolioId}/holdings/refresh-current-prices`)
+  ).data.data
 }
 
 export async function searchInstruments(q: string, limit = 10) {
