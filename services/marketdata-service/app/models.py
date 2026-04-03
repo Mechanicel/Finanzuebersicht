@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Any
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
@@ -64,7 +65,7 @@ class InstrumentProfile(BaseModel):
 
 
 class CachedInstrumentProfile(BaseModel):
-    profile: InstrumentProfile
+    payload: dict[str, Any]
     fetched_at: datetime
 
 
