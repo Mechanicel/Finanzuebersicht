@@ -473,18 +473,21 @@ async def test_gateway_accounts_forwarding(monkeypatch: pytest.MonkeyPatch) -> N
 
             @staticmethod
             def json() -> dict:
+                account_payload = {
+                    "account_id": str(account_id),
+                    "person_id": str(person_id),
+                    "bank_id": "30000000-0000-0000-0000-000000000001",
+                    "account_type": "depot",
+                    "label": "Depot A",
+                    "balance": "1000.00",
+                    "currency": "EUR",
+                    "created_at": "2026-03-01T08:00:00+00:00",
+                    "updated_at": "2026-03-02T08:00:00+00:00",
+                }
                 return {
-                    "data": {
-                        "account_id": str(account_id),
-                        "person_id": str(person_id),
-                        "bank_id": "30000000-0000-0000-0000-000000000001",
-                        "account_type": "depot",
-                        "label": "Depot A",
-                        "balance": "1000.00",
-                        "currency": "EUR",
-                        "created_at": "2026-03-01T08:00:00+00:00",
-                        "updated_at": "2026-03-02T08:00:00+00:00",
-                    }
+                    "data": [account_payload]
+                    if method == "GET" and url.endswith(f"/api/v1/persons/{person_id}/accounts")
+                    else account_payload
                 }
 
             text = ""
