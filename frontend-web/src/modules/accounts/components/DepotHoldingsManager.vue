@@ -119,16 +119,17 @@
             type="button"
             class="btn secondary"
             data-testid="holdings-refresh-button"
-            :disabled="!selectedPortfolioId || refreshingPrices || loading"
+            :disabled="!selectedPortfolioId || refreshLoading || loading"
             @click="refreshHoldingPrices"
           >
-            {{ refreshingPrices ? 'Aktualisieren läuft…' : 'Aktualisieren' }}
+            {{ refreshLoading ? 'Aktualisieren läuft…' : 'Aktualisieren' }}
           </button>
         </div>
+        <p v-if="refreshError" class="muted" data-testid="holdings-refresh-error">{{ refreshError }}</p>
         <div v-if="holdingsForSummary.length" class="portfolio-summary" data-testid="portfolio-summary">
           <div class="summary-card">
             <p class="muted">Aktueller Gesamtwert</p>
-            <p class="summary-value" data-testid="portfolio-summary-current-value">{{ formatCurrency(summaryMetrics.estimatedCurrentTotal, summaryMetrics.currency) }}</p>
+            <p class="summary-value" data-testid="portfolio-summary-current-value">{{ formatCurrency(summaryMetrics.currentTotal, summaryMetrics.currency) }}</p>
             <p v-if="summaryMetrics.holdingsWithoutCurrentPrice > 0" class="muted">
               Teilweise auf Einstandswert geschätzt ({{ summaryMetrics.holdingsWithoutCurrentPrice }} ohne aktuellen Kurs).
             </p>
@@ -183,6 +184,7 @@
                     <p data-testid="holding-acquisition-price-display"><span class="muted">Kaufkurs:</span> {{ formatCurrency(item.holding.acquisition_price, item.holding.currency) }}</p>
                     <p data-testid="holding-current-price-display"><span class="muted">Aktueller Kurs:</span> {{ item.currentPriceLabel }}</p>
                     <p data-testid="holding-pnl-display"><span class="muted">Gewinn/Verlust:</span> <span :class="item.pnlClass">{{ item.pnlLabel }}</span></p>
+                    <p v-if="item.priceSourceLabel" data-testid="holding-price-source-display"><span class="muted">Preisquelle:</span> {{ item.priceSourceLabel }}</p>
                   </div>
                   <p class="muted">Kaufdatum: {{ item.holding.buy_date }} · {{ item.holding.notes || 'keine Notiz' }}</p>
                 </button>
@@ -213,7 +215,15 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { apiClient } from '@/shared/api/client'
-import type { HoldingCreatePayload, HoldingReadModel, InstrumentSearchItem, MarketdataProfile, PortfolioDetailReadModel, PortfolioReadModel } from '@/shared/model/types'
+import type {
+  HoldingCreatePayload,
+  HoldingReadModel,
+  InstrumentPriceRefreshResponse,
+  InstrumentSearchItem,
+  MarketdataProfile,
+  PortfolioDetailReadModel,
+  PortfolioReadModel
+} from '@/shared/model/types'
 import ErrorState from '@/shared/ui/ErrorState.vue'
 import LoadingState from '@/shared/ui/LoadingState.vue'
 import EmptyState from '@/shared/ui/EmptyState.vue'
@@ -231,7 +241,10 @@ const selectedPortfolioId = ref('')
 const portfolioDetail = ref<PortfolioDetailReadModel | null>(null)
 const loading = ref(false)
 const saving = ref(false)
-const refreshingPrices = ref(false)
+const refreshLoading = ref(false)
+const refreshError = ref<string | null>(null)
+const currentPriceBySymbol = ref<Record<string, number>>({})
+const refreshMetaBySymbol = ref<Record<string, InstrumentPriceRefreshResponse>>({})
 const searching = ref(false)
 const profileLoading = ref(false)
 const searchQuery = ref('')
@@ -326,21 +339,26 @@ type HoldingMetrics = {
   pnlClass: string
   currentPriceLabel: string
   pnlLabel: string
+  priceSourceLabel: string | null
 }
 
 const filteredHoldingsWithMetrics = computed<HoldingMetrics[]>(() => {
   return filteredHoldings.value.map((holding) => {
-    const currentPrice = hasFiniteCurrentPrice(holding) ? Number(holding.current_price) : null
+    const currentPrice = getCurrentPriceForHolding(holding)
     const invested = holding.quantity * holding.acquisition_price
-    const currentValue = currentPrice == null ? null : holding.quantity * currentPrice
-    const pnlAbsolute = currentValue == null ? null : currentValue - invested
-    const pnlPercent = pnlAbsolute == null || invested === 0 ? null : (pnlAbsolute / invested) * 100
-    const pnlClass = pnlAbsolute == null ? 'metric-neutral' : pnlAbsolute >= 0 ? 'metric-positive' : 'metric-negative'
-    const currentPriceLabel = currentPrice == null ? '—' : formatCurrency(currentPrice, holding.currency)
-    const pnlLabel = pnlAbsolute == null
-      ? 'Nicht berechenbar'
-      : `${formatSignedCurrency(pnlAbsolute, holding.currency)}${pnlPercent == null ? '' : ` (${formatSignedPercent(pnlPercent)})`}`
-    return { holding, currentPrice, pnlAbsolute, pnlPercent, pnlClass, currentPriceLabel, pnlLabel }
+    const currentValue = holding.quantity * (currentPrice ?? holding.acquisition_price)
+    const pnlAbsolute = currentValue - invested
+    const pnlPercent = invested === 0 ? null : (pnlAbsolute / invested) * 100
+    const pnlClass = pnlAbsolute >= 0 ? 'metric-positive' : 'metric-negative'
+    const currentPriceLabel = currentPrice == null ? formatCurrency(holding.acquisition_price, holding.currency) : formatCurrency(currentPrice, holding.currency)
+    const pnlLabel = `${formatSignedCurrency(pnlAbsolute, holding.currency)}${pnlPercent == null ? '' : ` (${formatSignedPercent(pnlPercent)})`}`
+    const priceSource = refreshMetaBySymbol.value[normalizeSymbol(holding.symbol)]?.price_source
+    const priceSourceLabel = priceSource === 'cache_today'
+      ? 'Cache (heute)'
+      : priceSource === 'yfinance_1d_1m'
+        ? 'Live (yfinance)'
+        : null
+    return { holding, currentPrice, pnlAbsolute, pnlPercent, pnlClass, currentPriceLabel, pnlLabel, priceSourceLabel }
   })
 })
 
@@ -348,17 +366,16 @@ const summaryMetrics = computed(() => {
   const holdings = holdingsForSummary.value
   const currency = holdings[0]?.currency ?? 'EUR'
   const investedTotal = holdings.reduce((sum, holding) => sum + (holding.quantity * holding.acquisition_price), 0)
-  const estimatedCurrentTotal = holdings.reduce((sum, holding) => {
-    const currentPrice = hasFiniteCurrentPrice(holding) ? Number(holding.current_price) : null
-    const unitPrice = currentPrice == null ? holding.acquisition_price : currentPrice
-    return sum + (holding.quantity * unitPrice)
+  const currentTotal = holdings.reduce((sum, holding) => {
+    const currentPrice = getCurrentPriceForHolding(holding)
+    return sum + (holding.quantity * (currentPrice ?? holding.acquisition_price))
   }, 0)
-  const holdingsWithoutCurrentPrice = holdings.filter((holding) => !hasFiniteCurrentPrice(holding)).length
-  const totalPnL = estimatedCurrentTotal - investedTotal
+  const holdingsWithoutCurrentPrice = holdings.filter((holding) => getCurrentPriceForHolding(holding) == null).length
+  const totalPnL = currentTotal - investedTotal
   return {
     currency,
     investedTotal,
-    estimatedCurrentTotal,
+    currentTotal,
     holdingsWithoutCurrentPrice,
     totalPnL,
     pnlClass: totalPnL >= 0 ? 'metric-positive' : 'metric-negative',
@@ -474,6 +491,17 @@ function normalizeUrl(url: string) {
 
 function hasFiniteCurrentPrice(holding: HoldingReadModel) {
   return typeof holding.current_price === 'number' && Number.isFinite(holding.current_price)
+}
+
+function normalizeSymbol(symbol: string) {
+  return symbol.trim().toUpperCase()
+}
+
+function getCurrentPriceForHolding(holding: HoldingReadModel) {
+  const symbol = normalizeSymbol(holding.symbol)
+  const cachedPrice = currentPriceBySymbol.value[symbol]
+  if (typeof cachedPrice === 'number' && Number.isFinite(cachedPrice)) return cachedPrice
+  return hasFiniteCurrentPrice(holding) ? Number(holding.current_price) : null
 }
 
 function formatCurrency(value: number, currency: string) {
@@ -668,17 +696,31 @@ async function removeHolding(holdingId: string) {
 
 async function refreshHoldingPrices() {
   if (!selectedPortfolioId.value) return
-  refreshingPrices.value = true
-  errorMessage.value = null
+  const symbols = Array.from(new Set(filteredHoldings.value.map((holding) => normalizeSymbol(holding.symbol)).filter(Boolean)))
+  if (!symbols.length) return
+  refreshLoading.value = true
+  refreshError.value = null
   feedbackMessage.value = ''
+  const failedSymbols: string[] = []
   try {
-    const response = await apiClient.refreshHoldingPrices(selectedPortfolioId.value)
-    await showSuccessFeedback(`Aktualisierung ausgelöst: ${response.detail}`)
+    for (const symbol of symbols) {
+      try {
+        const response = await apiClient.refreshInstrumentPrice(symbol)
+        currentPriceBySymbol.value = { ...currentPriceBySymbol.value, [symbol]: response.current_price }
+        refreshMetaBySymbol.value = { ...refreshMetaBySymbol.value, [symbol]: response }
+      } catch {
+        failedSymbols.push(symbol)
+      }
+    }
+    if (failedSymbols.length > 0) {
+      refreshError.value = `Kurs-Refresh fehlgeschlagen für: ${failedSymbols.join(', ')}`
+    }
+    await showSuccessFeedback(`Kurs-Refresh abgeschlossen (${symbols.length - failedSymbols.length}/${symbols.length} erfolgreich).`)
   } catch (e) {
     feedbackMessage.value = ''
-    errorMessage.value = e instanceof Error ? e.message : 'Kurs-Aktualisierung konnte nicht ausgelöst werden.'
+    refreshError.value = e instanceof Error ? e.message : 'Kurs-Aktualisierung konnte nicht ausgelöst werden.'
   } finally {
-    refreshingPrices.value = false
+    refreshLoading.value = false
   }
 }
 
