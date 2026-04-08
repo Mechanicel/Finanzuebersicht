@@ -4,6 +4,8 @@ from typing import Annotated, Literal
 from uuid import UUID
 
 import httpx
+import logging
+import time
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from finanzuebersicht_shared.models import ApiResponse
 
@@ -41,6 +43,7 @@ from app.models import (
 from app.service import GatewayService
 
 router = APIRouter(tags=["app"])
+LOGGER = logging.getLogger(__name__)
 
 
 @router.get("/app/persons", response_model=ApiResponse[PersonListReadModel])
@@ -346,7 +349,27 @@ async def search_marketdata_instruments(
     q: str = Query(..., min_length=1),
     limit: int | None = Query(default=None, ge=1, le=25),
 ) -> ApiResponse[dict]:
-    return ApiResponse(data=await service.search_marketdata_instruments(q=q, limit=limit))
+    started_at = time.perf_counter()
+    LOGGER.info('search_trace gateway_router_enter q="%s" limit=%s', q, limit)
+    try:
+        payload = await service.search_marketdata_instruments(q=q, limit=limit)
+        duration_ms = round((time.perf_counter() - started_at) * 1000, 2)
+        LOGGER.info(
+            "search_trace gateway_router_exit success=true duration_ms=%s q=%r limit=%s",
+            duration_ms,
+            q,
+            limit,
+        )
+        return ApiResponse(data=payload)
+    except Exception:
+        duration_ms = round((time.perf_counter() - started_at) * 1000, 2)
+        LOGGER.exception(
+            "search_trace gateway_router_exit success=false duration_ms=%s q=%r limit=%s",
+            duration_ms,
+            q,
+            limit,
+        )
+        raise
 
 
 @router.get("/app/marketdata/instruments/{symbol}/summary", response_model=ApiResponse[dict])

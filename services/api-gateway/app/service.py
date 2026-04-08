@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+import time
 from uuid import UUID
 
 import httpx
@@ -35,6 +37,8 @@ from app.models import (
     PortfolioReadModel,
     TaxAllowanceReadModel,
 )
+
+LOGGER = logging.getLogger(__name__)
 
 
 class GatewayService:
@@ -148,7 +152,36 @@ class GatewayService:
         return HoldingsRefreshStubReadModel.model_validate(data)
 
     async def search_marketdata_instruments(self, *, q: str, limit: int | None = None) -> dict:
-        return await self._request_marketdata_service("GET", "/api/v1/marketdata/instruments/search", params={"q": q, "limit": limit})
+        started_at = time.perf_counter()
+        LOGGER.info('search_trace gateway_service_before_upstream q="%s" limit=%s', q, limit)
+        try:
+            payload = await self._request_marketdata_service(
+                "GET",
+                "/api/v1/marketdata/instruments/search",
+                params={"q": q, "limit": limit},
+            )
+            duration_ms = round((time.perf_counter() - started_at) * 1000, 2)
+            LOGGER.info(
+                "search_trace gateway_service_after_upstream success=true duration_ms=%s q=%r limit=%s",
+                duration_ms,
+                q,
+                limit,
+            )
+            return payload
+        except Exception as exc:
+            duration_ms = round((time.perf_counter() - started_at) * 1000, 2)
+            status_code = getattr(exc, "status_code", None)
+            if isinstance(exc, HTTPException):
+                status_code = exc.status_code
+            LOGGER.exception(
+                "search_trace gateway_service_upstream_error success=false duration_ms=%s q=%r limit=%s status_code=%s exc_type=%s",
+                duration_ms,
+                q,
+                limit,
+                status_code,
+                type(exc).__name__,
+            )
+            raise
 
     async def get_marketdata_summary(self, symbol: str) -> dict:
         return await self._request_marketdata_service("GET", f"/api/v1/marketdata/instruments/{symbol}/summary")

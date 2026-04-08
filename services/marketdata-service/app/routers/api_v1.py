@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+import time
 from fastapi import APIRouter, BackgroundTasks, Depends, Query
 from finanzuebersicht_shared.models import ApiResponse
 
@@ -16,6 +18,7 @@ from app.models import (
 from app.service import MarketDataService
 
 router = APIRouter(tags=["marketdata"])
+LOGGER = logging.getLogger(__name__)
 
 
 @router.get("/marketdata/instruments/search", response_model=ApiResponse[InstrumentSearchResponse])
@@ -24,7 +27,28 @@ async def instrument_search(
     limit: int = Query(default=10, ge=1, le=20),
     service: MarketDataService = Depends(get_marketdata_service),
 ) -> ApiResponse[InstrumentSearchResponse]:
-    return ApiResponse(data=service.search_instruments(query=q, limit=limit))
+    started_at = time.perf_counter()
+    LOGGER.info('search_trace marketdata_router_enter q="%s" limit=%s', q, limit)
+    try:
+        payload = service.search_instruments(query=q, limit=limit)
+        duration_ms = round((time.perf_counter() - started_at) * 1000, 2)
+        LOGGER.info(
+            "search_trace marketdata_router_exit success=true duration_ms=%s q=%r limit=%s total=%s",
+            duration_ms,
+            q,
+            limit,
+            payload.total,
+        )
+        return ApiResponse(data=payload)
+    except Exception:
+        duration_ms = round((time.perf_counter() - started_at) * 1000, 2)
+        LOGGER.exception(
+            "search_trace marketdata_router_exit success=false duration_ms=%s q=%r limit=%s",
+            duration_ms,
+            q,
+            limit,
+        )
+        raise
 
 
 @router.get("/marketdata/instruments/{symbol}/profile", response_model=ApiResponse[InstrumentProfile])
