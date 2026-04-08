@@ -41,7 +41,7 @@
             :key="account.account_id"
             class="account-row-btn"
             type="button"
-            @click="openDetails(account.account_id)"
+            @click="openAccountDetails(account)"
           >
             <section class="account-item">
               <div class="account-item-header">
@@ -53,9 +53,21 @@
               </div>
               <dl class="account-details">
                 <div><dt>Saldo</dt><dd>{{ account.balance }} {{ account.currency }}</dd></div>
-                <div><dt>IBAN</dt><dd>{{ account.iban || '—' }}</dd></div>
-                <div><dt>Kontonummer</dt><dd>{{ account.account_number || '—' }}</dd></div>
-                <div><dt>Depotnummer</dt><dd>{{ account.depot_number || '—' }}</dd></div>
+                <template v-if="account.account_type === 'depot'">
+                  <div><dt>Depotnummer</dt><dd>{{ account.depot_number || '—' }}</dd></div>
+                  <div><dt>Portfolio</dt><dd>{{ depotSummaryByAccountId[account.account_id]?.hasPortfolio ? 'Gefunden' : 'Nicht vorhanden' }}</dd></div>
+                  <div><dt>Bestandteile</dt><dd>{{ depotSummaryByAccountId[account.account_id]?.holdingsCount ?? 0 }}</dd></div>
+                  <div><dt>Investiert</dt><dd>{{ depotSummaryByAccountId[account.account_id]?.investedTotal ?? 0 }} {{ depotSummaryByAccountId[account.account_id]?.currency || account.currency }}</dd></div>
+                  <div><dt>Erster Kauf</dt><dd>{{ depotSummaryByAccountId[account.account_id]?.firstBuyDate || '—' }}</dd></div>
+                  <div v-if="!(depotSummaryByAccountId[account.account_id]?.hasPortfolio && (depotSummaryByAccountId[account.account_id]?.holdingsCount ?? 0) > 0)">
+                    <dt>Hinweis</dt><dd>Noch keine Depot-Bestandteile</dd>
+                  </div>
+                </template>
+                <template v-else>
+                  <div><dt>IBAN</dt><dd>{{ account.iban || '—' }}</dd></div>
+                  <div><dt>Kontonummer</dt><dd>{{ account.account_number || '—' }}</dd></div>
+                  <div><dt>Depotnummer</dt><dd>{{ account.depot_number || '—' }}</dd></div>
+                </template>
               </dl>
             </section>
           </button>
@@ -73,8 +85,9 @@ import EmptyState from '@/shared/ui/EmptyState.vue'
 import ErrorState from '@/shared/ui/ErrorState.vue'
 import LoadingState from '@/shared/ui/LoadingState.vue'
 import { accountTypeLabels } from '@/modules/accounts/model/accountForm'
+import { buildDepotAccountSummary, type DepotAccountSummary } from '@/modules/accounts/model/depotAccountSummary'
 import { extractApiErrorMessage } from '@/shared/api/extractApiErrorMessage'
-import type { AccountReadModel, BankReadModel, PersonReadModel } from '@/shared/model/types'
+import type { AccountReadModel, BankReadModel, PersonReadModel, PortfolioReadModel } from '@/shared/model/types'
 
 const route = useRoute()
 const router = useRouter()
@@ -88,6 +101,7 @@ const searchQuery = ref('')
 const person = ref<PersonReadModel | null>(null)
 const accounts = ref<AccountReadModel[]>([])
 const banks = ref<BankReadModel[]>([])
+const depotSummaryByAccountId = ref<Record<string, DepotAccountSummary>>({})
 
 const subtitle = computed(() => {
   const fullName = `${person.value?.first_name ?? ''} ${person.value?.last_name ?? ''}`.trim()
@@ -124,9 +138,51 @@ function bankName(bankId: string): string {
   return bankById.value.get(bankId)?.name ?? `Unbekannte Bank (${bankId})`
 }
 
-function openDetails(accountId: string) {
+function openAccountDetails(account: AccountReadModel) {
   if (!personId.value) return
-  void router.push(`/accounts/manage/${accountId}?personId=${personId.value}`)
+  const detailTarget =
+    account.account_type === 'depot'
+      ? `/accounts/manage/${account.account_id}?personId=${personId.value}&section=bestandteile`
+      : `/accounts/manage/${account.account_id}?personId=${personId.value}`
+  void router.push(detailTarget)
+}
+
+function resolvePortfolioByAccountLabel(
+  account: AccountReadModel,
+  portfoliosByDisplayName: Map<string, PortfolioReadModel>
+): PortfolioReadModel | null {
+  return portfoliosByDisplayName.get(account.label) ?? null
+}
+
+async function buildDepotSummaries(accountList: AccountReadModel[], bankResult: BankReadModel[]): Promise<Record<string, DepotAccountSummary>> {
+  const depotAccounts = accountList.filter((account) => account.account_type === 'depot')
+  if (!depotAccounts.length || !personId.value) {
+    return {}
+  }
+
+  const banksById = new Map(bankResult.map((bank) => [bank.bank_id, bank.name]))
+  const portfolioList = await apiClient.portfolios(personId.value)
+  const portfoliosByDisplayName = new Map(portfolioList.items.map((portfolio) => [portfolio.display_name, portfolio]))
+
+  const summaryPairs = await Promise.all(
+    depotAccounts.map(async (account) => {
+      const matchedPortfolio = resolvePortfolioByAccountLabel(account, portfoliosByDisplayName)
+      const bankName = banksById.get(account.bank_id) ?? `Unbekannte Bank (${account.bank_id})`
+
+      if (!matchedPortfolio) {
+        return [account.account_id, buildDepotAccountSummary({ account, bankName, portfolio: null, portfolioDetail: null })] as const
+      }
+
+      try {
+        const portfolioDetail = await apiClient.portfolio(matchedPortfolio.portfolio_id)
+        return [account.account_id, buildDepotAccountSummary({ account, bankName, portfolio: matchedPortfolio, portfolioDetail })] as const
+      } catch {
+        return [account.account_id, buildDepotAccountSummary({ account, bankName, portfolio: null, portfolioDetail: null })] as const
+      }
+    })
+  )
+
+  return Object.fromEntries(summaryPairs)
 }
 
 async function loadData() {
@@ -135,6 +191,7 @@ async function loadData() {
     accounts.value = []
     errorMessage.value = null
     banks.value = []
+    depotSummaryByAccountId.value = {}
     return
   }
 
@@ -150,6 +207,11 @@ async function loadData() {
     person.value = personDetail.person
     accounts.value = accountList
     banks.value = bankResult.items
+    try {
+      depotSummaryByAccountId.value = await buildDepotSummaries(accountList, bankResult.items)
+    } catch {
+      depotSummaryByAccountId.value = {}
+    }
   } catch (e) {
     errorMessage.value = extractApiErrorMessage(e, 'Konten konnten nicht geladen werden.')
   } finally {
@@ -157,7 +219,9 @@ async function loadData() {
   }
 }
 
-watch(personId, loadData)
+watch(personId, () => {
+  void loadData()
+})
 onMounted(loadData)
 </script>
 
