@@ -182,6 +182,34 @@ async def dashboard(
         ) from exc
 
 
+@router.get("/app/persons/{person_id}/dashboard/overview", response_model=ApiResponse[dict])
+async def dashboard_overview_section(
+    person_id: UUID, service: Annotated[GatewayService, Depends(get_gateway_service)]
+) -> ApiResponse[dict]:
+    return ApiResponse(data=await service.get_dashboard_section(person_id, "overview"))
+
+
+@router.get("/app/persons/{person_id}/dashboard/allocation", response_model=ApiResponse[dict])
+async def dashboard_allocation_section(
+    person_id: UUID, service: Annotated[GatewayService, Depends(get_gateway_service)]
+) -> ApiResponse[dict]:
+    return ApiResponse(data=await service.get_dashboard_section(person_id, "allocation"))
+
+
+@router.get("/app/persons/{person_id}/dashboard/timeseries", response_model=ApiResponse[dict])
+async def dashboard_timeseries_section(
+    person_id: UUID, service: Annotated[GatewayService, Depends(get_gateway_service)]
+) -> ApiResponse[dict]:
+    return ApiResponse(data=await service.get_dashboard_section(person_id, "timeseries"))
+
+
+@router.get("/app/persons/{person_id}/dashboard/metrics", response_model=ApiResponse[dict])
+async def dashboard_metrics_section(
+    person_id: UUID, service: Annotated[GatewayService, Depends(get_gateway_service)]
+) -> ApiResponse[dict]:
+    return ApiResponse(data=await service.get_dashboard_section(person_id, "metrics"))
+
+
 @router.get("/app/persons/{person_id}/accounts", response_model=ApiResponse[list[AccountReadModel]])
 async def accounts(
     person_id: UUID, service: Annotated[GatewayService, Depends(get_gateway_service)]

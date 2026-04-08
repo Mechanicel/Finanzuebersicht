@@ -215,14 +215,27 @@ class GatewayService:
     async def get_analytics_overview(self, person_id: UUID) -> dict:
         return await self._get_analytics_payload(person_id, "overview")
 
+    async def get_dashboard_section(self, person_id: UUID, section: str) -> dict:
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            response = await client.get(
+                f"{self._analytics_base_url}/api/v1/analytics/persons/{person_id}/dashboard/{section}"
+            )
+        response.raise_for_status()
+        return response.json()["data"]
+
     async def get_dashboard(self, person_id: UUID) -> DashboardReadModel:
-        overview = await self._get_analytics_payload(person_id, "overview")
+        overview_section = await self.get_dashboard_section(person_id, "overview")
+        allocation_section = await self.get_dashboard_section(person_id, "allocation")
+        metrics_section = await self.get_dashboard_section(person_id, "metrics")
+        timeseries_section = await self.get_dashboard_section(person_id, "timeseries")
+        overview = overview_section.get("payload", {})
+        overview["_state"] = overview_section.get("state")
         return DashboardReadModel(
             person_id=person_id,
             overview=overview,
-            allocation=await self._get_analytics_payload(person_id, "allocation"),
-            metrics=await self._get_analytics_payload(person_id, "metrics"),
-            timeseries=await self._get_analytics_payload(person_id, "timeseries"),
+            allocation={**allocation_section.get("payload", {}), "_state": allocation_section.get("state")},
+            metrics={**metrics_section.get("payload", {}), "_state": metrics_section.get("state")},
+            timeseries={**timeseries_section.get("payload", {}), "_state": timeseries_section.get("state")},
             kpis=overview.get("kpis", []),
         )
 
@@ -278,7 +291,9 @@ class GatewayService:
 
     async def _get_analytics_payload(self, person_id: UUID, endpoint: str) -> dict:
         async with httpx.AsyncClient(timeout=self._timeout) as client:
-            response = await client.get(f"{self._analytics_base_url}/api/v1/analytics/persons/{person_id}/{endpoint}")
+            response = await client.get(
+                f"{self._analytics_base_url}/api/v1/analytics/persons/{person_id}/{endpoint}"
+            )
         response.raise_for_status()
         return response.json()["data"]
 

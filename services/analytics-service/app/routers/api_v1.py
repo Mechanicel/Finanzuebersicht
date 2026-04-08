@@ -9,6 +9,7 @@ from finanzuebersicht_shared.models import ApiResponse
 from app.dependencies import get_analytics_service
 from app.models import (
     AllocationReadModel,
+    DashboardSectionReadModel,
     ForecastReadModel,
     HeatmapReadModel,
     MetricsReadModel,
@@ -28,6 +29,50 @@ def _call_or_404(fn):
         raise HTTPException(
             status_code=404, detail={"error": "person_not_found", "message": str(exc)}
         ) from exc
+
+
+@router.get(
+    "/analytics/persons/{person_id}/dashboard/overview",
+    response_model=ApiResponse[DashboardSectionReadModel],
+)
+async def dashboard_overview_section(
+    person_id: UUID,
+    service: Annotated[AnalyticsService, Depends(get_analytics_service)],
+) -> ApiResponse[DashboardSectionReadModel]:
+    return ApiResponse(data=_call_or_404(lambda: service.get_dashboard_section(person_id, "overview")))
+
+
+@router.get(
+    "/analytics/persons/{person_id}/dashboard/allocation",
+    response_model=ApiResponse[DashboardSectionReadModel],
+)
+async def dashboard_allocation_section(
+    person_id: UUID,
+    service: Annotated[AnalyticsService, Depends(get_analytics_service)],
+) -> ApiResponse[DashboardSectionReadModel]:
+    return ApiResponse(data=_call_or_404(lambda: service.get_dashboard_section(person_id, "allocation")))
+
+
+@router.get(
+    "/analytics/persons/{person_id}/dashboard/timeseries",
+    response_model=ApiResponse[DashboardSectionReadModel],
+)
+async def dashboard_timeseries_section(
+    person_id: UUID,
+    service: Annotated[AnalyticsService, Depends(get_analytics_service)],
+) -> ApiResponse[DashboardSectionReadModel]:
+    return ApiResponse(data=_call_or_404(lambda: service.get_dashboard_section(person_id, "timeseries")))
+
+
+@router.get(
+    "/analytics/persons/{person_id}/dashboard/metrics",
+    response_model=ApiResponse[DashboardSectionReadModel],
+)
+async def dashboard_metrics_section(
+    person_id: UUID,
+    service: Annotated[AnalyticsService, Depends(get_analytics_service)],
+) -> ApiResponse[DashboardSectionReadModel]:
+    return ApiResponse(data=_call_or_404(lambda: service.get_dashboard_section(person_id, "metrics")))
 
 
 @router.get(

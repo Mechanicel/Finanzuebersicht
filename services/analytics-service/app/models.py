@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -123,3 +124,17 @@ class ForecastReadModel(BaseModel):
     summary: SummaryItem
     meta: LoadingMeta = Field(default_factory=LoadingMeta)
 
+
+DashboardSectionName = Literal["overview", "allocation", "timeseries", "metrics"]
+DashboardSectionState = Literal["ready", "stale", "pending", "error"]
+
+
+class DashboardSectionReadModel(BaseModel):
+    person_id: UUID
+    section: DashboardSectionName
+    state: DashboardSectionState
+    generated_at: datetime | None = None
+    stale_at: datetime | None = None
+    refresh_in_progress: bool = False
+    warnings: list[str] = Field(default_factory=list)
+    payload: dict[str, Any]

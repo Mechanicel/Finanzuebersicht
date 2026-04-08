@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from concurrent.futures import Future, ThreadPoolExecutor
+from dataclasses import dataclass, field
+from datetime import UTC, date, datetime, timedelta
 from statistics import mean
-from time import monotonic
+from threading import Lock
 from uuid import UUID
 
 import httpx
@@ -15,6 +15,8 @@ from app.models import (
     AllocationSlice,
     ChartPoint,
     ChartSeries,
+    DashboardSectionName,
+    DashboardSectionReadModel,
     ForecastPoint,
     ForecastReadModel,
     HeatmapCell,
@@ -41,6 +43,16 @@ class DashboardData:
     timeseries_points: list[ChartPoint]
 
 
+@dataclass(slots=True)
+class SectionCacheEntry:
+    payload: dict
+    generated_at: datetime | None = None
+    stale_at: datetime | None = None
+    refresh_in_progress: bool = False
+    warnings: list[str] = field(default_factory=list)
+    has_error: bool = False
+
+
 class AnalyticsService:
     def __init__(
         self,
@@ -51,6 +63,7 @@ class AnalyticsService:
         marketdata_base_url: str,
         timeout_seconds: float,
         dashboard_cache_ttl_seconds: float = 45.0,
+        section_refresh_workers: int = 8,
     ) -> None:
         self._person_base_url = person_base_url.rstrip("/")
         self._account_base_url = account_base_url.rstrip("/")
@@ -58,7 +71,11 @@ class AnalyticsService:
         self._marketdata_base_url = marketdata_base_url.rstrip("/")
         self._timeout = timeout_seconds
         self._dashboard_cache_ttl_seconds = dashboard_cache_ttl_seconds
-        self._dashboard_cache: dict[UUID, tuple[float, DashboardData]] = {}
+        self._section_cache: dict[tuple[UUID, DashboardSectionName], SectionCacheEntry] = {}
+        self._cache_lock = Lock()
+        self._refresh_executor = ThreadPoolExecutor(max_workers=max(1, section_refresh_workers))
+        self._known_persons: set[UUID] = set()
+        self._unknown_persons: set[UUID] = set()
 
     def _request_json(self, url: str, client: httpx.Client | None = None) -> dict | list[dict]:
         if client is None:
@@ -70,10 +87,17 @@ class AnalyticsService:
         return response.json()["data"]
 
     def _person_exists(self, person_id: UUID, client: httpx.Client | None = None) -> None:
+        if person_id in self._known_persons:
+            return
+        if person_id in self._unknown_persons:
+            raise KeyError(f"Unknown person_id: {person_id}")
         try:
             self._request_json(f"{self._person_base_url}/api/v1/persons/{person_id}", client=client)
+            self._known_persons.add(person_id)
+            self._unknown_persons.discard(person_id)
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code == 404:
+                self._unknown_persons.add(person_id)
                 raise KeyError(f"Unknown person_id: {person_id}") from exc
             raise
 
@@ -233,14 +257,7 @@ class AnalyticsService:
         )
 
     def _dashboard_data(self, person_id: UUID) -> DashboardData:
-        now = monotonic()
-        cached = self._dashboard_cache.get(person_id)
-        if cached and now - cached[0] <= self._dashboard_cache_ttl_seconds:
-            return cached[1]
-
-        data = self._build_dashboard_data(person_id)
-        self._dashboard_cache[person_id] = (now, data)
-        return data
+        return self._build_dashboard_data(person_id)
 
     def _kpis(self, data: DashboardData) -> list[KpiBlock]:
         gain = data.current_value - data.invested_value
@@ -265,20 +282,17 @@ class AnalyticsService:
             KpiBlock(key="portfolio_gain_percent", label="Depotrendite %", value=gain_pct, unit="PERCENT", trend=gain_pct),
         ]
 
-    def overview(self, person_id: UUID) -> OverviewReadModel:
-        data = self._dashboard_data(person_id)
-        labels = [point.x for point in data.timeseries_points]
-        series = [ChartSeries(key="portfolio_value", label="Depotwert", points=data.timeseries_points)]
-        return OverviewReadModel(
+    def _build_overview_payload(self, person_id: UUID, data: DashboardData) -> dict:
+        model = OverviewReadModel(
             person_id=person_id,
-            labels=labels,
+            labels=[point.x for point in data.timeseries_points],
             summaries=[SummaryItem(label="Aktueller Depotwert", value=data.current_value)],
             kpis=self._kpis(data),
-            series=series,
+            series=[ChartSeries(key="portfolio_value", label="Depotwert", points=data.timeseries_points)],
         )
+        return model.model_dump(mode="json")
 
-    def allocation(self, person_id: UUID) -> AllocationReadModel:
-        data = self._dashboard_data(person_id)
+    def _build_allocation_payload(self, person_id: UUID, data: DashboardData) -> dict:
         total = sum(data.allocation_by_type.values())
         slices = [
             AllocationSlice(
@@ -289,25 +303,177 @@ class AnalyticsService:
             )
             for allocation_type, value in sorted(data.allocation_by_type.items())
         ]
-        return AllocationReadModel(
+        model = AllocationReadModel(
             person_id=person_id,
             labels=[item.label for item in slices],
             slices=slices,
             summary=SummaryItem(label="Konten-Allokation", value=round(total, 2)),
         )
+        return model.model_dump(mode="json")
 
-    def timeseries(self, person_id: UUID) -> TimeseriesReadModel:
-        data = self._dashboard_data(person_id)
-        return TimeseriesReadModel(
+    def _build_timeseries_payload(self, person_id: UUID, data: DashboardData) -> dict:
+        model = TimeseriesReadModel(
             person_id=person_id,
             labels=[point.x for point in data.timeseries_points],
             granularity="daily",
             series=[ChartSeries(key="portfolio_value", label="Depotwert", points=data.timeseries_points)],
             summary=SummaryItem(label="Aktueller Depotwert", value=data.current_value),
         )
+        return model.model_dump(mode="json")
+
+    def _build_metrics_payload(self, person_id: UUID, data: DashboardData) -> dict:
+        series_values = [point.y for point in data.timeseries_points]
+        average = mean(series_values) if series_values else 0
+        band = (max(series_values) - min(series_values)) if len(series_values) > 1 else 0
+        model = MetricsReadModel(
+            person_id=person_id,
+            as_of=datetime.now(UTC).date(),
+            kpis=self._kpis(data),
+            summary=[
+                SummaryItem(label="Durchschnittlicher Depotwert", value=round(average, 2)),
+                SummaryItem(label="Bandbreite Depotwert", value=round(band, 2)),
+            ],
+        )
+        return model.model_dump(mode="json")
+
+    def _build_section_payload(self, person_id: UUID, section: DashboardSectionName) -> dict:
+        data = self._build_dashboard_data(person_id)
+        if section == "overview":
+            return self._build_overview_payload(person_id, data)
+        if section == "allocation":
+            return self._build_allocation_payload(person_id, data)
+        if section == "timeseries":
+            return self._build_timeseries_payload(person_id, data)
+        if section == "metrics":
+            return self._build_metrics_payload(person_id, data)
+        raise ValueError(f"Unsupported section: {section}")
+
+    def _empty_section_payload(self, person_id: UUID, section: DashboardSectionName) -> dict:
+        if section == "overview":
+            return self._build_overview_payload(
+                person_id,
+                DashboardData(person_id, 0, 0, 0, 0.0, 0.0, {}, []),
+            )
+        if section == "allocation":
+            return self._build_allocation_payload(
+                person_id,
+                DashboardData(person_id, 0, 0, 0, 0.0, 0.0, {}, []),
+            )
+        if section == "timeseries":
+            return self._build_timeseries_payload(
+                person_id,
+                DashboardData(person_id, 0, 0, 0, 0.0, 0.0, {}, []),
+            )
+        if section == "metrics":
+            return self._build_metrics_payload(
+                person_id,
+                DashboardData(person_id, 0, 0, 0, 0.0, 0.0, {}, []),
+            )
+        raise ValueError(f"Unsupported section: {section}")
+
+    def _cache_key(self, person_id: UUID, section: DashboardSectionName) -> tuple[UUID, DashboardSectionName]:
+        return (person_id, section)
+
+    def _trigger_background_refresh(self, person_id: UUID, section: DashboardSectionName) -> Future | None:
+        key = self._cache_key(person_id, section)
+        with self._cache_lock:
+            entry = self._section_cache.get(key)
+            if entry is None:
+                entry = SectionCacheEntry(payload=self._empty_section_payload(person_id, section))
+                self._section_cache[key] = entry
+            if entry.refresh_in_progress:
+                return None
+            entry.refresh_in_progress = True
+        return self._refresh_executor.submit(self._refresh_section_cache, person_id, section)
+
+    def _refresh_section_cache(self, person_id: UUID, section: DashboardSectionName) -> None:
+        key = self._cache_key(person_id, section)
+        try:
+            self._person_exists(person_id)
+            payload = self._build_section_payload(person_id, section)
+            now = datetime.now(UTC)
+            with self._cache_lock:
+                self._section_cache[key] = SectionCacheEntry(
+                    payload=payload,
+                    generated_at=now,
+                    stale_at=now + timedelta(seconds=self._dashboard_cache_ttl_seconds),
+                    refresh_in_progress=False,
+                    warnings=[],
+                    has_error=False,
+                )
+        except KeyError:
+            with self._cache_lock:
+                self._section_cache.pop(key, None)
+            self._unknown_persons.add(person_id)
+        except Exception:
+            with self._cache_lock:
+                existing = self._section_cache.get(key)
+                if existing is None:
+                    existing = SectionCacheEntry(payload=self._empty_section_payload(person_id, section))
+                existing.refresh_in_progress = False
+                existing.has_error = existing.generated_at is None
+                if "refresh_failed" not in existing.warnings:
+                    existing.warnings.append("refresh_failed")
+                self._section_cache[key] = existing
+
+    def get_dashboard_section(self, person_id: UUID, section: DashboardSectionName) -> DashboardSectionReadModel:
+        self._person_exists(person_id)
+        key = self._cache_key(person_id, section)
+        now = datetime.now(UTC)
+
+        with self._cache_lock:
+            entry = self._section_cache.get(key)
+            if entry is None:
+                entry = SectionCacheEntry(payload=self._empty_section_payload(person_id, section))
+                self._section_cache[key] = entry
+
+            if entry.generated_at and entry.stale_at and now < entry.stale_at:
+                state = "ready"
+            elif entry.generated_at:
+                state = "stale"
+            elif entry.has_error:
+                state = "error"
+            else:
+                state = "pending"
+
+            should_refresh = state in {"pending", "stale"} and not entry.refresh_in_progress
+
+        if should_refresh:
+            self._trigger_background_refresh(person_id, section)
+            with self._cache_lock:
+                entry = self._section_cache[key]
+
+        return DashboardSectionReadModel(
+            person_id=person_id,
+            section=section,
+            state=state,
+            generated_at=entry.generated_at,
+            stale_at=entry.stale_at,
+            refresh_in_progress=entry.refresh_in_progress,
+            warnings=list(entry.warnings),
+            payload=entry.payload,
+        )
+
+    def overview(self, person_id: UUID) -> OverviewReadModel:
+        self._person_exists(person_id)
+        return OverviewReadModel.model_validate(
+            self._build_overview_payload(person_id, self._build_dashboard_data(person_id))
+        )
+
+    def allocation(self, person_id: UUID) -> AllocationReadModel:
+        self._person_exists(person_id)
+        return AllocationReadModel.model_validate(
+            self._build_allocation_payload(person_id, self._build_dashboard_data(person_id))
+        )
+
+    def timeseries(self, person_id: UUID) -> TimeseriesReadModel:
+        self._person_exists(person_id)
+        return TimeseriesReadModel.model_validate(
+            self._build_timeseries_payload(person_id, self._build_dashboard_data(person_id))
+        )
 
     def monthly_comparison(self, person_id: UUID) -> MonthlyComparisonReadModel:
-        data = self._dashboard_data(person_id)
+        data = self._build_dashboard_data(person_id)
         monthly_values: dict[str, float] = {}
         for point in data.timeseries_points:
             month = point.x[:7]
@@ -338,22 +504,13 @@ class AnalyticsService:
         )
 
     def metrics(self, person_id: UUID) -> MetricsReadModel:
-        data = self._dashboard_data(person_id)
-        series_values = [point.y for point in data.timeseries_points]
-        average = mean(series_values) if series_values else 0
-        band = (max(series_values) - min(series_values)) if len(series_values) > 1 else 0
-        return MetricsReadModel(
-            person_id=person_id,
-            as_of=datetime.now(UTC).date(),
-            kpis=self._kpis(data),
-            summary=[
-                SummaryItem(label="Durchschnittlicher Depotwert", value=round(average, 2)),
-                SummaryItem(label="Bandbreite Depotwert", value=round(band, 2)),
-            ],
+        self._person_exists(person_id)
+        return MetricsReadModel.model_validate(
+            self._build_metrics_payload(person_id, self._build_dashboard_data(person_id))
         )
 
     def heatmap(self, person_id: UUID) -> HeatmapReadModel:
-        data = self._dashboard_data(person_id)
+        data = self._build_dashboard_data(person_id)
         cells = [
             HeatmapCell(
                 date=point.x,
@@ -371,7 +528,7 @@ class AnalyticsService:
         )
 
     def forecast(self, person_id: UUID) -> ForecastReadModel:
-        data = self._dashboard_data(person_id)
+        data = self._build_dashboard_data(person_id)
         values = [point.y for point in data.timeseries_points]
         deltas = [values[i] - values[i - 1] for i in range(1, len(values))]
         avg_delta = mean(deltas) if deltas else 0

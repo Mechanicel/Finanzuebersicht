@@ -16,4 +16,5 @@ def get_analytics_service() -> AnalyticsService:
         marketdata_base_url=settings.marketdata_service_url,
         timeout_seconds=settings.request_timeout_seconds,
         dashboard_cache_ttl_seconds=settings.dashboard_cache_ttl_seconds,
+        section_refresh_workers=settings.dashboard_section_refresh_workers,
     )
