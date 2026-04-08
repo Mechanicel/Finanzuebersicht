@@ -277,3 +277,25 @@ describe('apiClient refresh instrument price typing', () => {
     expect(payload.history_action).toBe('seed_max_in_background')
   })
 })
+
+
+describe('apiClient instrument history', () => {
+  it('calls history endpoint with selected range', async () => {
+    mock.onGet('/app/marketdata/instruments/AAPL/history').reply(200, {
+      data: {
+        symbol: 'AAPL',
+        range: '3m',
+        points: [{ date: '2026-01-01', close: 150 }],
+        cache_present: true,
+        updated_at: '2026-04-03T12:34:56Z'
+      }
+    })
+
+    const payload = await apiClient.instrumentHistory('AAPL', '3m')
+
+    expect(payload.range).toBe('3m')
+    expect(mock.history.get.at(-1)?.url).toBe('/app/marketdata/instruments/AAPL/history')
+    expect(mock.history.get.at(-1)?.params).toEqual({ range: '3m' })
+  })
+})
+

@@ -261,6 +261,22 @@ export interface InstrumentPriceRefreshResponse {
   fetched_at: string
 }
 
+
+export type InstrumentHistoryRange = '1m' | '3m' | '6m' | 'ytd' | '1y' | 'max'
+
+export interface InstrumentHistoryPoint {
+  date: string
+  close: number
+}
+
+export interface InstrumentHistoryResponse {
+  symbol: string
+  range: InstrumentHistoryRange
+  points: InstrumentHistoryPoint[]
+  cache_present: boolean
+  updated_at: string
+}
+
 export interface InstrumentSearchItem {
   symbol: string
   company_name: string
