@@ -365,6 +365,39 @@ class StubGatewayService:
             "fetched_at": "2026-04-03T12:34:56Z",
         }
 
+    async def get_marketdata_holdings_summary(self, symbols: str) -> dict:
+        return {"requested_symbols": symbols.split(","), "items": [], "total": 0, "meta": {"warnings": []}}
+
+    async def get_marketdata_snapshot(self, symbol: str) -> dict:
+        return {"symbol": symbol, "coverage": "profile+price"}
+
+    async def get_marketdata_fundamentals(self, symbol: str) -> dict:
+        return {"symbol": symbol, "company_name": "Apple Inc."}
+
+    async def get_marketdata_metrics(self, symbol: str) -> dict:
+        return {"symbol": symbol, "beta": 1.0}
+
+    async def get_marketdata_financials(self, symbol: str, period: str | None = None) -> dict:
+        return {"symbol": symbol, "period": period or "annual", "statements": {}}
+
+    async def get_marketdata_risk(self, symbol: str, benchmark: str | None = None) -> dict:
+        return {"symbol": symbol, "benchmark": benchmark or "SPY"}
+
+    async def get_marketdata_benchmark(self, symbol: str, benchmark: str | None = None) -> dict:
+        return {"symbol": symbol, "benchmark": benchmark or "SPY", "comparison": {}}
+
+    async def get_marketdata_timeseries(self, symbol: str, series: str | None = None, benchmark: str | None = None) -> dict:
+        return {"symbol": symbol, "series": series or "close", "benchmark": benchmark or "SPY"}
+
+    async def get_marketdata_comparison_timeseries(self, symbol: str, symbols: str) -> dict:
+        return {"base_symbol": symbol, "symbols": symbols.split(",")}
+
+    async def get_marketdata_benchmark_catalog(self) -> dict:
+        return {"items": [{"symbol": "SPY", "name": "SPDR S&P 500 ETF"}], "source": "stub"}
+
+    async def search_marketdata_benchmark(self, query: str) -> dict:
+        return {"query": query, "items": [{"symbol": "SPY", "name": "SPDR S&P 500 ETF"}], "total": 1}
+
 
 def test_health_endpoint() -> None:
     client = create_test_client(app)
@@ -442,7 +475,18 @@ def test_app_endpoints_for_vue_pages() -> None:
     )
     assert client.get("/api/v1/app/marketdata/instruments/AAPL/history", params={"range": "6m"}).status_code == 200
     assert client.get("/api/v1/app/marketdata/instruments/AAPL/full").status_code == 200
+    assert client.get("/api/v1/app/marketdata/instruments/AAPL/snapshot").status_code == 200
     assert client.get("/api/v1/app/marketdata/instruments/AAPL/profile").status_code == 200
+    assert client.get("/api/v1/app/marketdata/instruments/AAPL/fundamentals").status_code == 200
+    assert client.get("/api/v1/app/marketdata/instruments/AAPL/metrics").status_code == 200
+    assert client.get("/api/v1/app/marketdata/instruments/AAPL/financials", params={"period": "annual"}).status_code == 200
+    assert client.get("/api/v1/app/marketdata/instruments/AAPL/risk", params={"benchmark": "SPY"}).status_code == 200
+    assert client.get("/api/v1/app/marketdata/instruments/AAPL/benchmark", params={"benchmark": "SPY"}).status_code == 200
+    assert client.get("/api/v1/app/marketdata/instruments/AAPL/timeseries", params={"series": "close", "benchmark": "SPY"}).status_code == 200
+    assert client.get("/api/v1/app/marketdata/instruments/AAPL/comparison-timeseries", params={"symbols": "MSFT,NVDA"}).status_code == 200
+    assert client.get("/api/v1/app/marketdata/depot/holdings-summary", params={"symbols": "AAPL,MSFT"}).status_code == 200
+    assert client.get("/api/v1/app/marketdata/benchmark-catalog").status_code == 200
+    assert client.get("/api/v1/app/marketdata/benchmark-search", params={"q": "sp"}).status_code == 200
     assert client.post("/api/v1/app/marketdata/instruments/AAPL/refresh-price").status_code == 200
     assert (
         client.patch(

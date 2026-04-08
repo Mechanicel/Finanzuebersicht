@@ -378,3 +378,35 @@ def test_get_instrument_history_rejects_invalid_range() -> None:
         from app.models import BadRequestError
 
         assert isinstance(exc, BadRequestError)
+
+
+def test_holdings_summary_returns_partial_warnings(monkeypatch) -> None:
+    service, _, _, _, history_repository = build_service()
+    fake_yf = FakeYFinance()
+    monkeypatch.setattr(MarketDataService, "_get_yf_module", staticmethod(lambda: fake_yf))
+
+    history_repository.upsert_document(
+        PriceHistoryCacheDocument(
+            symbol="CBK.DE",
+            interval="1d",
+            period_seeded="max",
+            history_rows=[PriceHistoryRow(date="2026-04-01", open=30.1, high=30.5, low=29.95, close=30.4, volume=1234567)],
+            first_date="2026-04-01",
+            last_date="2026-04-01",
+            updated_at=utcnow(),
+        )
+    )
+    result = service.get_holdings_summary("CBK.DE,NONE")
+    assert result.total == 2
+    assert result.items[0].symbol == "CBK.DE"
+    assert result.items[1].coverage == "none"
+    assert result.meta["warnings"][0]["symbol"] == "NONE"
+
+
+def test_financials_rejects_invalid_period() -> None:
+    service, _, _, _, _ = build_service()
+    try:
+        service.get_instrument_financials("CBK.DE", "monthly")
+        raise AssertionError("expected BadRequestError")
+    except Exception as exc:
+        assert "period must be annual or quarterly" in str(exc)

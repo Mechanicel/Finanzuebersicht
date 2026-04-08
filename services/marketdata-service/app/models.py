@@ -133,6 +133,31 @@ class InstrumentHistoryResponse(BaseModel):
     updated_at: datetime
 
 
+class MetaWarning(BaseModel):
+    symbol: str | None = None
+    code: str
+    message: str
+
+
+class HoldingsSummaryItem(BaseModel):
+    symbol: str
+    name: str | None = None
+    sector: str | None = None
+    country: str | None = None
+    currency: str | None = None
+    current_price: float | None = None
+    provider: str | None = None
+    as_of: str | None = None
+    coverage: str
+
+
+class HoldingsSummaryResponse(BaseModel):
+    items: list[HoldingsSummaryItem]
+    requested_symbols: list[str]
+    total: int
+    meta: dict
+
+
 class NotFoundError(Exception):
     def __init__(self, message: str) -> None:
         self.message = message
