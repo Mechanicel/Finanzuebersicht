@@ -43,11 +43,14 @@
             type="button"
             @click="openAccountDetails(account)"
           >
-            <section class="account-item">
-              <div class="account-item-header">
-                <div>
-                  <strong>{{ account.label }}</strong>
-                  <p class="muted">{{ accountTypeLabels[account.account_type] }} · {{ bankName(account.bank_id) }}</p>
+            <section class="account-item" :class="{ 'account-item--depot': isDepotAccount(account) }">
+              <template v-if="isDepotAccount(account)">
+                <div class="account-item-header">
+                  <div>
+                    <strong>{{ account.label }}</strong>
+                    <p class="muted">Depot · {{ bankName(account.bank_id) }}</p>
+                  </div>
+                  <span class="row-action-hint" aria-hidden="true">→</span>
                 </div>
                 <span class="row-action-hint" aria-hidden="true">→</span>
               </div>
@@ -199,10 +202,11 @@ async function loadData() {
   errorMessage.value = null
 
   try {
-    const [personDetail, accountList, bankResult] = await Promise.all([
+    const [personDetail, accountList, bankResult, portfolioList] = await Promise.all([
       apiClient.person(personId.value),
       apiClient.accounts(personId.value),
-      apiClient.banks()
+      apiClient.banks(),
+      apiClient.portfolios(personId.value)
     ])
     person.value = personDetail.person
     accounts.value = accountList
@@ -277,6 +281,11 @@ onMounted(loadData)
   text-align: left;
 }
 
+.account-item--depot {
+  border-color: #bfdbfe;
+  background: linear-gradient(135deg, #eff6ff 0%, #f8fafc 55%);
+}
+
 .account-row-btn {
   border: none;
   padding: 0;
@@ -323,6 +332,44 @@ onMounted(loadData)
 .account-details dt {
   font-size: 0.8rem;
   color: #64748b;
+}
+
+.depot-account-number {
+  margin: 0.85rem 0 0;
+  color: #334155;
+  font-size: 0.95rem;
+}
+
+.depot-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.summary-chip {
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  background: #eff6ff;
+  padding: 0.5rem 0.6rem;
+}
+
+.summary-chip-label {
+  margin: 0;
+  font-size: 0.75rem;
+  color: #475569;
+}
+
+.summary-chip-value {
+  margin: 0.2rem 0 0;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.depot-empty-state {
+  margin: 0.75rem 0 0;
+  color: #1e3a8a;
+  font-weight: 600;
 }
 
 </style>
