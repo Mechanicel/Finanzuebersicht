@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import date
+from dataclasses import dataclass
+from datetime import UTC, date, datetime
 from statistics import mean
+from time import monotonic
 from uuid import UUID
+
+import httpx
 
 from app.models import (
     AllocationReadModel,
@@ -19,153 +23,301 @@ from app.models import (
     MonthlyComparisonItem,
     MonthlyComparisonReadModel,
     OverviewReadModel,
-    PersonSnapshots,
     SummaryItem,
     TimeseriesReadModel,
 )
 
 
-class AnalyticsService:
-    def __init__(self, snapshots_by_person: dict[UUID, PersonSnapshots]) -> None:
-        self._snapshots_by_person = snapshots_by_person
+@dataclass(slots=True)
+class DashboardData:
+    person_id: UUID
+    account_count: int
+    depot_count: int
+    holdings_count: int
+    invested_value: float
+    current_value: float
+    allocation_by_type: dict[str, float]
+    timeseries_points: list[ChartPoint]
 
-    def _person_data(self, person_id: UUID) -> PersonSnapshots:
-        if person_id not in self._snapshots_by_person:
-            raise KeyError(f"Unknown person_id: {person_id}")
-        return self._snapshots_by_person[person_id]
+
+class AnalyticsService:
+    def __init__(
+        self,
+        *,
+        person_base_url: str,
+        account_base_url: str,
+        portfolio_base_url: str,
+        marketdata_base_url: str,
+        timeout_seconds: float,
+        dashboard_cache_ttl_seconds: float = 45.0,
+    ) -> None:
+        self._person_base_url = person_base_url.rstrip("/")
+        self._account_base_url = account_base_url.rstrip("/")
+        self._portfolio_base_url = portfolio_base_url.rstrip("/")
+        self._marketdata_base_url = marketdata_base_url.rstrip("/")
+        self._timeout = timeout_seconds
+        self._dashboard_cache_ttl_seconds = dashboard_cache_ttl_seconds
+        self._dashboard_cache: dict[UUID, tuple[float, DashboardData]] = {}
+
+    def _request_json(self, url: str) -> dict | list[dict]:
+        with httpx.Client(timeout=self._timeout) as client:
+            response = client.get(url)
+        response.raise_for_status()
+        return response.json()["data"]
+
+    def _person_exists(self, person_id: UUID) -> None:
+        try:
+            self._request_json(f"{self._person_base_url}/api/v1/persons/{person_id}")
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 404:
+                raise KeyError(f"Unknown person_id: {person_id}") from exc
+            raise
+
+    def _load_accounts(self, person_id: UUID) -> list[dict]:
+        payload = self._request_json(f"{self._account_base_url}/api/v1/persons/{person_id}/accounts")
+        return payload if isinstance(payload, list) else []
+
+    def _load_portfolios(self, person_id: UUID) -> list[dict]:
+        payload = self._request_json(f"{self._portfolio_base_url}/api/v1/persons/{person_id}/portfolios")
+        if not isinstance(payload, dict):
+            return []
+        return payload.get("items", [])
+
+    def _load_holdings(self, portfolio_id: str) -> list[dict]:
+        payload = self._request_json(f"{self._portfolio_base_url}/api/v1/portfolios/{portfolio_id}")
+        if not isinstance(payload, dict):
+            return []
+        holdings = payload.get("holdings", [])
+        return holdings if isinstance(holdings, list) else []
+
+    def _load_price(self, symbol: str) -> float | None:
+        payload = self._request_json(
+            f"{self._marketdata_base_url}/api/v1/marketdata/instruments/{symbol}/profile"
+        )
+        if not isinstance(payload, dict):
+            return None
+        price = payload.get("price")
+        return float(price) if isinstance(price, int | float) else None
+
+    def _load_history_points(self, symbol: str) -> list[dict]:
+        payload = self._request_json(
+            f"{self._marketdata_base_url}/api/v1/marketdata/instruments/{symbol}/history?range=3m"
+        )
+        if not isinstance(payload, dict):
+            return []
+        points = payload.get("points", [])
+        return points if isinstance(points, list) else []
+
+    @staticmethod
+    def _as_float(value: object) -> float:
+        if isinstance(value, int | float):
+            return float(value)
+        if isinstance(value, str):
+            try:
+                return float(value)
+            except ValueError:
+                return 0.0
+        return 0.0
+
+    def _build_timeseries(self, holdings: list[dict]) -> list[ChartPoint]:
+        totals_by_day: dict[str, float] = defaultdict(float)
+        for holding in holdings:
+            symbol = str(holding.get("symbol", "")).upper().strip()
+            quantity = self._as_float(holding.get("quantity"))
+            if not symbol or quantity <= 0:
+                continue
+            try:
+                history = self._load_history_points(symbol)
+            except httpx.HTTPStatusError:
+                history = []
+            for point in history:
+                day = str(point.get("date", ""))
+                close = self._as_float(point.get("close"))
+                if day:
+                    totals_by_day[day] += close * quantity
+
+        if not totals_by_day:
+            return []
+
+        ordered_days = sorted(totals_by_day)
+        return [ChartPoint(x=day, y=round(totals_by_day[day], 2)) for day in ordered_days]
+
+    def _build_dashboard_data(self, person_id: UUID) -> DashboardData:
+        self._person_exists(person_id)
+        accounts = self._load_accounts(person_id)
+        portfolios = self._load_portfolios(person_id)
+
+        holdings: list[dict] = []
+        for portfolio in portfolios:
+            portfolio_id = str(portfolio.get("portfolio_id", ""))
+            if portfolio_id:
+                holdings.extend(self._load_holdings(portfolio_id))
+
+        account_allocation: dict[str, float] = defaultdict(float)
+        for account in accounts:
+            account_type = str(account.get("account_type", "unknown")).lower()
+            account_allocation[account_type] += self._as_float(account.get("balance"))
+
+        invested_value = 0.0
+        current_value = 0.0
+        for holding in holdings:
+            quantity = self._as_float(holding.get("quantity"))
+            acquisition_price = self._as_float(holding.get("acquisition_price"))
+            symbol = str(holding.get("symbol", "")).upper().strip()
+            invested_value += quantity * acquisition_price
+            if symbol:
+                try:
+                    current_price = self._load_price(symbol)
+                except httpx.HTTPStatusError:
+                    current_price = None
+            else:
+                current_price = None
+            current_value += quantity * (current_price if current_price is not None else acquisition_price)
+
+        timeseries_points = self._build_timeseries(holdings)
+
+        return DashboardData(
+            person_id=person_id,
+            account_count=len(accounts),
+            depot_count=len(portfolios),
+            holdings_count=len(holdings),
+            invested_value=round(invested_value, 2),
+            current_value=round(current_value, 2),
+            allocation_by_type=dict(account_allocation),
+            timeseries_points=timeseries_points,
+        )
+
+    def _dashboard_data(self, person_id: UUID) -> DashboardData:
+        now = monotonic()
+        cached = self._dashboard_cache.get(person_id)
+        if cached and now - cached[0] <= self._dashboard_cache_ttl_seconds:
+            return cached[1]
+
+        data = self._build_dashboard_data(person_id)
+        self._dashboard_cache[person_id] = (now, data)
+        return data
+
+    def _kpis(self, data: DashboardData) -> list[KpiBlock]:
+        gain = data.current_value - data.invested_value
+        gain_pct = (gain / data.invested_value * 100) if data.invested_value else 0
+        return [
+            KpiBlock(key="accounts_count", label="Konten", value=data.account_count, unit="COUNT"),
+            KpiBlock(key="depots_count", label="Depots", value=data.depot_count, unit="COUNT"),
+            KpiBlock(key="holdings_count", label="Holdings", value=data.holdings_count, unit="COUNT"),
+            KpiBlock(
+                key="invested_portfolio_value",
+                label="Investierter Depotwert",
+                value=data.invested_value,
+                unit="EUR",
+            ),
+            KpiBlock(
+                key="current_portfolio_value",
+                label="Aktueller Depotwert",
+                value=data.current_value,
+                unit="EUR",
+                trend=gain,
+            ),
+            KpiBlock(key="portfolio_gain_percent", label="Depotrendite %", value=gain_pct, unit="PERCENT", trend=gain_pct),
+        ]
 
     def overview(self, person_id: UUID) -> OverviewReadModel:
-        person = self._person_data(person_id)
-        labels = [s.date.isoformat() for s in person.snapshots]
-        wealth_points = [
-            ChartPoint(x=s.date.isoformat(), y=s.total_value) for s in person.snapshots
-        ]
-        latest = person.snapshots[-1].total_value
-        first = person.snapshots[0].total_value
-        growth = latest - first
-        growth_pct = (growth / first * 100) if first else 0
-
+        data = self._dashboard_data(person_id)
+        labels = [point.x for point in data.timeseries_points]
+        series = [ChartSeries(key="portfolio_value", label="Depotwert", points=data.timeseries_points)]
         return OverviewReadModel(
             person_id=person_id,
             labels=labels,
-            summaries=[SummaryItem(label="Total Wealth", value=latest)],
-            kpis=[
-                KpiBlock(key="total_wealth", label="Gesamtvermögen", value=latest, unit="EUR"),
-                KpiBlock(
-                    key="growth_absolute",
-                    label="Wachstum absolut",
-                    value=growth,
-                    unit="EUR",
-                    trend=growth,
-                ),
-                KpiBlock(
-                    key="growth_percent",
-                    label="Wachstum %",
-                    value=growth_pct,
-                    unit="PERCENT",
-                    trend=growth_pct,
-                ),
-            ],
-            series=[ChartSeries(key="wealth", label="Gesamtvermögen", points=wealth_points)],
+            summaries=[SummaryItem(label="Aktueller Depotwert", value=data.current_value)],
+            kpis=self._kpis(data),
+            series=series,
         )
 
     def allocation(self, person_id: UUID) -> AllocationReadModel:
-        person = self._person_data(person_id)
-        latest = person.snapshots[-1]
-        total = latest.total_value
+        data = self._dashboard_data(person_id)
+        total = sum(data.allocation_by_type.values())
         slices = [
             AllocationSlice(
-                label=category,
-                category=category,
-                value=value,
-                percentage=(value / total * 100) if total else 0,
+                label=allocation_type,
+                category=allocation_type,
+                value=round(value, 2),
+                percentage=round((value / total * 100), 2) if total else 0,
             )
-            for category, value in latest.holdings.items()
+            for allocation_type, value in sorted(data.allocation_by_type.items())
         ]
-        labels = [item.label for item in slices]
         return AllocationReadModel(
             person_id=person_id,
-            labels=labels,
+            labels=[item.label for item in slices],
             slices=slices,
-            summary=SummaryItem(label="Allokiertes Gesamtvermögen", value=total),
+            summary=SummaryItem(label="Konten-Allokation", value=round(total, 2)),
         )
 
     def timeseries(self, person_id: UUID) -> TimeseriesReadModel:
-        person = self._person_data(person_id)
-        labels = [s.date.isoformat() for s in person.snapshots]
-        totals = [ChartPoint(x=s.date.isoformat(), y=s.total_value) for s in person.snapshots]
+        data = self._dashboard_data(person_id)
         return TimeseriesReadModel(
             person_id=person_id,
-            labels=labels,
-            granularity="monthly",
-            series=[ChartSeries(key="net_worth", label="Net Worth", points=totals)],
-            summary=SummaryItem(label="Aktueller Stand", value=person.snapshots[-1].total_value),
+            labels=[point.x for point in data.timeseries_points],
+            granularity="daily",
+            series=[ChartSeries(key="portfolio_value", label="Depotwert", points=data.timeseries_points)],
+            summary=SummaryItem(label="Aktueller Depotwert", value=data.current_value),
         )
 
     def monthly_comparison(self, person_id: UUID) -> MonthlyComparisonReadModel:
-        person = self._person_data(person_id)
+        data = self._dashboard_data(person_id)
+        monthly_values: dict[str, float] = {}
+        for point in data.timeseries_points:
+            month = point.x[:7]
+            monthly_values[month] = point.y
+
         bars: list[MonthlyComparisonItem] = []
-        for index, snapshot in enumerate(person.snapshots):
-            previous = (
-                person.snapshots[index - 1].total_value if index > 0 else snapshot.total_value
-            )
-            delta = snapshot.total_value - previous
+        for month in sorted(monthly_values):
+            current = monthly_values[month]
+            previous = bars[-1].value if bars else current
+            delta = current - previous
             delta_pct = (delta / previous * 100) if previous else 0
             bars.append(
                 MonthlyComparisonItem(
-                    month=snapshot.date.strftime("%Y-%m"),
-                    value=snapshot.total_value,
+                    month=month,
+                    value=current,
                     previous_month=previous,
-                    delta=delta,
-                    delta_percentage=delta_pct,
+                    delta=round(delta, 2),
+                    delta_percentage=round(delta_pct, 2),
                 )
             )
 
+        summary_value = bars[-1].delta if bars else 0
         return MonthlyComparisonReadModel(
             person_id=person_id,
             labels=[item.month for item in bars],
             bars=bars,
-            summary=SummaryItem(label="Monatlicher Vergleich letzter Monat", value=bars[-1].delta),
+            summary=SummaryItem(label="Monatliche Veränderung", value=summary_value),
         )
 
     def metrics(self, person_id: UUID) -> MetricsReadModel:
-        person = self._person_data(person_id)
-        values = [snapshot.total_value for snapshot in person.snapshots]
-        latest = values[-1]
-        avg = mean(values)
-        volatility = max(values) - min(values)
-
+        data = self._dashboard_data(person_id)
+        series_values = [point.y for point in data.timeseries_points]
+        average = mean(series_values) if series_values else 0
+        band = (max(series_values) - min(series_values)) if len(series_values) > 1 else 0
         return MetricsReadModel(
             person_id=person_id,
-            as_of=date.fromisoformat(person.snapshots[-1].date.isoformat()),
-            kpis=[
-                KpiBlock(key="wealth_latest", label="Aktuelles Vermögen", value=latest, unit="EUR"),
-                KpiBlock(key="wealth_average", label="Durchschnitt", value=avg, unit="EUR"),
-                KpiBlock(key="wealth_volatility", label="Bandbreite", value=volatility, unit="EUR"),
-            ],
+            as_of=datetime.now(UTC).date(),
+            kpis=self._kpis(data),
             summary=[
-                SummaryItem(label="Average Wealth", value=avg),
-                SummaryItem(label="Volatility", value=volatility),
+                SummaryItem(label="Durchschnittlicher Depotwert", value=round(average, 2)),
+                SummaryItem(label="Bandbreite Depotwert", value=round(band, 2)),
             ],
         )
 
     def heatmap(self, person_id: UUID) -> HeatmapReadModel:
-        person = self._person_data(person_id)
-        cells: list[HeatmapCell] = []
-        for snapshot in person.snapshots:
-            distribution = defaultdict(float)
-            for value in snapshot.holdings.values():
-                distribution["12:00"] += value / max(len(snapshot.holdings), 1)
-            for hour_bucket, intensity in distribution.items():
-                cells.append(
-                    HeatmapCell(
-                        date=snapshot.date.isoformat(),
-                        weekday=snapshot.date.strftime("%A"),
-                        hour_bucket=hour_bucket,
-                        intensity=round(intensity, 2),
-                    )
-                )
-
+        data = self._dashboard_data(person_id)
+        cells = [
+            HeatmapCell(
+                date=point.x,
+                weekday=date.fromisoformat(point.x).strftime("%A"),
+                hour_bucket="12:00",
+                intensity=point.y,
+            )
+            for point in data.timeseries_points
+        ]
         return HeatmapReadModel(
             person_id=person_id,
             labels=["date", "weekday", "hour_bucket", "intensity"],
@@ -174,16 +326,17 @@ class AnalyticsService:
         )
 
     def forecast(self, person_id: UUID) -> ForecastReadModel:
-        person = self._person_data(person_id)
-        values = [snapshot.total_value for snapshot in person.snapshots]
+        data = self._dashboard_data(person_id)
+        values = [point.y for point in data.timeseries_points]
         deltas = [values[i] - values[i - 1] for i in range(1, len(values))]
         avg_delta = mean(deltas) if deltas else 0
-        last_month = person.snapshots[-1].date
+        running = values[-1] if values else data.current_value
+        start_date = datetime.now(UTC).date()
+
         points: list[ForecastPoint] = []
-        running = values[-1]
         for step in range(1, 4):
-            month = (last_month.month + step - 1) % 12 + 1
-            year = last_month.year + ((last_month.month + step - 1) // 12)
+            month = ((start_date.month + step - 1) % 12) + 1
+            year = start_date.year + ((start_date.month + step - 1) // 12)
             running += avg_delta
             points.append(
                 ForecastPoint(
@@ -194,10 +347,11 @@ class AnalyticsService:
                 )
             )
 
+        summary_value = points[-1].forecast_value if points else 0
         return ForecastReadModel(
             person_id=person_id,
             labels=[point.month for point in points],
             horizon_months=len(points),
             points=points,
-            summary=SummaryItem(label="Forecast letzter Punkt", value=points[-1].forecast_value),
+            summary=SummaryItem(label="Forecast letzter Punkt", value=summary_value),
         )
