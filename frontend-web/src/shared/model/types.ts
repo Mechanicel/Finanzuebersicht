@@ -429,4 +429,36 @@ export interface DashboardReadModel {
   timeseries: { points?: { date: string; value: number }[] }
   kpis: Array<{ label: string; value: string | number }>
 }
+
+export type DashboardSectionState = 'ready' | 'stale' | 'pending' | 'error'
+
+export interface DashboardSectionReadModel<TPayload> {
+  person_id: string
+  section: 'overview' | 'allocation' | 'timeseries' | 'metrics' | (string & {})
+  state: DashboardSectionState
+  generated_at: string | null
+  stale_at: string | null
+  refresh_in_progress: boolean
+  warnings: string[]
+  payload: TPayload
+}
+
+export interface DashboardOverviewPayload {
+  kpis?: Array<{ label: string; value: string | number }>
+  [key: string]: unknown
+}
+
+export interface DashboardAllocationPayload {
+  labels?: string[]
+  values?: number[]
+  [key: string]: unknown
+}
+
+export interface DashboardTimeseriesPayload {
+  points?: { date: string; value: number }[]
+  [key: string]: unknown
+}
+
+export type DashboardMetricsPayload = Record<string, unknown>
+
 export interface ApiEnvelope<T> { data: T }
