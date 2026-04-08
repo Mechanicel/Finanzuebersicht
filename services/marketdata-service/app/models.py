@@ -128,7 +128,6 @@ class InstrumentHistoryPoint(BaseModel):
 class InstrumentHistoryResponse(BaseModel):
     symbol: str
     range: HistoryRange
-    currency: str | None = None
     points: list[InstrumentHistoryPoint]
     cache_present: bool
     updated_at: datetime

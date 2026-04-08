@@ -262,6 +262,7 @@ def test_history_endpoint_success() -> None:
     assert payload["symbol"] == "CBK.DE"
     assert payload["range"] == "6m"
     assert payload["points"][0]["date"] == "2026-04-01"
+    assert set(payload.keys()) == {"symbol", "range", "points", "cache_present", "updated_at"}
 
 
 def test_history_endpoint_invalid_range_returns_400() -> None:
