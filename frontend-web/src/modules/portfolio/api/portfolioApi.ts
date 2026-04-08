@@ -7,6 +7,8 @@ import type {
   HoldingUpdatePayload,
   MarketdataProfile,
   InstrumentSearchResult,
+  InstrumentHistoryRange,
+  InstrumentHistoryResponse,
   InstrumentPriceRefreshResponse,
   PortfolioCreatePayload,
   PortfolioDetailReadModel,
@@ -54,4 +56,13 @@ export async function marketdataProfile(symbol: string) {
 
 export async function refreshInstrumentPrice(symbol: string) {
   return (await http.post<ApiEnvelope<InstrumentPriceRefreshResponse>>(`/app/marketdata/instruments/${symbol}/refresh-price`)).data.data
+}
+
+
+export async function instrumentHistory(symbol: string, range: InstrumentHistoryRange = 'max') {
+  return (
+    await http.get<ApiEnvelope<InstrumentHistoryResponse>>(`/app/marketdata/instruments/${symbol}/history`, {
+      params: { range }
+    })
+  ).data.data
 }
