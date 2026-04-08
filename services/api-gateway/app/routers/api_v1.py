@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
 import httpx
@@ -347,6 +347,15 @@ async def marketdata_prices(
     return ApiResponse(
         data=await service.get_marketdata_prices(symbol, range_value=range_value, interval=interval)
     )
+
+
+@router.get("/app/marketdata/instruments/{symbol}/history", response_model=ApiResponse[dict])
+async def marketdata_history(
+    symbol: str,
+    service: Annotated[GatewayService, Depends(get_gateway_service)],
+    range_value: Literal["1m", "3m", "6m", "ytd", "1y", "max"] | None = Query(default=None, alias="range"),
+) -> ApiResponse[dict]:
+    return ApiResponse(data=await service.get_marketdata_history(symbol, range_value=range_value))
 
 
 @router.get("/app/marketdata/instruments/{symbol}/full", response_model=ApiResponse[dict])

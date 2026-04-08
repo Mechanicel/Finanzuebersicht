@@ -159,6 +159,13 @@ class GatewayService:
     async def get_marketdata_prices(self, symbol: str, *, range_value: str | None = None, interval: str | None = None) -> dict:
         return await self._request_marketdata_service("GET", f"/api/v1/marketdata/instruments/{symbol}/prices", params={"range": range_value, "interval": interval})
 
+    async def get_marketdata_history(self, symbol: str, *, range_value: str | None = None) -> dict:
+        return await self._request_marketdata_service(
+            "GET",
+            f"/api/v1/marketdata/instruments/{symbol}/history",
+            params={"range": range_value},
+        )
+
     async def get_marketdata_full(self, symbol: str) -> dict:
         return await self._request_marketdata_service("GET", f"/api/v1/marketdata/instruments/{symbol}/full")
 
