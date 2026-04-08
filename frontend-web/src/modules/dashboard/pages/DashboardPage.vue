@@ -23,51 +23,38 @@
       </div>
 
       <div class="content-sections">
-        <LoadingState v-if="loading" />
-        <div v-else-if="error" class="error-panel">
-          <ErrorState :message="error" />
-          <button class="btn flow-btn retry-btn" type="button" @click="void loadDashboard()">
-            Erneut laden
-          </button>
-        </div>
-        <EmptyState v-else-if="!hasPersonContext">
+        <EmptyState v-if="!hasPersonContext">
           Das Analytics-Dashboard benötigt einen gültigen Personenkontext.
-        </EmptyState>
-        <EmptyState v-else-if="!dashboard">
-          Für diese Person liegen aktuell keine Analytics-Daten vor.
         </EmptyState>
 
         <template v-else>
-          <article class="card section-card">
-            <h3>Überblick</h3>
-            <div class="kpis">
-              <div class="card kpi-card" v-for="(k, idx) in dashboard.kpis" :key="idx">
-                <strong>{{ k.label }}</strong>
-                <div>{{ k.value }}</div>
-              </div>
-            </div>
-          </article>
+          <DashboardOverviewSection
+            :section="overviewSection"
+            :meta-text="sectionMetaText(overviewSection)"
+            :error-message="overviewError"
+            @retry="void loadOverview()"
+          />
 
-          <article class="card section-card">
-            <h3>Allokation</h3>
-            <div v-if="hasAllocationData" class="chart-box">
-              <SimplePieChart :labels="allocLabels" :values="allocValues" />
-            </div>
-            <EmptyState v-else>Keine Allokationsdaten verfügbar.</EmptyState>
-          </article>
+          <DashboardAllocationSection
+            :section="allocationSection"
+            :meta-text="sectionMetaText(allocationSection)"
+            :error-message="allocationError"
+            @retry="void loadAllocation()"
+          />
 
-          <article class="card section-card">
-            <h3>Zeitreihe</h3>
-            <div v-if="hasTimeseriesData" class="chart-box">
-              <SimpleLineChart :points="timeseriesPoints" />
-            </div>
-            <EmptyState v-else>Keine Zeitreihendaten verfügbar.</EmptyState>
-          </article>
+          <DashboardTimeseriesSection
+            :section="timeseriesSection"
+            :meta-text="sectionMetaText(timeseriesSection)"
+            :error-message="timeseriesError"
+            @retry="void loadTimeseries()"
+          />
 
-          <article class="card section-card">
-            <h3>Kennzahlen</h3>
-            <pre class="metrics-preview">{{ dashboard.metrics }}</pre>
-          </article>
+          <DashboardMetricsSection
+            :section="metricsSection"
+            :meta-text="sectionMetaText(metricsSection)"
+            :error-message="metricsError"
+            @retry="void loadMetrics()"
+          />
 
           <DepotAnalysisWorkspace :person-id="personId" />
         </template>
@@ -80,89 +67,181 @@
 import axios from 'axios'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { apiClient } from '@/shared/api/client'
+import type {
+  DashboardAllocationPayload,
+  DashboardMetricsPayload,
+  DashboardOverviewPayload,
+  DashboardSectionReadModel,
+  DashboardTimeseriesPayload
+} from '@/shared/model/types'
 import { extractApiErrorMessage } from '@/shared/api/extractApiErrorMessage'
-import type { DashboardReadModel } from '@/shared/model/types'
-import LoadingState from '@/shared/ui/LoadingState.vue'
-import ErrorState from '@/shared/ui/ErrorState.vue'
 import EmptyState from '@/shared/ui/EmptyState.vue'
-import SimpleLineChart from '@/shared/ui/SimpleLineChart.vue'
-import SimplePieChart from '@/shared/ui/SimplePieChart.vue'
 import DepotAnalysisWorkspace from '@/modules/dashboard/components/DepotAnalysisWorkspace.vue'
+import DashboardOverviewSection from '@/modules/dashboard/components/DashboardOverviewSection.vue'
+import DashboardAllocationSection from '@/modules/dashboard/components/DashboardAllocationSection.vue'
+import DashboardTimeseriesSection from '@/modules/dashboard/components/DashboardTimeseriesSection.vue'
+import DashboardMetricsSection from '@/modules/dashboard/components/DashboardMetricsSection.vue'
+import {
+  fetchDashboardAllocation,
+  fetchDashboardMetrics,
+  fetchDashboardOverview,
+  fetchDashboardTimeseries
+} from '@/modules/dashboard/api/dashboardApi'
 
 const route = useRoute()
-const dashboard = ref<DashboardReadModel | null>(null)
-const loading = ref(false)
-const error = ref<string | null>(null)
 
 const personId = computed(() => (typeof route.query.personId === 'string' ? route.query.personId.trim() : ''))
 const hasPersonContext = computed(() => personId.value.length > 0)
 const backTarget = computed(() => (hasPersonContext.value ? `/persons/${personId.value}` : '/persons/select'))
 const backLabel = computed(() => (hasPersonContext.value ? 'Zurück zum Personen-Hub' : 'Zur Personenliste'))
 
-const timeseriesPoints = computed(() => dashboard.value?.timeseries?.points ?? [])
-const allocLabels = computed(() => dashboard.value?.allocation?.labels ?? [])
-const allocValues = computed(() => dashboard.value?.allocation?.values ?? [])
-const hasTimeseriesData = computed(() => timeseriesPoints.value.length > 0)
-const hasAllocationData = computed(() => allocLabels.value.length > 0 && allocValues.value.length > 0)
+const overviewSection = ref<DashboardSectionReadModel<DashboardOverviewPayload>>(buildPendingSection('overview', {}))
+const allocationSection = ref<DashboardSectionReadModel<DashboardAllocationPayload>>(buildPendingSection('allocation', {}))
+const timeseriesSection = ref<DashboardSectionReadModel<DashboardTimeseriesPayload>>(buildPendingSection('timeseries', {}))
+const metricsSection = ref<DashboardSectionReadModel<DashboardMetricsPayload>>(buildPendingSection('metrics', {}))
 
-function mapDashboardError(rawError: unknown): string {
-  if (axios.isAxiosError(rawError) && rawError.response?.status === 404) {
-    return 'Für die ausgewählte Person konnten keine Analytics-Daten gefunden werden.'
+const overviewError = ref('')
+const allocationError = ref('')
+const timeseriesError = ref('')
+const metricsError = ref('')
+
+function buildPendingSection<TPayload>(section: string, payload: TPayload): DashboardSectionReadModel<TPayload> {
+  return {
+    person_id: personId.value,
+    section,
+    state: 'pending',
+    generated_at: null,
+    stale_at: null,
+    refresh_in_progress: false,
+    warnings: [],
+    payload
+  }
+}
+
+function resetSections() {
+  overviewSection.value = buildPendingSection('overview', {})
+  allocationSection.value = buildPendingSection('allocation', {})
+  timeseriesSection.value = buildPendingSection('timeseries', {})
+  metricsSection.value = buildPendingSection('metrics', {})
+  overviewError.value = ''
+  allocationError.value = ''
+  timeseriesError.value = ''
+  metricsError.value = ''
+}
+
+function sectionMetaText(section: DashboardSectionReadModel<unknown>): string {
+  const generatedText = section.generated_at
+    ? `Stand: ${new Date(section.generated_at).toLocaleString('de-DE')}`
+    : section.state === 'pending'
+      ? 'Lade Section …'
+      : 'Noch kein Datenstand verfügbar'
+
+  return section.stale_at
+    ? `${generatedText} · Cache gültig bis ${new Date(section.stale_at).toLocaleString('de-DE')}`
+    : generatedText
+}
+
+function mapSectionError(rawError: unknown, fallback: string): string {
+  if (axios.isAxiosError(rawError)) {
+    if (rawError.response?.status === 404) {
+      return 'Für diese Section liegen aktuell keine Analytics-Daten vor.'
+    }
+
+    const code = rawError.code?.toUpperCase()
+    if (code === 'ECONNABORTED' || code === 'ETIMEDOUT' || code === 'ERR_NETWORK') {
+      return 'Die Section konnte nicht rechtzeitig geladen werden. Bitte erneut versuchen.'
+    }
+
+    if (rawError.message.toLowerCase().includes('timeout')) {
+      return 'Zeitüberschreitung beim Laden der Section. Bitte erneut versuchen.'
+    }
   }
 
-  if (isTimeoutOrNetworkError(rawError)) {
-    return 'Das Analytics-Dashboard konnte nicht rechtzeitig geladen werden. Bitte erneut versuchen.'
-  }
-
-  const extracted = extractApiErrorMessage(rawError, 'Das Dashboard konnte nicht geladen werden.')
-  if (extracted.includes('Request failed with status code')) {
-    return 'Das Dashboard konnte aktuell nicht geladen werden. Bitte später erneut versuchen.'
+  const extracted = extractApiErrorMessage(rawError, fallback)
+  if (extracted.includes('Request failed with status code') || extracted.includes('timeout of')) {
+    return fallback
   }
   return extracted
 }
 
-function isTimeoutOrNetworkError(rawError: unknown): boolean {
-  if (!axios.isAxiosError(rawError)) {
-    return false
-  }
-
-  const code = rawError.code?.toUpperCase()
-  if (code === 'ECONNABORTED' || code === 'ETIMEDOUT' || code === 'ERR_NETWORK') {
-    return true
-  }
-
-  const message = rawError.message.toLowerCase()
-  return message.includes('timeout') || message.includes('network')
-}
-
-async function loadDashboard() {
+async function loadOverview() {
   if (!hasPersonContext.value) {
-    dashboard.value = null
-    error.value = null
     return
   }
 
-  loading.value = true
-  error.value = null
+  overviewSection.value = { ...overviewSection.value, state: 'pending' }
+  overviewError.value = ''
   try {
-    dashboard.value = await apiClient.dashboard(personId.value)
-  } catch (rawError) {
-    dashboard.value = null
-    error.value = mapDashboardError(rawError)
-  } finally {
-    loading.value = false
+    overviewSection.value = await fetchDashboardOverview(personId.value)
+  } catch (error) {
+    overviewSection.value = { ...overviewSection.value, state: 'error' }
+    overviewError.value = mapSectionError(error, 'Die Überblicks-Section konnte nicht geladen werden.')
   }
 }
 
+async function loadAllocation() {
+  if (!hasPersonContext.value) {
+    return
+  }
+
+  allocationSection.value = { ...allocationSection.value, state: 'pending' }
+  allocationError.value = ''
+  try {
+    allocationSection.value = await fetchDashboardAllocation(personId.value)
+  } catch (error) {
+    allocationSection.value = { ...allocationSection.value, state: 'error' }
+    allocationError.value = mapSectionError(error, 'Die Allokations-Section konnte nicht geladen werden.')
+  }
+}
+
+async function loadTimeseries() {
+  if (!hasPersonContext.value) {
+    return
+  }
+
+  timeseriesSection.value = { ...timeseriesSection.value, state: 'pending' }
+  timeseriesError.value = ''
+  try {
+    timeseriesSection.value = await fetchDashboardTimeseries(personId.value)
+  } catch (error) {
+    timeseriesSection.value = { ...timeseriesSection.value, state: 'error' }
+    timeseriesError.value = mapSectionError(error, 'Die Zeitreihen-Section konnte nicht geladen werden.')
+  }
+}
+
+async function loadMetrics() {
+  if (!hasPersonContext.value) {
+    return
+  }
+
+  metricsSection.value = { ...metricsSection.value, state: 'pending' }
+  metricsError.value = ''
+  try {
+    metricsSection.value = await fetchDashboardMetrics(personId.value)
+  } catch (error) {
+    metricsSection.value = { ...metricsSection.value, state: 'error' }
+    metricsError.value = mapSectionError(error, 'Die Kennzahlen-Section konnte nicht geladen werden.')
+  }
+}
+
+function loadAllSections() {
+  if (!hasPersonContext.value) {
+    resetSections()
+    return
+  }
+
+  resetSections()
+  void Promise.allSettled([loadOverview(), loadAllocation(), loadTimeseries(), loadMetrics()])
+}
+
 onMounted(() => {
-  void loadDashboard()
+  loadAllSections()
 })
 
 watch(
   () => route.query.personId,
   () => {
-    void loadDashboard()
+    loadAllSections()
   }
 )
 </script>
@@ -222,39 +301,4 @@ watch(
   display: grid;
   gap: 1rem;
 }
-
-.error-panel {
-  display: grid;
-  gap: 0.75rem;
-  justify-items: start;
-}
-
-.retry-btn {
-  border: 1px solid #cbd5e1;
-}
-
-.section-card h3 {
-  margin-top: 0;
-}
-
-.chart-box {
-  height: 280px;
-}
-
-.kpis {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 0.75rem;
-}
-
-.kpi-card {
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-}
-
-.metrics-preview {
-  margin: 0;
-  white-space: pre-wrap;
-}
-
 </style>
