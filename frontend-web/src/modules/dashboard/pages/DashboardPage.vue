@@ -64,14 +64,7 @@
             <pre class="metrics-preview">{{ dashboard.metrics }}</pre>
           </article>
 
-          <article class="card section-card depot-placeholder">
-            <h3>Depot-Analyse</h3>
-            <p>
-              Dieser Bereich ist als Einstieg für die nächste Ausbaustufe reserviert. Hier werden künftig Depot-bezogene
-              Analysen im Personenkontext ergänzt.
-            </p>
-            <span class="placeholder-badge">Platzhalter</span>
-          </article>
+          <DepotAnalysisWorkspace :person-id="personId" />
         </template>
       </div>
     </article>
@@ -90,6 +83,7 @@ import ErrorState from '@/shared/ui/ErrorState.vue'
 import EmptyState from '@/shared/ui/EmptyState.vue'
 import SimpleLineChart from '@/shared/ui/SimpleLineChart.vue'
 import SimplePieChart from '@/shared/ui/SimplePieChart.vue'
+import DepotAnalysisWorkspace from '@/modules/dashboard/components/DepotAnalysisWorkspace.vue'
 
 const route = useRoute()
 const dashboard = ref<DashboardReadModel | null>(null)
@@ -230,21 +224,4 @@ watch(
   white-space: pre-wrap;
 }
 
-.depot-placeholder p {
-  margin-top: 0.35rem;
-  margin-bottom: 0.75rem;
-  color: #475569;
-}
-
-.placeholder-badge {
-  display: inline-flex;
-  align-items: center;
-  padding: 0.2rem 0.5rem;
-  border-radius: 999px;
-  border: 1px solid #cbd5e1;
-  color: #334155;
-  font-size: 0.8rem;
-  font-weight: 600;
-  background: #f1f5f9;
-}
 </style>

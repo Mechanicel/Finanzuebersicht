@@ -318,6 +318,109 @@ export interface MarketdataProfile {
   address_line?: string | null
 }
 
+
+export interface DepotHoldingWithSummary extends HoldingReadModel {
+  portfolio_id: string
+  portfolio_name: string
+  marketdata?: {
+    symbol: string
+    company_name?: string | null
+    sector?: string | null
+    country?: string | null
+    currency?: string | null
+    last_price?: number | null
+    market_cap?: number | null
+  } | null
+}
+
+export interface DepotMarketdataHoldingSummaryItem {
+  symbol: string
+  company_name?: string | null
+  sector?: string | null
+  country?: string | null
+  currency?: string | null
+  last_price?: number | null
+  market_cap?: number | null
+}
+
+export interface DepotMarketdataHoldingsSummary {
+  items: DepotMarketdataHoldingSummaryItem[]
+  total: number
+  source?: string | null
+}
+
+export interface DepotInstrumentTimeseriesPoint {
+  date: string
+  value: number
+}
+
+export interface DepotInstrumentTimeseries {
+  symbol: string
+  series: string
+  benchmark_symbol: string
+  instrument: { points: DepotInstrumentTimeseriesPoint[] }
+  benchmark: { symbol: string; points: DepotInstrumentTimeseriesPoint[] }
+  benchmark_data?: { available?: boolean }
+  meta?: { warnings?: Array<{ code: string; message: string; symbol?: string }> }
+}
+
+export interface DepotInstrumentRisk {
+  symbol: string
+  benchmark: string
+  aligned_points: number
+  volatility_proxy?: number | null
+  benchmark_volatility_proxy?: number | null
+  meta?: { warnings?: Array<{ code: string; message: string; symbol?: string }> }
+}
+
+export interface DepotInstrumentBenchmarkSummary {
+  symbol: string
+  benchmark: string
+  comparison?: DepotInstrumentTimeseries
+}
+
+export interface DepotBenchmarkCatalogItem {
+  symbol: string
+  name: string
+}
+
+export interface DepotInstrumentBenchmarkCatalog {
+  items: DepotBenchmarkCatalogItem[]
+  source?: string
+}
+
+export interface DepotInstrumentBenchmarkSearchResult {
+  query: string
+  items: DepotBenchmarkCatalogItem[]
+  total: number
+}
+
+export interface DepotInstrumentFundamentals {
+  symbol: string
+  company_name?: string | null
+  sector?: string | null
+  country?: string | null
+  currency?: string | null
+  exchange?: string | null
+  website?: string | null
+  description?: string | null
+  [key: string]: unknown
+}
+
+export interface DepotInstrumentFinancials {
+  symbol: string
+  period: 'annual' | 'quarterly'
+  currency?: string | null
+  statements?: {
+    income_statement?: unknown[]
+    balance_sheet?: unknown[]
+    cash_flow?: unknown[]
+  }
+  derived?: Record<string, unknown>
+  meta?: { warnings?: Array<{ code: string; message: string }> }
+}
+
+
 export interface DashboardReadModel {
   person_id: string
   overview: Record<string, unknown>
