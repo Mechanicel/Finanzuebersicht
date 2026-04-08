@@ -388,3 +388,96 @@ async def marketdata_selection(
     service: Annotated[GatewayService, Depends(get_gateway_service)],
 ) -> ApiResponse[MarketdataProfileReadModel]:
     return ApiResponse(data=await service.get_marketdata_profile(symbol))
+
+
+@router.get("/app/marketdata/depot/holdings-summary", response_model=ApiResponse[dict])
+async def marketdata_holdings_summary(
+    service: Annotated[GatewayService, Depends(get_gateway_service)],
+    symbols: str = Query(..., min_length=1),
+) -> ApiResponse[dict]:
+    return ApiResponse(data=await service.get_marketdata_holdings_summary(symbols))
+
+
+@router.get("/app/marketdata/instruments/{symbol}/snapshot", response_model=ApiResponse[dict])
+async def marketdata_snapshot(
+    symbol: str,
+    service: Annotated[GatewayService, Depends(get_gateway_service)],
+) -> ApiResponse[dict]:
+    return ApiResponse(data=await service.get_marketdata_snapshot(symbol))
+
+
+@router.get("/app/marketdata/instruments/{symbol}/fundamentals", response_model=ApiResponse[dict])
+async def marketdata_fundamentals(
+    symbol: str,
+    service: Annotated[GatewayService, Depends(get_gateway_service)],
+) -> ApiResponse[dict]:
+    return ApiResponse(data=await service.get_marketdata_fundamentals(symbol))
+
+
+@router.get("/app/marketdata/instruments/{symbol}/metrics", response_model=ApiResponse[dict])
+async def marketdata_metrics(
+    symbol: str,
+    service: Annotated[GatewayService, Depends(get_gateway_service)],
+) -> ApiResponse[dict]:
+    return ApiResponse(data=await service.get_marketdata_metrics(symbol))
+
+
+@router.get("/app/marketdata/instruments/{symbol}/financials", response_model=ApiResponse[dict])
+async def marketdata_financials(
+    symbol: str,
+    service: Annotated[GatewayService, Depends(get_gateway_service)],
+    period: str | None = Query(default=None),
+) -> ApiResponse[dict]:
+    return ApiResponse(data=await service.get_marketdata_financials(symbol, period))
+
+
+@router.get("/app/marketdata/instruments/{symbol}/risk", response_model=ApiResponse[dict])
+async def marketdata_risk(
+    symbol: str,
+    service: Annotated[GatewayService, Depends(get_gateway_service)],
+    benchmark: str | None = Query(default=None),
+) -> ApiResponse[dict]:
+    return ApiResponse(data=await service.get_marketdata_risk(symbol, benchmark))
+
+
+@router.get("/app/marketdata/instruments/{symbol}/benchmark", response_model=ApiResponse[dict])
+async def marketdata_benchmark(
+    symbol: str,
+    service: Annotated[GatewayService, Depends(get_gateway_service)],
+    benchmark: str | None = Query(default=None),
+) -> ApiResponse[dict]:
+    return ApiResponse(data=await service.get_marketdata_benchmark(symbol, benchmark))
+
+
+@router.get("/app/marketdata/instruments/{symbol}/timeseries", response_model=ApiResponse[dict])
+async def marketdata_timeseries(
+    symbol: str,
+    service: Annotated[GatewayService, Depends(get_gateway_service)],
+    series: str | None = Query(default=None),
+    benchmark: str | None = Query(default=None),
+) -> ApiResponse[dict]:
+    return ApiResponse(data=await service.get_marketdata_timeseries(symbol, series, benchmark))
+
+
+@router.get("/app/marketdata/instruments/{symbol}/comparison-timeseries", response_model=ApiResponse[dict])
+async def marketdata_comparison_timeseries(
+    symbol: str,
+    service: Annotated[GatewayService, Depends(get_gateway_service)],
+    symbols: str = Query(..., min_length=1),
+) -> ApiResponse[dict]:
+    return ApiResponse(data=await service.get_marketdata_comparison_timeseries(symbol, symbols))
+
+
+@router.get("/app/marketdata/benchmark-catalog", response_model=ApiResponse[dict])
+async def marketdata_benchmark_catalog(
+    service: Annotated[GatewayService, Depends(get_gateway_service)],
+) -> ApiResponse[dict]:
+    return ApiResponse(data=await service.get_marketdata_benchmark_catalog())
+
+
+@router.get("/app/marketdata/benchmark-search", response_model=ApiResponse[dict])
+async def marketdata_benchmark_search(
+    service: Annotated[GatewayService, Depends(get_gateway_service)],
+    q: str = Query(..., min_length=1),
+) -> ApiResponse[dict]:
+    return ApiResponse(data=await service.search_marketdata_benchmark(q))

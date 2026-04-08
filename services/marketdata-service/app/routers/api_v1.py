@@ -5,6 +5,7 @@ from finanzuebersicht_shared.models import ApiResponse
 
 from app.dependencies import get_marketdata_service
 from app.models import (
+    HoldingsSummaryResponse,
     InstrumentHistoryResponse,
     InstrumentPriceRefreshResponse,
     InstrumentProfile,
@@ -30,6 +31,107 @@ async def instrument_profile(
     service: MarketDataService = Depends(get_marketdata_service),
 ) -> ApiResponse[InstrumentProfile]:
     return ApiResponse(data=service.get_instrument_profile(symbol))
+
+
+@router.get("/marketdata/depot/holdings-summary", response_model=ApiResponse[HoldingsSummaryResponse])
+async def holdings_summary(
+    symbols: str = Query(..., min_length=1),
+    service: MarketDataService = Depends(get_marketdata_service),
+) -> ApiResponse[HoldingsSummaryResponse]:
+    return ApiResponse(data=service.get_holdings_summary(symbols))
+
+
+@router.get("/marketdata/instruments/{symbol}/snapshot", response_model=ApiResponse[dict])
+async def instrument_snapshot(
+    symbol: str,
+    service: MarketDataService = Depends(get_marketdata_service),
+) -> ApiResponse[dict]:
+    return ApiResponse(data=service.get_instrument_snapshot(symbol))
+
+
+@router.get("/marketdata/instruments/{symbol}/full", response_model=ApiResponse[dict])
+async def instrument_full(
+    symbol: str,
+    service: MarketDataService = Depends(get_marketdata_service),
+) -> ApiResponse[dict]:
+    return ApiResponse(data=service.get_instrument_full(symbol))
+
+
+@router.get("/marketdata/instruments/{symbol}/fundamentals", response_model=ApiResponse[dict])
+async def instrument_fundamentals(
+    symbol: str,
+    service: MarketDataService = Depends(get_marketdata_service),
+) -> ApiResponse[dict]:
+    return ApiResponse(data=service.get_instrument_fundamentals(symbol))
+
+
+@router.get("/marketdata/instruments/{symbol}/metrics", response_model=ApiResponse[dict])
+async def instrument_metrics(
+    symbol: str,
+    service: MarketDataService = Depends(get_marketdata_service),
+) -> ApiResponse[dict]:
+    return ApiResponse(data=service.get_instrument_metrics(symbol))
+
+
+@router.get("/marketdata/instruments/{symbol}/financials", response_model=ApiResponse[dict])
+async def instrument_financials(
+    symbol: str,
+    period: str = Query(default="annual"),
+    service: MarketDataService = Depends(get_marketdata_service),
+) -> ApiResponse[dict]:
+    return ApiResponse(data=service.get_instrument_financials(symbol, period))
+
+
+@router.get("/marketdata/instruments/{symbol}/risk", response_model=ApiResponse[dict])
+async def instrument_risk(
+    symbol: str,
+    benchmark: str | None = Query(default=None),
+    service: MarketDataService = Depends(get_marketdata_service),
+) -> ApiResponse[dict]:
+    return ApiResponse(data=service.get_instrument_risk(symbol, benchmark))
+
+
+@router.get("/marketdata/instruments/{symbol}/benchmark", response_model=ApiResponse[dict])
+async def instrument_benchmark(
+    symbol: str,
+    benchmark: str | None = Query(default=None),
+    service: MarketDataService = Depends(get_marketdata_service),
+) -> ApiResponse[dict]:
+    return ApiResponse(data=service.get_instrument_benchmark(symbol, benchmark))
+
+
+@router.get("/marketdata/instruments/{symbol}/timeseries", response_model=ApiResponse[dict])
+async def instrument_timeseries(
+    symbol: str,
+    series: str | None = Query(default=None),
+    benchmark: str | None = Query(default=None),
+    service: MarketDataService = Depends(get_marketdata_service),
+) -> ApiResponse[dict]:
+    return ApiResponse(data=service.get_instrument_timeseries(symbol, series, benchmark))
+
+
+@router.get("/marketdata/instruments/{symbol}/comparison-timeseries", response_model=ApiResponse[dict])
+async def instrument_comparison_timeseries(
+    symbol: str,
+    symbols: str = Query(..., min_length=1),
+    service: MarketDataService = Depends(get_marketdata_service),
+) -> ApiResponse[dict]:
+    return ApiResponse(data=service.get_instrument_comparison_timeseries(symbol, symbols))
+
+
+@router.get("/marketdata/benchmark-catalog", response_model=ApiResponse[dict])
+async def benchmark_catalog(
+    service: MarketDataService = Depends(get_marketdata_service),
+) -> ApiResponse[dict]:
+    return ApiResponse(data=service.get_benchmark_catalog())
+
+
+@router.get("/marketdata/benchmark-search", response_model=ApiResponse[dict])
+async def benchmark_search(
+    q: str = Query(..., min_length=1),
+    service: MarketDataService = Depends(get_marketdata_service),
+) -> ApiResponse[dict]:
+    return ApiResponse(data=service.search_benchmark_catalog(q))
 
 
 @router.get("/marketdata/instruments/{symbol}/history", response_model=ApiResponse[InstrumentHistoryResponse])

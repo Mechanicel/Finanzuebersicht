@@ -2,22 +2,26 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 import logging
+from typing import Any
 
 from app.clients.fmp_client import FMPClient
 from app.models import (
     BadRequestError,
     FMPInstrumentProfile,
-    InstrumentProfile,
-    InstrumentPriceRefreshResponse,
-    InstrumentSearchItem,
-    InstrumentSearchResponse,
+    HistoryRange,
+    HoldingsSummaryItem,
+    HoldingsSummaryResponse,
     InstrumentHistoryPoint,
     InstrumentHistoryResponse,
-    HistoryRange,
+    InstrumentPriceRefreshResponse,
+    InstrumentProfile,
+    InstrumentSearchItem,
+    InstrumentSearchResponse,
+    MetaWarning,
     NotFoundError,
+    PersistenceOnlyInstrumentProfile,
     PriceHistoryCacheDocument,
     PriceHistoryRow,
-    PersistenceOnlyInstrumentProfile,
     UpstreamServiceError,
     utcnow,
 )
@@ -54,6 +58,11 @@ class MarketDataService:
         self._cache_enabled = cache_enabled
         self._profile_cache_ttl_seconds = profile_cache_ttl_seconds
         self._search_cache: dict[tuple[str, int], InstrumentSearchResponse] = {}
+        self._snapshot_cache: dict[str, dict[str, Any]] = {}
+        self._metrics_cache: dict[str, dict[str, Any]] = {}
+        self._fundamentals_cache: dict[str, dict[str, Any]] = {}
+        self._financials_cache: dict[tuple[str, str], dict[str, Any]] = {}
+        self._benchmark_catalog_cache: dict[str, Any] | None = None
 
     def search_instruments(self, query: str, limit: int) -> InstrumentSearchResponse:
         cleaned_query = query.strip()
@@ -116,6 +125,255 @@ class MarketDataService:
         except Exception:
             LOGGER.warning("profile cache write failed for symbol '%s'", normalized, exc_info=True)
         return visible_profile
+
+    def get_holdings_summary(self, symbols_csv: str) -> HoldingsSummaryResponse:
+        symbols = self._parse_symbols_csv(symbols_csv)
+        items: list[HoldingsSummaryItem] = []
+        warnings: list[MetaWarning] = []
+
+        for symbol in symbols:
+            try:
+                snapshot = self.get_instrument_snapshot(symbol)
+                items.append(
+                    HoldingsSummaryItem(
+                        symbol=symbol,
+                        name=snapshot.get("name"),
+                        sector=snapshot.get("sector"),
+                        country=snapshot.get("country"),
+                        currency=snapshot.get("currency"),
+                        current_price=snapshot.get("current_price"),
+                        provider=snapshot.get("provider"),
+                        as_of=snapshot.get("as_of"),
+                        coverage=snapshot.get("coverage", "basic"),
+                    )
+                )
+            except Exception as exc:
+                warnings.append(MetaWarning(symbol=symbol, code="symbol_unavailable", message=str(exc)))
+                items.append(HoldingsSummaryItem(symbol=symbol, coverage="none"))
+
+        return HoldingsSummaryResponse(
+            items=items,
+            requested_symbols=symbols,
+            total=len(items),
+            meta={"warnings": [warning.model_dump() for warning in warnings]},
+        )
+
+    def get_instrument_snapshot(self, symbol: str) -> dict[str, Any]:
+        normalized = self._normalize_symbol(symbol)
+        if self._cache_enabled and normalized in self._snapshot_cache:
+            return self._snapshot_cache[normalized]
+
+        profile = self.get_instrument_profile(normalized)
+        price_refresh = self.refresh_instrument_price(normalized)
+        payload = {
+            "symbol": normalized,
+            "name": profile.company_name,
+            "sector": profile.sector,
+            "country": profile.country,
+            "currency": profile.currency,
+            "current_price": price_refresh.current_price,
+            "provider": "fmp+yfinance",
+            "as_of": price_refresh.trade_date,
+            "coverage": "profile+price",
+        }
+        if self._cache_enabled:
+            self._snapshot_cache[normalized] = payload
+        return payload
+
+    def get_instrument_fundamentals(self, symbol: str) -> dict[str, Any]:
+        normalized = self._normalize_symbol(symbol)
+        if self._cache_enabled and normalized in self._fundamentals_cache:
+            return self._fundamentals_cache[normalized]
+
+        profile = self.get_instrument_profile(normalized)
+        payload = {
+            "symbol": normalized,
+            "company_name": profile.company_name,
+            "sector": profile.sector,
+            "industry": profile.industry,
+            "country": profile.country,
+            "website": profile.website,
+            "description": profile.description,
+            "currency": profile.currency,
+            "source": "profile_cache",
+        }
+        if self._cache_enabled:
+            self._fundamentals_cache[normalized] = payload
+        return payload
+
+    def get_instrument_metrics(self, symbol: str) -> dict[str, Any]:
+        normalized = self._normalize_symbol(symbol)
+        if self._cache_enabled and normalized in self._metrics_cache:
+            return self._metrics_cache[normalized]
+
+        profile = self.get_instrument_profile(normalized)
+        history = self.get_instrument_history(normalized, "1y")
+        closes = [point.close for point in history.points]
+        returns = []
+        for idx in range(1, len(closes)):
+            prev = closes[idx - 1]
+            curr = closes[idx]
+            if prev != 0:
+                returns.append((curr - prev) / prev)
+        avg_return = (sum(returns) / len(returns)) if returns else None
+        payload = {
+            "symbol": normalized,
+            "market_cap": self._extract_market_cap(normalized),
+            "beta": self._extract_beta(normalized),
+            "last_price": closes[-1] if closes else None,
+            "avg_daily_return_1y": avg_return,
+            "series_points_1y": len(closes),
+            "currency": profile.currency,
+            "source": "profile+history_cache",
+        }
+        if self._cache_enabled:
+            self._metrics_cache[normalized] = payload
+        return payload
+
+    def get_instrument_financials(self, symbol: str, period: str) -> dict[str, Any]:
+        normalized = self._normalize_symbol(symbol)
+        if period not in {"annual", "quarterly"}:
+            raise BadRequestError("period must be annual or quarterly")
+        cache_key = (normalized, period)
+        if self._cache_enabled and cache_key in self._financials_cache:
+            return self._financials_cache[cache_key]
+
+        metrics = self.get_instrument_metrics(normalized)
+        fundamentals = self.get_instrument_fundamentals(normalized)
+        payload = {
+            "symbol": normalized,
+            "period": period,
+            "currency": fundamentals.get("currency"),
+            "statements": {
+                "income_statement": [],
+                "balance_sheet": [],
+                "cash_flow": [],
+            },
+            "derived": {
+                "market_cap": metrics.get("market_cap"),
+                "beta": metrics.get("beta"),
+            },
+            "meta": {
+                "warnings": [{"code": "financials_provider_not_connected", "message": "No direct financial statement provider configured."}],
+            },
+        }
+        if self._cache_enabled:
+            self._financials_cache[cache_key] = payload
+        return payload
+
+    def get_instrument_risk(self, symbol: str, benchmark: str | None) -> dict[str, Any]:
+        normalized = self._normalize_symbol(symbol)
+        benchmark_symbol = (benchmark or "SPY").strip().upper()
+        series = self.get_instrument_timeseries(normalized, "close", benchmark_symbol)
+        instrument_points = series.get("instrument", {}).get("points", [])
+        benchmark_points = series.get("benchmark", {}).get("points", [])
+        aligned = min(len(instrument_points), len(benchmark_points))
+        payload = {
+            "symbol": normalized,
+            "benchmark": benchmark_symbol,
+            "aligned_points": aligned,
+            "volatility_proxy": self._volatility_proxy([point["value"] for point in instrument_points]),
+            "benchmark_volatility_proxy": self._volatility_proxy([point["value"] for point in benchmark_points]),
+            "meta": series.get("meta", {}),
+        }
+        return payload
+
+    def get_instrument_benchmark(self, symbol: str, benchmark: str | None) -> dict[str, Any]:
+        normalized = self._normalize_symbol(symbol)
+        benchmark_symbol = (benchmark or "SPY").strip().upper()
+        return {
+            "symbol": normalized,
+            "benchmark": benchmark_symbol,
+            "comparison": self.get_instrument_timeseries(normalized, "close", benchmark_symbol),
+        }
+
+    def get_instrument_timeseries(self, symbol: str, series: str | None, benchmark: str | None) -> dict[str, Any]:
+        normalized = self._normalize_symbol(symbol)
+        benchmark_symbol = (benchmark or "SPY").strip().upper()
+        selected_series = (series or "close").strip().lower()
+        instrument_history = self.get_instrument_history(normalized, "1y")
+
+        warnings: list[dict[str, Any]] = []
+        benchmark_history: InstrumentHistoryResponse | None = None
+        try:
+            benchmark_history = self.get_instrument_history(benchmark_symbol, "1y")
+        except Exception as exc:
+            warnings.append({"symbol": benchmark_symbol, "code": "benchmark_unavailable", "message": str(exc)})
+
+        return {
+            "symbol": normalized,
+            "series": selected_series,
+            "benchmark_symbol": benchmark_symbol,
+            "instrument": {
+                "points": [{"date": point.date, "value": point.close} for point in instrument_history.points],
+            },
+            "benchmark_data": {"available": benchmark_history is not None},
+            "benchmark": {
+                "symbol": benchmark_symbol,
+                "points": [] if benchmark_history is None else [{"date": point.date, "value": point.close} for point in benchmark_history.points],
+            },
+            "meta": {"warnings": warnings},
+        }
+
+    def get_instrument_comparison_timeseries(self, symbol: str, symbols_csv: str) -> dict[str, Any]:
+        base_symbol = self._normalize_symbol(symbol)
+        comparison_symbols = self._parse_symbols_csv(symbols_csv)
+        output = {"base_symbol": base_symbol, "series": []}
+        warnings: list[dict[str, Any]] = []
+
+        for comparison_symbol in comparison_symbols:
+            try:
+                history = self.get_instrument_history(comparison_symbol, "1y")
+                output["series"].append(
+                    {
+                        "symbol": comparison_symbol,
+                        "points": [{"date": point.date, "value": point.close} for point in history.points],
+                    }
+                )
+            except Exception as exc:
+                warnings.append({"symbol": comparison_symbol, "code": "comparison_symbol_unavailable", "message": str(exc)})
+
+        output["meta"] = {"warnings": warnings}
+        return output
+
+    def get_benchmark_catalog(self) -> dict[str, Any]:
+        if self._cache_enabled and self._benchmark_catalog_cache is not None:
+            return self._benchmark_catalog_cache
+        catalog = {
+            "items": [
+                {"symbol": "SPY", "name": "SPDR S&P 500 ETF"},
+                {"symbol": "QQQ", "name": "Invesco QQQ Trust"},
+                {"symbol": "VT", "name": "Vanguard Total World Stock ETF"},
+                {"symbol": "IWM", "name": "iShares Russell 2000 ETF"},
+            ],
+            "source": "marketdata_service_catalog",
+        }
+        if self._cache_enabled:
+            self._benchmark_catalog_cache = catalog
+        return catalog
+
+    def search_benchmark_catalog(self, query: str) -> dict[str, Any]:
+        cleaned_query = query.strip().lower()
+        if not cleaned_query:
+            raise BadRequestError("q must not be empty")
+        catalog = self.get_benchmark_catalog()
+        matched = [
+            item
+            for item in catalog["items"]
+            if cleaned_query in item["symbol"].lower() or cleaned_query in item["name"].lower()
+        ]
+        return {"query": query, "items": matched, "total": len(matched)}
+
+    def get_instrument_full(self, symbol: str) -> dict[str, Any]:
+        normalized = self._normalize_symbol(symbol)
+        return {
+            "symbol": normalized,
+            "snapshot": self.get_instrument_snapshot(normalized),
+            "fundamentals": self.get_instrument_fundamentals(normalized),
+            "metrics": self.get_instrument_metrics(normalized),
+            "financials": self.get_instrument_financials(normalized, "annual"),
+            "risk": self.get_instrument_risk(normalized, "SPY"),
+        }
 
     def refresh_instrument_price(self, symbol: str) -> InstrumentPriceRefreshResponse:
         normalized = symbol.strip().upper()
@@ -216,6 +474,40 @@ class MarketDataService:
             updated_at=cache_document.updated_at,
         )
 
+    def _extract_market_cap(self, symbol: str) -> float | None:
+        cached = self._profile_repository.get(symbol)
+        if cached is None:
+            return None
+        return cached.persistence_only_profile.market_cap
+
+    def _extract_beta(self, symbol: str) -> float | None:
+        cached = self._profile_repository.get(symbol)
+        if cached is None:
+            return None
+        return cached.persistence_only_profile.beta
+
+    @staticmethod
+    def _volatility_proxy(values: list[float]) -> float | None:
+        if len(values) < 2:
+            return None
+        mean = sum(values) / len(values)
+        variance = sum((value - mean) ** 2 for value in values) / len(values)
+        return variance ** 0.5
+
+    @staticmethod
+    def _parse_symbols_csv(symbols_csv: str) -> list[str]:
+        symbols = [part.strip().upper() for part in symbols_csv.split(",") if part.strip()]
+        if not symbols:
+            raise BadRequestError("symbols must contain at least one symbol")
+        return list(dict.fromkeys(symbols))
+
+    @staticmethod
+    def _normalize_symbol(symbol: str) -> str:
+        normalized = symbol.strip().upper()
+        if not normalized:
+            raise BadRequestError("symbol must not be empty")
+        return normalized
+
     def _build_visible_profile(self, parsed: FMPInstrumentProfile) -> InstrumentProfile:
         visible_profile = InstrumentProfile.model_validate(parsed.model_dump())
         visible_profile.address_line = self._build_address_line(
@@ -312,5 +604,4 @@ class MarketDataService:
             return (today - timedelta(days=180)).isoformat()
         if range_value == "1y":
             return (today - timedelta(days=365)).isoformat()
-        # ytd
         return date(today.year, 1, 1).isoformat()

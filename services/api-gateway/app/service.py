@@ -172,6 +172,39 @@ class GatewayService:
     async def get_marketdata_profile(self, symbol: str) -> dict:
         return await self._request_marketdata_service("GET", f"/api/v1/marketdata/instruments/{symbol}/profile")
 
+    async def get_marketdata_holdings_summary(self, symbols: str) -> dict:
+        return await self._request_marketdata_service("GET", "/api/v1/marketdata/depot/holdings-summary", params={"symbols": symbols})
+
+    async def get_marketdata_snapshot(self, symbol: str) -> dict:
+        return await self._request_marketdata_service("GET", f"/api/v1/marketdata/instruments/{symbol}/snapshot")
+
+    async def get_marketdata_fundamentals(self, symbol: str) -> dict:
+        return await self._request_marketdata_service("GET", f"/api/v1/marketdata/instruments/{symbol}/fundamentals")
+
+    async def get_marketdata_metrics(self, symbol: str) -> dict:
+        return await self._request_marketdata_service("GET", f"/api/v1/marketdata/instruments/{symbol}/metrics")
+
+    async def get_marketdata_financials(self, symbol: str, period: str | None = None) -> dict:
+        return await self._request_marketdata_service("GET", f"/api/v1/marketdata/instruments/{symbol}/financials", params={"period": period})
+
+    async def get_marketdata_risk(self, symbol: str, benchmark: str | None = None) -> dict:
+        return await self._request_marketdata_service("GET", f"/api/v1/marketdata/instruments/{symbol}/risk", params={"benchmark": benchmark})
+
+    async def get_marketdata_benchmark(self, symbol: str, benchmark: str | None = None) -> dict:
+        return await self._request_marketdata_service("GET", f"/api/v1/marketdata/instruments/{symbol}/benchmark", params={"benchmark": benchmark})
+
+    async def get_marketdata_timeseries(self, symbol: str, series: str | None = None, benchmark: str | None = None) -> dict:
+        return await self._request_marketdata_service("GET", f"/api/v1/marketdata/instruments/{symbol}/timeseries", params={"series": series, "benchmark": benchmark})
+
+    async def get_marketdata_comparison_timeseries(self, symbol: str, symbols: str) -> dict:
+        return await self._request_marketdata_service("GET", f"/api/v1/marketdata/instruments/{symbol}/comparison-timeseries", params={"symbols": symbols})
+
+    async def get_marketdata_benchmark_catalog(self) -> dict:
+        return await self._request_marketdata_service("GET", "/api/v1/marketdata/benchmark-catalog")
+
+    async def search_marketdata_benchmark(self, query: str) -> dict:
+        return await self._request_marketdata_service("GET", "/api/v1/marketdata/benchmark-search", params={"q": query})
+
     async def refresh_marketdata_price(self, symbol: str) -> dict:
         return await self._request_marketdata_service("POST", f"/api/v1/marketdata/instruments/{symbol}/refresh-price")
 

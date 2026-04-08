@@ -277,3 +277,60 @@ def test_history_endpoint_invalid_range_returns_400() -> None:
 
     assert response.status_code == 400
     assert response.json()["details"][0]["code"] == "bad_request"
+
+
+def test_new_analysis_endpoints_are_reachable() -> None:
+    class FakeService:
+        def get_holdings_summary(self, symbols: str):
+            return {"items": [{"symbol": "AAPL", "coverage": "profile+price"}], "requested_symbols": symbols.split(","), "total": 1, "meta": {"warnings": []}}
+
+        def get_instrument_snapshot(self, symbol: str):
+            return {"symbol": symbol, "coverage": "profile+price"}
+
+        def get_instrument_full(self, symbol: str):
+            return {"symbol": symbol, "snapshot": {}, "fundamentals": {}, "metrics": {}, "financials": {}, "risk": {}}
+
+        def get_instrument_fundamentals(self, symbol: str):
+            return {"symbol": symbol}
+
+        def get_instrument_metrics(self, symbol: str):
+            return {"symbol": symbol}
+
+        def get_instrument_financials(self, symbol: str, period: str):
+            return {"symbol": symbol, "period": period}
+
+        def get_instrument_risk(self, symbol: str, benchmark: str | None):
+            return {"symbol": symbol, "benchmark": benchmark or "SPY"}
+
+        def get_instrument_benchmark(self, symbol: str, benchmark: str | None):
+            return {"symbol": symbol, "benchmark": benchmark or "SPY"}
+
+        def get_instrument_timeseries(self, symbol: str, series: str | None, benchmark: str | None):
+            return {"symbol": symbol, "series": series or "close", "benchmark": benchmark or "SPY"}
+
+        def get_instrument_comparison_timeseries(self, symbol: str, symbols: str):
+            return {"base_symbol": symbol, "symbols": symbols.split(",")}
+
+        def get_benchmark_catalog(self):
+            return {"items": []}
+
+        def search_benchmark_catalog(self, query: str):
+            return {"query": query, "items": [], "total": 0}
+
+    app.dependency_overrides[marketdata_dependencies.get_marketdata_service] = lambda: FakeService()
+    client = create_test_client(app)
+
+    assert client.get("/api/v1/marketdata/depot/holdings-summary", params={"symbols": "AAPL,MSFT"}).status_code == 200
+    assert client.get("/api/v1/marketdata/instruments/AAPL/snapshot").status_code == 200
+    assert client.get("/api/v1/marketdata/instruments/AAPL/full").status_code == 200
+    assert client.get("/api/v1/marketdata/instruments/AAPL/fundamentals").status_code == 200
+    assert client.get("/api/v1/marketdata/instruments/AAPL/metrics").status_code == 200
+    assert client.get("/api/v1/marketdata/instruments/AAPL/financials", params={"period": "annual"}).status_code == 200
+    assert client.get("/api/v1/marketdata/instruments/AAPL/risk", params={"benchmark": "SPY"}).status_code == 200
+    assert client.get("/api/v1/marketdata/instruments/AAPL/benchmark", params={"benchmark": "SPY"}).status_code == 200
+    assert client.get("/api/v1/marketdata/instruments/AAPL/timeseries", params={"series": "close", "benchmark": "SPY"}).status_code == 200
+    assert client.get("/api/v1/marketdata/instruments/AAPL/comparison-timeseries", params={"symbols": "MSFT,NVDA"}).status_code == 200
+    assert client.get("/api/v1/marketdata/benchmark-catalog").status_code == 200
+    assert client.get("/api/v1/marketdata/benchmark-search", params={"q": "sp"}).status_code == 200
+
+    app.dependency_overrides.clear()
