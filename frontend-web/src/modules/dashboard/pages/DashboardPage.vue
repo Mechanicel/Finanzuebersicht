@@ -24,7 +24,12 @@
 
       <div class="content-sections">
         <LoadingState v-if="loading" />
-        <ErrorState v-else-if="error" :message="error" />
+        <div v-else-if="error" class="error-panel">
+          <ErrorState :message="error" />
+          <button class="btn flow-btn retry-btn" type="button" @click="void loadDashboard()">
+            Erneut laden
+          </button>
+        </div>
         <EmptyState v-else-if="!hasPersonContext">
           Das Analytics-Dashboard benötigt einen gültigen Personenkontext.
         </EmptyState>
@@ -106,11 +111,29 @@ function mapDashboardError(rawError: unknown): string {
     return 'Für die ausgewählte Person konnten keine Analytics-Daten gefunden werden.'
   }
 
+  if (isTimeoutOrNetworkError(rawError)) {
+    return 'Das Analytics-Dashboard konnte nicht rechtzeitig geladen werden. Bitte erneut versuchen.'
+  }
+
   const extracted = extractApiErrorMessage(rawError, 'Das Dashboard konnte nicht geladen werden.')
   if (extracted.includes('Request failed with status code')) {
     return 'Das Dashboard konnte aktuell nicht geladen werden. Bitte später erneut versuchen.'
   }
   return extracted
+}
+
+function isTimeoutOrNetworkError(rawError: unknown): boolean {
+  if (!axios.isAxiosError(rawError)) {
+    return false
+  }
+
+  const code = rawError.code?.toUpperCase()
+  if (code === 'ECONNABORTED' || code === 'ETIMEDOUT' || code === 'ERR_NETWORK') {
+    return true
+  }
+
+  const message = rawError.message.toLowerCase()
+  return message.includes('timeout') || message.includes('network')
 }
 
 async function loadDashboard() {
@@ -198,6 +221,16 @@ watch(
 .content-sections {
   display: grid;
   gap: 1rem;
+}
+
+.error-panel {
+  display: grid;
+  gap: 0.75rem;
+  justify-items: start;
+}
+
+.retry-btn {
+  border: 1px solid #cbd5e1;
 }
 
 .section-card h3 {
