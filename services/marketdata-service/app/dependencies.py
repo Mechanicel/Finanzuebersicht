@@ -8,7 +8,14 @@ from pymongo.errors import PyMongoError
 
 from app.clients.fmp_client import FMPClient
 from app.config import get_settings
-from app.repositories import InMemoryInstrumentProfileCacheRepository, InstrumentProfileCacheRepository
+from app.repositories import (
+    CurrentPriceCacheRepository,
+    InMemoryCurrentPriceCacheRepository,
+    InMemoryInstrumentProfileCacheRepository,
+    InMemoryPriceHistoryCacheRepository,
+    InstrumentProfileCacheRepository,
+    PriceHistoryCacheRepository,
+)
 from app.service import MarketDataService
 
 LOGGER = logging.getLogger(__name__)
@@ -50,11 +57,59 @@ def get_profile_repository() -> InstrumentProfileCacheRepository | InMemoryInstr
 
 
 @lru_cache
+def get_current_price_repository() -> CurrentPriceCacheRepository | InMemoryCurrentPriceCacheRepository:
+    settings = get_settings()
+    if not settings.marketdata_mongo_enabled:
+        LOGGER.info("marketdata mongo is disabled, using in-memory current-price cache repository")
+        return InMemoryCurrentPriceCacheRepository()
+
+    try:
+        client = MongoClient(
+            settings.resolved_mongo_uri(),
+            serverSelectionTimeoutMS=settings.marketdata_mongo_server_selection_timeout_ms,
+        )
+        client.admin.command("ping")
+        collection = client[settings.mongo_database][settings.marketdata_current_price_cache_collection]
+        return CurrentPriceCacheRepository(collection=collection)
+    except PyMongoError:
+        LOGGER.warning(
+            "marketdata mongo unavailable, falling back to in-memory current-price cache repository",
+            exc_info=True,
+        )
+        return InMemoryCurrentPriceCacheRepository()
+
+
+@lru_cache
+def get_price_history_repository() -> PriceHistoryCacheRepository | InMemoryPriceHistoryCacheRepository:
+    settings = get_settings()
+    if not settings.marketdata_mongo_enabled:
+        LOGGER.info("marketdata mongo is disabled, using in-memory history cache repository")
+        return InMemoryPriceHistoryCacheRepository()
+
+    try:
+        client = MongoClient(
+            settings.resolved_mongo_uri(),
+            serverSelectionTimeoutMS=settings.marketdata_mongo_server_selection_timeout_ms,
+        )
+        client.admin.command("ping")
+        collection = client[settings.mongo_database][settings.marketdata_price_history_cache_collection]
+        return PriceHistoryCacheRepository(collection=collection)
+    except PyMongoError:
+        LOGGER.warning(
+            "marketdata mongo unavailable, falling back to in-memory history cache repository",
+            exc_info=True,
+        )
+        return InMemoryPriceHistoryCacheRepository()
+
+
+@lru_cache
 def get_marketdata_service() -> MarketDataService:
     settings = get_settings()
     return MarketDataService(
         fmp_client=get_fmp_client(),
         profile_repository=get_profile_repository(),
+        current_price_repository=get_current_price_repository(),
+        price_history_repository=get_price_history_repository(),
         cache_enabled=settings.cache_enabled,
         profile_cache_ttl_seconds=settings.marketdata_profile_cache_ttl_seconds,
     )

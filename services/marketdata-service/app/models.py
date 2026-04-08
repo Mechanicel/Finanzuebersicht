@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
+from typing import Literal
 
 
 class InstrumentSearchItem(BaseModel):
@@ -76,6 +77,44 @@ class CachedInstrumentProfile(BaseModel):
     visible_profile: InstrumentProfile
     persistence_only_profile: PersistenceOnlyInstrumentProfile
     fetched_at: datetime
+
+
+class InstrumentPriceRefreshResponse(BaseModel):
+    symbol: str
+    trade_date: str
+    current_price: float
+    price_source: Literal["cache_today", "yfinance_1d_1m"]
+    price_cache_hit: bool
+    history_cache_present: bool
+    history_action: Literal["seed_max_in_background", "enrich_in_background"]
+    fetched_at: datetime
+
+
+class CurrentPriceCacheDocument(BaseModel):
+    symbol: str
+    trade_date: str
+    current_price: float
+    source: Literal["yfinance_1d_1m"]
+    fetched_at: datetime
+
+
+class PriceHistoryRow(BaseModel):
+    date: str
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: int
+
+
+class PriceHistoryCacheDocument(BaseModel):
+    symbol: str
+    interval: Literal["1d"]
+    period_seeded: Literal["max"]
+    history_rows: list[PriceHistoryRow]
+    first_date: str
+    last_date: str
+    updated_at: datetime
 
 
 class NotFoundError(Exception):

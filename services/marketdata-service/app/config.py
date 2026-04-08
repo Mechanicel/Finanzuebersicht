@@ -34,6 +34,14 @@ class Settings(ServiceSettings):
         default="marketdata_profile_cache",
         alias="MARKETDATA_PROFILE_CACHE_COLLECTION",
     )
+    marketdata_current_price_cache_collection: str = Field(
+        default="marketdata_current_price_cache",
+        alias="MARKETDATA_CURRENT_PRICE_CACHE_COLLECTION",
+    )
+    marketdata_price_history_cache_collection: str = Field(
+        default="marketdata_price_history_cache",
+        alias="MARKETDATA_PRICE_HISTORY_CACHE_COLLECTION",
+    )
 
     def resolved_mongo_uri(self) -> str:
         if self.mongo_uri and self.mongo_uri.strip():
