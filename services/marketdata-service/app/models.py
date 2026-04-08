@@ -117,6 +117,23 @@ class PriceHistoryCacheDocument(BaseModel):
     updated_at: datetime
 
 
+HistoryRange = Literal["1m", "3m", "6m", "ytd", "1y", "max"]
+
+
+class InstrumentHistoryPoint(BaseModel):
+    date: str
+    close: float
+
+
+class InstrumentHistoryResponse(BaseModel):
+    symbol: str
+    range: HistoryRange
+    currency: str | None = None
+    points: list[InstrumentHistoryPoint]
+    cache_present: bool
+    updated_at: datetime
+
+
 class NotFoundError(Exception):
     def __init__(self, message: str) -> None:
         self.message = message

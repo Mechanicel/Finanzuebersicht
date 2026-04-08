@@ -302,3 +302,79 @@ def test_no_period_max_when_history_exists_and_enrich_uses_5d(monkeypatch) -> No
     stored = history_repository.get("CBK.DE")
     assert stored is not None
     assert stored.last_date == "2026-04-04"
+
+
+def test_get_instrument_history_cache_hit_returns_sorted_points() -> None:
+    service, _, _, _, history_repository = build_service()
+    history_repository.upsert_document(
+        PriceHistoryCacheDocument(
+            symbol="CBK.DE",
+            interval="1d",
+            period_seeded="max",
+            history_rows=[
+                PriceHistoryRow(date="2026-04-03", open=31.1, high=31.6, low=30.9, close=31.48, volume=999999),
+                PriceHistoryRow(date="2026-04-01", open=30.1, high=30.5, low=29.95, close=30.4, volume=1234567),
+            ],
+            first_date="2026-04-01",
+            last_date="2026-04-03",
+            updated_at=utcnow(),
+        )
+    )
+
+    response = service.get_instrument_history("cbk.de", "max")
+
+    assert response.symbol == "CBK.DE"
+    assert response.cache_present is True
+    assert [point.date for point in response.points] == ["2026-04-01", "2026-04-03"]
+    assert [point.close for point in response.points] == [30.4, 31.48]
+
+
+def test_get_instrument_history_cache_miss_seeds_synchronously(monkeypatch) -> None:
+    service, _, _, _, history_repository = build_service()
+    fake_yf = FakeYFinance()
+    monkeypatch.setattr(MarketDataService, "_get_yf_module", staticmethod(lambda: fake_yf))
+
+    response = service.get_instrument_history("cbk.de", "max")
+
+    assert response.cache_present is False
+    assert len(response.points) == 2
+    assert ("CBK.DE", "max", "1d") in fake_yf.calls
+    assert history_repository.get("CBK.DE") is not None
+
+
+def test_get_instrument_history_range_filtering() -> None:
+    service, _, _, _, history_repository = build_service()
+    today = date.today()
+    within_window = today - timedelta(days=20)
+    outside_window = today - timedelta(days=150)
+    history_repository.upsert_document(
+        PriceHistoryCacheDocument(
+            symbol="CBK.DE",
+            interval="1d",
+            period_seeded="max",
+            history_rows=[
+                PriceHistoryRow(date=outside_window.isoformat(), open=29.5, high=30.0, low=29.1, close=29.9, volume=111111),
+                PriceHistoryRow(date=within_window.isoformat(), open=30.4, high=30.9, low=30.2, close=30.7, volume=222222),
+                PriceHistoryRow(date=today.isoformat(), open=31.1, high=31.6, low=30.9, close=31.48, volume=999999),
+            ],
+            first_date=outside_window.isoformat(),
+            last_date=today.isoformat(),
+            updated_at=utcnow(),
+        )
+    )
+
+    response = service.get_instrument_history("CBK.DE", "3m")
+
+    assert [point.date for point in response.points] == [within_window.isoformat(), today.isoformat()]
+
+
+def test_get_instrument_history_rejects_invalid_range() -> None:
+    service, _, _, _, _ = build_service()
+
+    try:
+        service.get_instrument_history("CBK.DE", "2m")
+        raise AssertionError("expected error")
+    except Exception as exc:
+        from app.models import BadRequestError
+
+        assert isinstance(exc, BadRequestError)

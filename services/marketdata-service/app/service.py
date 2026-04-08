@@ -11,6 +11,9 @@ from app.models import (
     InstrumentPriceRefreshResponse,
     InstrumentSearchItem,
     InstrumentSearchResponse,
+    InstrumentHistoryPoint,
+    InstrumentHistoryResponse,
+    HistoryRange,
     NotFoundError,
     PriceHistoryCacheDocument,
     PriceHistoryRow,
@@ -32,6 +35,7 @@ LOGGER = logging.getLogger(__name__)
 
 class MarketDataService:
     MAX_SEARCH_LIMIT = 20
+    VALID_HISTORY_RANGES: tuple[HistoryRange, ...] = ("1m", "3m", "6m", "ytd", "1y", "max")
 
     def __init__(
         self,
@@ -183,6 +187,35 @@ class MarketDataService:
             return
         self._price_history_repository.enrich_history_rows(normalized, rows)
 
+    def get_instrument_history(self, symbol: str, range_value: str = "3m") -> InstrumentHistoryResponse:
+        normalized = symbol.strip().upper()
+        if not normalized:
+            raise BadRequestError("symbol must not be empty")
+        if range_value not in self.VALID_HISTORY_RANGES:
+            raise BadRequestError("range must be one of: 1m, 3m, 6m, ytd, 1y, max")
+
+        cache_document = self._price_history_repository.get(normalized)
+        cache_present = cache_document is not None
+        if cache_document is None:
+            self.seed_history_max(normalized)
+            cache_document = self._price_history_repository.get(normalized)
+
+        if cache_document is None or not cache_document.history_rows:
+            raise NotFoundError(f"No price history available for instrument '{normalized}'")
+
+        cutoff = self._history_cutoff(date.today(), range_value)
+        filtered_rows = cache_document.history_rows if cutoff is None else [row for row in cache_document.history_rows if row.date >= cutoff]
+        filtered_rows.sort(key=lambda row: row.date)
+
+        points = [InstrumentHistoryPoint(date=row.date, close=row.close) for row in filtered_rows]
+        return InstrumentHistoryResponse(
+            symbol=normalized,
+            range=range_value,
+            points=points,
+            cache_present=cache_present,
+            updated_at=cache_document.updated_at,
+        )
+
     def _build_visible_profile(self, parsed: FMPInstrumentProfile) -> InstrumentProfile:
         visible_profile = InstrumentProfile.model_validate(parsed.model_dump())
         visible_profile.address_line = self._build_address_line(
@@ -266,3 +299,18 @@ class MarketDataService:
 
         rows.sort(key=lambda entry: entry.date)
         return rows
+
+    @staticmethod
+    def _history_cutoff(today: date, range_value: HistoryRange) -> str | None:
+        if range_value == "max":
+            return None
+        if range_value == "1m":
+            return (today - timedelta(days=30)).isoformat()
+        if range_value == "3m":
+            return (today - timedelta(days=90)).isoformat()
+        if range_value == "6m":
+            return (today - timedelta(days=180)).isoformat()
+        if range_value == "1y":
+            return (today - timedelta(days=365)).isoformat()
+        # ytd
+        return date(today.year, 1, 1).isoformat()

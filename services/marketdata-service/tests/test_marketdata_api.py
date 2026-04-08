@@ -28,7 +28,7 @@ from app.dependencies import (
     get_profile_repository,
 )
 from app.main import app
-from app.models import UpstreamServiceError
+from app.models import BadRequestError, UpstreamServiceError
 from app.repositories import (
     InMemoryCurrentPriceCacheRepository,
     InMemoryInstrumentProfileCacheRepository,
@@ -230,3 +230,49 @@ def test_refresh_price_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:
     payload = response.json()["data"]
     assert payload["symbol"] == "CBK.DE"
     assert payload["price_source"] == "cache_today"
+
+
+def test_history_endpoint_success() -> None:
+    from datetime import UTC, datetime
+
+    from app.models import InstrumentHistoryResponse
+
+    class FakeService:
+        def get_instrument_history(self, symbol: str, range_value: str):
+            assert symbol == "CBK.DE"
+            assert range_value == "6m"
+            return InstrumentHistoryResponse(
+                symbol="CBK.DE",
+                range="6m",
+                points=[
+                    {"date": "2026-04-01", "close": 30.4},
+                    {"date": "2026-04-03", "close": 31.48},
+                ],
+                cache_present=True,
+                updated_at=datetime.now(UTC),
+            )
+
+    app.dependency_overrides[marketdata_dependencies.get_marketdata_service] = lambda: FakeService()
+    client = create_test_client(app)
+    response = client.get("/api/v1/marketdata/instruments/CBK.DE/history", params={"range": "6m"})
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["symbol"] == "CBK.DE"
+    assert payload["range"] == "6m"
+    assert payload["points"][0]["date"] == "2026-04-01"
+
+
+def test_history_endpoint_invalid_range_returns_400() -> None:
+    class FakeService:
+        def get_instrument_history(self, symbol: str, range_value: str):
+            raise BadRequestError("range must be one of: 1m, 3m, 6m, ytd, 1y, max")
+
+    app.dependency_overrides[marketdata_dependencies.get_marketdata_service] = lambda: FakeService()
+    client = create_test_client(app)
+    response = client.get("/api/v1/marketdata/instruments/CBK.DE/history", params={"range": "2m"})
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 400
+    assert response.json()["details"][0]["code"] == "bad_request"
