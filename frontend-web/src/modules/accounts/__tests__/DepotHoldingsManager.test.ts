@@ -16,8 +16,24 @@ vi.mock('@/shared/api/client', () => ({
     marketdataProfile: vi.fn(),
     addHolding: vi.fn(),
     refreshInstrumentPrice: vi.fn(),
+    instrumentHistory: vi.fn(),
     updateHolding: vi.fn(),
     deleteHolding: vi.fn(),
+  }
+}))
+
+vi.mock('@/shared/ui/PortfolioValueChart.vue', () => ({
+  default: {
+    name: 'PortfolioValueChart',
+    props: ['points', 'range', 'loading', 'error'],
+    emits: ['range-change'],
+    template: `
+      <div data-testid="portfolio-value-chart-stub">
+        <button data-testid="chart-range-1m" @click="$emit('range-change', '1m')">1M</button>
+        <span data-testid="chart-range">{{ range }}</span>
+        <span data-testid="chart-points">{{ points.length }}</span>
+      </div>
+    `
   }
 }))
 
@@ -70,6 +86,13 @@ describe('DepotHoldingsManager (FMP flow)', () => {
       history_cache_present: true,
       history_action: 'enrich_in_background',
       fetched_at: '2026-04-03T12:34:56Z',
+    } as never)
+    vi.mocked(apiClient.instrumentHistory).mockResolvedValue({
+      symbol: 'CBK.DE',
+      range: '3m',
+      points: [{ date: '2026-04-01', close: 31.48 }],
+      cache_present: true,
+      updated_at: '2026-04-03T12:34:56Z',
     } as never)
     vi.mocked(apiClient.updateHolding).mockResolvedValue({} as never)
     vi.mocked(apiClient.deleteHolding).mockResolvedValue(undefined)
@@ -519,7 +542,7 @@ describe('DepotHoldingsManager (FMP flow)', () => {
     expect(wrapper.find('form.holding-form').exists()).toBe(false)
   })
 
-  it('shows refresh button and triggers sequential refresh per visible symbol', async () => {
+  it('auto-refreshes prices on load for unique symbols and renders chart card', async () => {
     vi.mocked(apiClient.portfolio).mockResolvedValueOnce({
       portfolio_id: 'p1',
       person_id: 'person-1',
@@ -559,21 +582,18 @@ describe('DepotHoldingsManager (FMP flow)', () => {
     vi.mocked(apiClient.refreshInstrumentPrice)
       .mockResolvedValueOnce({ symbol: 'CBK.DE', trade_date: '2026-04-03', current_price: 12, price_source: 'cache_today', price_cache_hit: true, history_cache_present: true, history_action: 'enrich_in_background', fetched_at: '2026-04-03T12:00:00Z' } as never)
       .mockResolvedValueOnce({ symbol: 'AAPL', trade_date: '2026-04-03', current_price: 25, price_source: 'yfinance_1d_1m', price_cache_hit: false, history_cache_present: true, history_action: 'enrich_in_background', fetched_at: '2026-04-03T12:00:01Z' } as never)
+    vi.mocked(apiClient.instrumentHistory)
+      .mockResolvedValueOnce({ symbol: 'CBK.DE', range: '3m', points: [{ date: '2026-04-01', close: 12 }], cache_present: true, updated_at: '2026-04-03T12:00:00Z' } as never)
+      .mockResolvedValueOnce({ symbol: 'AAPL', range: '3m', points: [{ date: '2026-04-01', close: 25 }], cache_present: true, updated_at: '2026-04-03T12:00:01Z' } as never)
 
     const { wrapper } = await mountManager()
-    await flushUi()
-
-    const refreshButton = wrapper.find('[data-testid="holdings-refresh-button"]')
-    expect(refreshButton.exists()).toBe(true)
-    expect(refreshButton.text()).toContain('Aktualisieren')
-
-    await refreshButton.trigger('click')
     await flushUi()
 
     expect(apiClient.refreshInstrumentPrice).toHaveBeenCalledTimes(2)
     expect(apiClient.refreshInstrumentPrice).toHaveBeenNthCalledWith(1, 'CBK.DE')
     expect(apiClient.refreshInstrumentPrice).toHaveBeenNthCalledWith(2, 'AAPL')
-    expect(wrapper.text()).toContain('Kurs-Refresh abgeschlossen (2/2 erfolgreich).')
+    expect(wrapper.find('[data-testid="holdings-refresh-button"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="portfolio-chart-card"]').exists()).toBe(true)
   })
 
   it('filters holdings list client-side by symbol, isin and company name', async () => {
@@ -664,9 +684,6 @@ describe('DepotHoldingsManager (FMP flow)', () => {
 
     const { wrapper } = await mountManager()
     await flushUi()
-    await wrapper.find('[data-testid="holdings-refresh-button"]').trigger('click')
-    await flushUi()
-
     expect(wrapper.find('[data-testid="holding-acquisition-price-display"]').text()).toContain('10,00')
     expect(wrapper.find('[data-testid="holding-current-price-display"]').text()).toContain('12,00')
     expect(wrapper.find('[data-testid="holding-pnl-display"]').text()).toContain('+20,00')
@@ -707,9 +724,6 @@ describe('DepotHoldingsManager (FMP flow)', () => {
 
     const { wrapper } = await mountManager()
     await flushUi()
-    await wrapper.find('[data-testid="holdings-refresh-button"]').trigger('click')
-    await flushUi()
-
     expect(wrapper.find('[data-testid="portfolio-summary"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="portfolio-summary-current-value"]').text()).toContain('300,00')
     expect(wrapper.find('[data-testid="portfolio-summary-invested-value"]').text()).toContain('250,00')
@@ -738,14 +752,93 @@ describe('DepotHoldingsManager (FMP flow)', () => {
 
     const { wrapper } = await mountManager()
     await flushUi()
-    await wrapper.find('[data-testid="holdings-refresh-button"]').trigger('click')
-    await flushUi()
-
     expect(wrapper.find('[data-testid="holding-current-price-display"]').text()).toContain('10,00')
     expect(wrapper.find('[data-testid="holding-pnl-display"]').text()).toContain('0,00')
     expect(wrapper.text()).toContain('Teilweise auf Einstandswert geschätzt')
     expect(wrapper.find('[data-testid="portfolio-summary-current-value"]').text()).toContain('30,00')
     expect(wrapper.find('[data-testid="portfolio-summary-pnl-value"]').text()).toContain('0,00')
     expect(wrapper.find('[data-testid="holdings-refresh-error"]').text()).toContain('CBK.DE')
+  })
+
+  it('loads chart history and reacts to range change', async () => {
+    vi.mocked(apiClient.portfolio).mockResolvedValueOnce({
+      portfolio_id: 'p1',
+      person_id: 'person-1',
+      display_name: 'Depot Core',
+      created_at: 'x',
+      updated_at: 'x',
+      holdings: [{
+        holding_id: 'h1',
+        symbol: 'CBK.DE',
+        quantity: 2,
+        acquisition_price: 10,
+        currency: 'EUR',
+        buy_date: '2026-01-10',
+        notes: null,
+      }],
+    } as never)
+    vi.mocked(apiClient.instrumentHistory)
+      .mockResolvedValueOnce({
+        symbol: 'CBK.DE',
+        range: '3m',
+        points: [{ date: '2026-04-01', close: 12 }],
+        cache_present: true,
+        updated_at: '2026-04-03T12:00:00Z',
+      } as never)
+      .mockResolvedValueOnce({
+        symbol: 'CBK.DE',
+        range: '1m',
+        points: [{ date: '2026-04-05', close: 13 }],
+        cache_present: true,
+        updated_at: '2026-04-05T12:00:00Z',
+      } as never)
+
+    const { wrapper } = await mountManager()
+    await flushUi()
+
+    expect(apiClient.instrumentHistory).toHaveBeenCalledWith('CBK.DE', '3m')
+    expect(wrapper.find('[data-testid="chart-range"]').text()).toBe('3m')
+
+    await wrapper.find('[data-testid="chart-range-1m"]').trigger('click')
+    await flushUi()
+
+    expect(apiClient.instrumentHistory).toHaveBeenLastCalledWith('CBK.DE', '1m')
+    expect(wrapper.find('[data-testid="chart-range"]').text()).toBe('1m')
+  })
+
+  it('shows currency hint instead of chart for multi-currency holdings', async () => {
+    vi.mocked(apiClient.portfolio).mockResolvedValueOnce({
+      portfolio_id: 'p1',
+      person_id: 'person-1',
+      display_name: 'Depot Core',
+      created_at: 'x',
+      updated_at: 'x',
+      holdings: [
+        {
+          holding_id: 'h1',
+          symbol: 'CBK.DE',
+          quantity: 1,
+          acquisition_price: 10,
+          currency: 'EUR',
+          buy_date: '2026-01-10',
+          notes: null,
+        },
+        {
+          holding_id: 'h2',
+          symbol: 'AAPL',
+          quantity: 1,
+          acquisition_price: 20,
+          currency: 'USD',
+          buy_date: '2026-01-10',
+          notes: null,
+        }
+      ],
+    } as never)
+
+    const { wrapper } = await mountManager()
+    await flushUi()
+
+    expect(wrapper.find('[data-testid="portfolio-chart-currency-hint"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="portfolio-value-chart-stub"]').exists()).toBe(false)
   })
 })
