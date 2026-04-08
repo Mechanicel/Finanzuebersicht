@@ -20,6 +20,7 @@ from app.models import (
     GatewayHealthReadModel,
     HealthDependency,
     HoldingCreatePayload,
+    HoldingsRefreshStubReadModel,
     HoldingReadModel,
     HoldingUpdatePayload,
     PersonBankAssignmentReadModel,
@@ -142,6 +143,10 @@ class GatewayService:
     async def delete_holding(self, portfolio_id: UUID, holding_id: UUID) -> None:
         await self._request_portfolio_service("DELETE", f"/api/v1/portfolios/{portfolio_id}/holdings/{holding_id}", expect_no_content=True)
 
+    async def refresh_holdings_prices(self, portfolio_id: UUID) -> HoldingsRefreshStubReadModel:
+        data = await self._request_portfolio_service("POST", f"/api/v1/portfolios/{portfolio_id}/holdings/refresh-current-prices")
+        return HoldingsRefreshStubReadModel.model_validate(data)
+
     async def search_marketdata_instruments(self, *, q: str, limit: int | None = None) -> dict:
         return await self._request_marketdata_service("GET", "/api/v1/marketdata/instruments/search", params={"q": q, "limit": limit})
 
@@ -154,11 +159,21 @@ class GatewayService:
     async def get_marketdata_prices(self, symbol: str, *, range_value: str | None = None, interval: str | None = None) -> dict:
         return await self._request_marketdata_service("GET", f"/api/v1/marketdata/instruments/{symbol}/prices", params={"range": range_value, "interval": interval})
 
+    async def get_marketdata_history(self, symbol: str, *, range_value: str | None = None) -> dict:
+        return await self._request_marketdata_service(
+            "GET",
+            f"/api/v1/marketdata/instruments/{symbol}/history",
+            params={"range": range_value},
+        )
+
     async def get_marketdata_full(self, symbol: str) -> dict:
         return await self._request_marketdata_service("GET", f"/api/v1/marketdata/instruments/{symbol}/full")
 
     async def get_marketdata_profile(self, symbol: str) -> dict:
         return await self._request_marketdata_service("GET", f"/api/v1/marketdata/instruments/{symbol}/profile")
+
+    async def refresh_marketdata_price(self, symbol: str) -> dict:
+        return await self._request_marketdata_service("POST", f"/api/v1/marketdata/instruments/{symbol}/refresh-price")
 
     # Deprecated: kept for backwards compatibility with older frontend clients.
     async def get_marketdata_selection(self, symbol: str) -> dict:

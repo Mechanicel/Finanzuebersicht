@@ -20,10 +20,20 @@ from finanzuebersicht_shared.testing import assert_standard_health_payload, crea
 
 import app.dependencies as marketdata_dependencies
 from app.config import get_settings
-from app.dependencies import get_fmp_client, get_marketdata_service, get_profile_repository
+from app.dependencies import (
+    get_current_price_repository,
+    get_fmp_client,
+    get_marketdata_service,
+    get_price_history_repository,
+    get_profile_repository,
+)
 from app.main import app
-from app.models import UpstreamServiceError
-from app.repositories import InMemoryInstrumentProfileCacheRepository
+from app.models import BadRequestError, UpstreamServiceError
+from app.repositories import (
+    InMemoryCurrentPriceCacheRepository,
+    InMemoryInstrumentProfileCacheRepository,
+    InMemoryPriceHistoryCacheRepository,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -32,6 +42,8 @@ def reset_singletons(monkeypatch: pytest.MonkeyPatch) -> None:
     get_settings.cache_clear()
     get_fmp_client.cache_clear()
     get_profile_repository.cache_clear()
+    get_current_price_repository.cache_clear()
+    get_price_history_repository.cache_clear()
     get_marketdata_service.cache_clear()
 
 
@@ -48,8 +60,12 @@ def test_health_and_ready() -> None:
 
 def test_repositories_fallback_to_inmemory_when_mongo_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MARKETDATA_MONGO_ENABLED", "false")
-    repository = get_profile_repository()
-    assert isinstance(repository, InMemoryInstrumentProfileCacheRepository)
+    profile_repository = get_profile_repository()
+    current_price_repository = get_current_price_repository()
+    history_repository = get_price_history_repository()
+    assert isinstance(profile_repository, InMemoryInstrumentProfileCacheRepository)
+    assert isinstance(current_price_repository, InMemoryCurrentPriceCacheRepository)
+    assert isinstance(history_repository, InMemoryPriceHistoryCacheRepository)
 
 
 def test_repositories_fallback_to_inmemory_when_mongo_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -64,10 +80,16 @@ def test_repositories_fallback_to_inmemory_when_mongo_unavailable(monkeypatch: p
 
     monkeypatch.setattr(marketdata_dependencies, "MongoClient", BrokenMongoClient)
     get_profile_repository.cache_clear()
+    get_current_price_repository.cache_clear()
+    get_price_history_repository.cache_clear()
 
-    repository = get_profile_repository()
+    profile_repository = get_profile_repository()
+    current_price_repository = get_current_price_repository()
+    history_repository = get_price_history_repository()
 
-    assert isinstance(repository, InMemoryInstrumentProfileCacheRepository)
+    assert isinstance(profile_repository, InMemoryInstrumentProfileCacheRepository)
+    assert isinstance(current_price_repository, InMemoryCurrentPriceCacheRepository)
+    assert isinstance(history_repository, InMemoryPriceHistoryCacheRepository)
 
 
 def test_search_endpoint_success(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -169,3 +191,89 @@ def test_profile_endpoint_loads_profile(monkeypatch: pytest.MonkeyPatch) -> None
     assert payload["address_line"] == "Kaiserplatz, 60311 Frankfurt am Main"
     assert "market_cap" not in payload
     assert "payload" not in payload
+
+
+def test_refresh_price_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:
+    class FakeService:
+        def __init__(self) -> None:
+            self.seed_calls: list[str] = []
+
+        def refresh_instrument_price(self, symbol: str):
+            from datetime import UTC, datetime
+
+            from app.models import InstrumentPriceRefreshResponse
+
+            return InstrumentPriceRefreshResponse(
+                symbol=symbol.strip().upper(),
+                trade_date="2026-04-03",
+                current_price=31.48,
+                price_source="cache_today",
+                price_cache_hit=True,
+                history_cache_present=False,
+                history_action="seed_max_in_background",
+                fetched_at=datetime.now(UTC),
+            )
+
+        def seed_history_max(self, symbol: str) -> None:
+            self.seed_calls.append(symbol)
+
+        def enrich_history_recent(self, symbol: str) -> None:
+            self.seed_calls.append(f"enrich:{symbol}")
+
+    fake_service = FakeService()
+    app.dependency_overrides[marketdata_dependencies.get_marketdata_service] = lambda: fake_service
+    client = create_test_client(app)
+    response = client.post("/api/v1/marketdata/instruments/CBK.DE/refresh-price")
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["symbol"] == "CBK.DE"
+    assert payload["price_source"] == "cache_today"
+
+
+def test_history_endpoint_success() -> None:
+    from datetime import UTC, datetime
+
+    from app.models import InstrumentHistoryResponse
+
+    class FakeService:
+        def get_instrument_history(self, symbol: str, range_value: str):
+            assert symbol == "CBK.DE"
+            assert range_value == "6m"
+            return InstrumentHistoryResponse(
+                symbol="CBK.DE",
+                range="6m",
+                points=[
+                    {"date": "2026-04-01", "close": 30.4},
+                    {"date": "2026-04-03", "close": 31.48},
+                ],
+                cache_present=True,
+                updated_at=datetime.now(UTC),
+            )
+
+    app.dependency_overrides[marketdata_dependencies.get_marketdata_service] = lambda: FakeService()
+    client = create_test_client(app)
+    response = client.get("/api/v1/marketdata/instruments/CBK.DE/history", params={"range": "6m"})
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["symbol"] == "CBK.DE"
+    assert payload["range"] == "6m"
+    assert payload["points"][0]["date"] == "2026-04-01"
+    assert set(payload.keys()) == {"symbol", "range", "points", "cache_present", "updated_at"}
+
+
+def test_history_endpoint_invalid_range_returns_400() -> None:
+    class FakeService:
+        def get_instrument_history(self, symbol: str, range_value: str):
+            raise BadRequestError("range must be one of: 1m, 3m, 6m, ytd, 1y, max")
+
+    app.dependency_overrides[marketdata_dependencies.get_marketdata_service] = lambda: FakeService()
+    client = create_test_client(app)
+    response = client.get("/api/v1/marketdata/instruments/CBK.DE/history", params={"range": "2m"})
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 400
+    assert response.json()["details"][0]["code"] == "bad_request"

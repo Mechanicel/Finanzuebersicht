@@ -41,21 +41,36 @@
             :key="account.account_id"
             class="account-row-btn"
             type="button"
-            @click="openDetails(account.account_id)"
+            @click="openDetails(account)"
           >
-            <section class="account-item">
-              <div class="account-item-header">
-                <div>
-                  <strong>{{ account.label }}</strong>
-                  <p class="muted">{{ accountTypeLabels[account.account_type] }} · {{ bankName(account.bank_id) }}</p>
+            <section class="account-item" :class="{ 'account-item--depot': isDepotAccount(account) }">
+              <template v-if="isDepotAccount(account)">
+                <div class="account-item-header">
+                  <div>
+                    <strong>{{ account.label }}</strong>
+                    <p class="muted">Depot · {{ bankName(account.bank_id) }}</p>
+                  </div>
+                  <span class="row-action-hint" aria-hidden="true">→</span>
                 </div>
                 <span class="row-action-hint" aria-hidden="true">→</span>
-              </div>
+              </template>
               <dl class="account-details">
                 <div><dt>Saldo</dt><dd>{{ account.balance }} {{ account.currency }}</dd></div>
-                <div><dt>IBAN</dt><dd>{{ account.iban || '—' }}</dd></div>
-                <div><dt>Kontonummer</dt><dd>{{ account.account_number || '—' }}</dd></div>
-                <div><dt>Depotnummer</dt><dd>{{ account.depot_number || '—' }}</dd></div>
+                <template v-if="account.account_type === 'depot'">
+                  <div><dt>Depotnummer</dt><dd>{{ account.depot_number || '—' }}</dd></div>
+                  <div><dt>Portfolio</dt><dd>{{ depotSummary(account.account_id).hasPortfolio ? 'Gefunden' : 'Nicht vorhanden' }}</dd></div>
+                  <div><dt>Bestandteile</dt><dd>{{ depotSummary(account.account_id).holdingsCount }}</dd></div>
+                  <div><dt>Investiert</dt><dd>{{ formatCurrency(depotSummary(account.account_id).investedTotal, depotSummary(account.account_id).currency) }}</dd></div>
+                  <div><dt>Erster Kauf</dt><dd>{{ formatDate(depotSummary(account.account_id).firstBuyDate) }}</dd></div>
+                  <div v-if="!(depotSummary(account.account_id).hasPortfolio && depotSummary(account.account_id).holdingsCount > 0)">
+                    <dt>Hinweis</dt><dd>Noch keine Depot-Bestandteile</dd>
+                  </div>
+                </template>
+                <template v-else>
+                  <div><dt>IBAN</dt><dd>{{ account.iban || '—' }}</dd></div>
+                  <div><dt>Kontonummer</dt><dd>{{ account.account_number || '—' }}</dd></div>
+                  <div><dt>Depotnummer</dt><dd>{{ account.depot_number || '—' }}</dd></div>
+                </template>
               </dl>
             </section>
           </button>
@@ -73,8 +88,9 @@ import EmptyState from '@/shared/ui/EmptyState.vue'
 import ErrorState from '@/shared/ui/ErrorState.vue'
 import LoadingState from '@/shared/ui/LoadingState.vue'
 import { accountTypeLabels } from '@/modules/accounts/model/accountForm'
+import type { DepotAccountSummary } from '@/modules/accounts/model/depotAccountSummary'
 import { extractApiErrorMessage } from '@/shared/api/extractApiErrorMessage'
-import type { AccountReadModel, BankReadModel, PersonReadModel } from '@/shared/model/types'
+import type { AccountReadModel, BankReadModel, PersonReadModel, PortfolioDetailReadModel, PortfolioReadModel } from '@/shared/model/types'
 
 const route = useRoute()
 const router = useRouter()
@@ -88,6 +104,7 @@ const searchQuery = ref('')
 const person = ref<PersonReadModel | null>(null)
 const accounts = ref<AccountReadModel[]>([])
 const banks = ref<BankReadModel[]>([])
+const depotSummaryByAccountId = ref<Record<string, DepotAccountSummary>>({})
 
 const subtitle = computed(() => {
   const fullName = `${person.value?.first_name ?? ''} ${person.value?.last_name ?? ''}`.trim()
@@ -124,9 +141,140 @@ function bankName(bankId: string): string {
   return bankById.value.get(bankId)?.name ?? `Unbekannte Bank (${bankId})`
 }
 
-function openDetails(accountId: string) {
+function isDepotAccount(account: AccountReadModel): boolean {
+  return account.account_type === 'depot'
+}
+
+function createFallbackDepotSummary(account: AccountReadModel): DepotAccountSummary {
+  return {
+    accountId: account.account_id,
+    accountLabel: account.label,
+    bankName: bankName(account.bank_id),
+    depotNumber: account.depot_number ?? null,
+    portfolioId: null,
+    hasPortfolio: false,
+    holdingsCount: 0,
+    investedTotal: 0,
+    currency: account.currency,
+    firstBuyDate: null
+  }
+}
+
+function depotSummary(accountId: string): DepotAccountSummary {
+  const account = accounts.value.find((item) => item.account_id === accountId)
+  if (!account) {
+    return {
+      accountId,
+      accountLabel: '',
+      bankName: '',
+      depotNumber: null,
+      portfolioId: null,
+      hasPortfolio: false,
+      holdingsCount: 0,
+      investedTotal: 0,
+      currency: 'EUR',
+      firstBuyDate: null
+    }
+  }
+
+  return depotSummaryByAccountId.value[accountId] ?? createFallbackDepotSummary(account)
+}
+
+function formatCurrency(value: number, currency: string): string {
+  return new Intl.NumberFormat('de-DE', { style: 'currency', currency }).format(value)
+}
+
+function formatDate(value: string | null): string {
+  if (!value) {
+    return '—'
+  }
+  return new Intl.DateTimeFormat('de-DE').format(new Date(value))
+}
+
+function openDetails(account: AccountReadModel) {
   if (!personId.value) return
-  void router.push(`/accounts/manage/${accountId}?personId=${personId.value}`)
+  const detailTarget =
+    isDepotAccount(account)
+      ? `/accounts/manage/${account.account_id}?personId=${personId.value}&section=bestandteile`
+      : `/accounts/manage/${account.account_id}?personId=${personId.value}`
+  void router.push(detailTarget)
+}
+
+function resolvePortfolioByAccountLabel(
+  account: AccountReadModel,
+  portfoliosByDisplayName: Map<string, PortfolioReadModel>
+): PortfolioReadModel | null {
+  return portfoliosByDisplayName.get(account.label) ?? null
+}
+
+async function buildDepotSummaries(accountList: AccountReadModel[]): Promise<Record<string, DepotAccountSummary>> {
+  const depotAccounts = accountList.filter((account) => isDepotAccount(account))
+  if (!depotAccounts.length || !personId.value) {
+    return {}
+  }
+
+  try {
+    const portfolioList = await apiClient.portfolios(personId.value)
+    const portfoliosByDisplayName = new Map(portfolioList.items.map((portfolio) => [portfolio.display_name, portfolio]))
+    const portfolioByAccountId = new Map<string, PortfolioReadModel>()
+
+    for (const account of depotAccounts) {
+      const matchedPortfolio = resolvePortfolioByAccountLabel(account, portfoliosByDisplayName)
+      if (matchedPortfolio) {
+        portfolioByAccountId.set(account.account_id, matchedPortfolio)
+      }
+    }
+
+    const detailSettled = await Promise.allSettled(
+      Array.from(portfolioByAccountId.values()).map((portfolio) => apiClient.portfolio(portfolio.portfolio_id))
+    )
+    const detailByPortfolioId = new Map<string, PortfolioDetailReadModel>()
+    Array.from(portfolioByAccountId.values()).forEach((portfolio, index) => {
+      const detailResult = detailSettled[index]
+      if (detailResult.status === 'fulfilled') {
+        detailByPortfolioId.set(portfolio.portfolio_id, detailResult.value)
+      }
+    })
+
+    return Object.fromEntries(
+      depotAccounts.map((account) => {
+        const fallback = createFallbackDepotSummary(account)
+        const matchedPortfolio = portfolioByAccountId.get(account.account_id)
+        if (!matchedPortfolio) {
+          return [account.account_id, fallback] as const
+        }
+
+        const portfolioDetail = detailByPortfolioId.get(matchedPortfolio.portfolio_id)
+        if (!portfolioDetail) {
+          return [account.account_id, fallback] as const
+        }
+
+        const holdings = portfolioDetail.holdings
+        const earliestBuyDate =
+          holdings.length > 0
+            ? holdings.reduce((earliest, holding) => (holding.buy_date < earliest ? holding.buy_date : earliest), holdings[0].buy_date)
+            : null
+
+        return [
+          account.account_id,
+          {
+            accountId: account.account_id,
+            accountLabel: account.label,
+            bankName: bankName(account.bank_id),
+            depotNumber: account.depot_number ?? null,
+            portfolioId: matchedPortfolio.portfolio_id,
+            hasPortfolio: true,
+            holdingsCount: holdings.length,
+            investedTotal: holdings.reduce((sum, holding) => sum + holding.quantity * holding.acquisition_price, 0),
+            currency: holdings[0]?.currency ?? account.currency,
+            firstBuyDate: earliestBuyDate
+          }
+        ] as const
+      })
+    )
+  } catch {
+    return Object.fromEntries(depotAccounts.map((account) => [account.account_id, createFallbackDepotSummary(account)] as const))
+  }
 }
 
 async function loadData() {
@@ -135,6 +283,7 @@ async function loadData() {
     accounts.value = []
     errorMessage.value = null
     banks.value = []
+    depotSummaryByAccountId.value = {}
     return
   }
 
@@ -150,6 +299,7 @@ async function loadData() {
     person.value = personDetail.person
     accounts.value = accountList
     banks.value = bankResult.items
+    depotSummaryByAccountId.value = await buildDepotSummaries(accountList)
   } catch (e) {
     errorMessage.value = extractApiErrorMessage(e, 'Konten konnten nicht geladen werden.')
   } finally {
@@ -157,7 +307,9 @@ async function loadData() {
   }
 }
 
-watch(personId, loadData)
+watch(personId, () => {
+  void loadData()
+})
 onMounted(loadData)
 </script>
 
@@ -213,6 +365,11 @@ onMounted(loadData)
   text-align: left;
 }
 
+.account-item--depot {
+  border-color: #bfdbfe;
+  background: linear-gradient(135deg, #eff6ff 0%, #f8fafc 55%);
+}
+
 .account-row-btn {
   border: none;
   padding: 0;
@@ -259,6 +416,44 @@ onMounted(loadData)
 .account-details dt {
   font-size: 0.8rem;
   color: #64748b;
+}
+
+.depot-account-number {
+  margin: 0.85rem 0 0;
+  color: #334155;
+  font-size: 0.95rem;
+}
+
+.depot-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.summary-chip {
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  background: #eff6ff;
+  padding: 0.5rem 0.6rem;
+}
+
+.summary-chip-label {
+  margin: 0;
+  font-size: 0.75rem;
+  color: #475569;
+}
+
+.summary-chip-value {
+  margin: 0.2rem 0 0;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.depot-empty-state {
+  margin: 0.75rem 0 0;
+  color: #1e3a8a;
+  font-weight: 600;
 }
 
 </style>

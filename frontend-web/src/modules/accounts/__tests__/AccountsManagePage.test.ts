@@ -17,7 +17,9 @@ vi.mock('@/shared/api/client', () => ({
   apiClient: {
     person: vi.fn(),
     accounts: vi.fn(),
-    banks: vi.fn()
+    banks: vi.fn(),
+    portfolios: vi.fn(),
+    portfolio: vi.fn()
   }
 }))
 
@@ -56,6 +58,9 @@ function buildAccount(label: string, accountType: 'girokonto' | 'depot' = 'girok
 
 async function flushUi() {
   await Promise.resolve()
+  await Promise.resolve()
+  await Promise.resolve()
+  await new Promise((resolve) => setTimeout(resolve, 0))
   await nextTick()
 }
 
@@ -64,6 +69,15 @@ describe('AccountsView list flow', () => {
     vi.clearAllMocks()
     vi.mocked(apiClient.person).mockResolvedValue(personResponse)
     vi.mocked(apiClient.banks).mockResolvedValue(bankResponse)
+    vi.mocked(apiClient.portfolios).mockResolvedValue({ items: [], total: 0 })
+    vi.mocked(apiClient.portfolio).mockResolvedValue({
+      portfolio_id: 'portfolio-1',
+      person_id: 'person-1',
+      display_name: 'Depot Langfrist',
+      created_at: '2026-03-01',
+      updated_at: '2026-03-01',
+      holdings: []
+    })
     vi.mocked(apiClient.accounts).mockResolvedValue([buildAccount('Bestehendes Konto')])
   })
 
@@ -84,6 +98,20 @@ describe('AccountsView list flow', () => {
     expect(pushMock).toHaveBeenCalledWith('/accounts/manage/account-1?personId=person-1')
   })
 
+  it('navigates depot rows directly to bestandteile section', async () => {
+    vi.mocked(apiClient.accounts).mockResolvedValue([buildAccount('Depot Langfrist', 'depot', 'account-2')])
+    vi.mocked(apiClient.portfolios).mockResolvedValue({
+      items: [{ portfolio_id: 'portfolio-1', person_id: 'person-1', display_name: 'Depot Langfrist', created_at: 'x', updated_at: 'x' }],
+      total: 1
+    })
+    const wrapper = mount(AccountsView, { global: { stubs: { RouterLink: { template: '<a><slot /></a>' } } } })
+    await flushUi()
+
+    await wrapper.find('button.account-row-btn').trigger('click')
+
+    expect(pushMock).toHaveBeenCalledWith('/accounts/manage/account-2?personId=person-1&section=bestandteile')
+  })
+
   it('filters account list through search input', async () => {
     vi.mocked(apiClient.accounts).mockResolvedValue([
       buildAccount('Giro Alltag', 'girokonto', 'account-1'),
@@ -102,5 +130,16 @@ describe('AccountsView list flow', () => {
 
     expect(wrapper.text()).not.toContain('Giro Alltag')
     expect(wrapper.text()).toContain('Depot Langfrist')
+  })
+
+  it('renders depot summary card without IBAN and with empty holdings message', async () => {
+    vi.mocked(apiClient.accounts).mockResolvedValue([buildAccount('Depot Langfrist', 'depot', 'account-2')])
+    vi.mocked(apiClient.portfolios).mockResolvedValue({ items: [], total: 0 })
+    const wrapper = mount(AccountsView, { global: { stubs: { RouterLink: { template: '<a><slot /></a>' } } } })
+    await flushUi()
+
+    expect(wrapper.text()).toContain('Noch keine Depot-Bestandteile')
+    expect(wrapper.text()).not.toContain('IBAN')
+    expect(wrapper.text()).not.toContain('Kontonummer')
   })
 })

@@ -8,10 +8,13 @@ import {
   createPortfolio,
   fetchPortfolio,
   addHolding,
+  refreshHoldingPrices,
   updateHolding,
   deleteHolding,
   searchInstruments,
-  marketdataProfile
+  marketdataProfile,
+  refreshInstrumentPrice,
+  instrumentHistory
 } from '@/modules/portfolio/api/portfolioApi'
 
 export const apiClient = {
@@ -37,8 +40,11 @@ export const apiClient = {
   createPortfolio,
   portfolio: fetchPortfolio,
   addHolding,
+  refreshHoldingPrices,
   updateHolding,
   deleteHolding,
   searchInstruments,
-  marketdataProfile
+  marketdataProfile,
+  refreshInstrumentPrice,
+  instrumentHistory
 }

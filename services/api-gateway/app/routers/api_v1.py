@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
 import httpx
@@ -32,6 +32,7 @@ from app.models import (
     PortfolioListReadModel,
     PortfolioReadModel,
     HoldingCreatePayload,
+    HoldingsRefreshStubReadModel,
     HoldingReadModel,
     HoldingUpdatePayload,
     MarketdataProfileReadModel,
@@ -281,6 +282,17 @@ async def remove_holding(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+@router.post(
+    "/app/portfolios/{portfolio_id}/holdings/refresh-current-prices",
+    response_model=ApiResponse[HoldingsRefreshStubReadModel],
+)
+async def refresh_holdings_prices(
+    portfolio_id: UUID,
+    service: Annotated[GatewayService, Depends(get_gateway_service)],
+) -> ApiResponse[HoldingsRefreshStubReadModel]:
+    return ApiResponse(data=await service.refresh_holdings_prices(portfolio_id))
+
+
 @router.get("/app/persons/{person_id}/analytics/overview", response_model=ApiResponse[dict])
 async def analytics_overview(
     person_id: UUID, service: Annotated[GatewayService, Depends(get_gateway_service)]
@@ -337,6 +349,15 @@ async def marketdata_prices(
     )
 
 
+@router.get("/app/marketdata/instruments/{symbol}/history", response_model=ApiResponse[dict])
+async def marketdata_history(
+    symbol: str,
+    service: Annotated[GatewayService, Depends(get_gateway_service)],
+    range_value: Literal["1m", "3m", "6m", "ytd", "1y", "max"] | None = Query(default=None, alias="range"),
+) -> ApiResponse[dict]:
+    return ApiResponse(data=await service.get_marketdata_history(symbol, range_value=range_value))
+
+
 @router.get("/app/marketdata/instruments/{symbol}/full", response_model=ApiResponse[dict])
 async def marketdata_full(
     symbol: str,
@@ -353,7 +374,14 @@ async def marketdata_profile(
     return ApiResponse(data=await service.get_marketdata_profile(symbol))
 
 
-# Deprecated: kept for backwards compatibility with older frontend clients.
+@router.post("/app/marketdata/instruments/{symbol}/refresh-price", response_model=ApiResponse[dict])
+async def marketdata_refresh_price(
+    symbol: str,
+    service: Annotated[GatewayService, Depends(get_gateway_service)],
+) -> ApiResponse[dict]:
+    return ApiResponse(data=await service.refresh_marketdata_price(symbol))
+
+
 @router.get("/app/marketdata/instruments/{symbol}/selection", response_model=ApiResponse[MarketdataProfileReadModel])
 async def marketdata_selection(
     symbol: str,

@@ -215,7 +215,27 @@ describe('apiClient portfolio and holdings endpoints', () => {
     mock.onPost(`/app/persons/${personId}/portfolios`).reply(201, { data: { portfolio_id: portfolioId, person_id: personId, display_name: 'Core', created_at: 'x', updated_at: 'x' } })
     mock.onGet(`/app/portfolios/${portfolioId}`).reply(200, { data: { portfolio_id: portfolioId, person_id: personId, display_name: 'Core', created_at: 'x', updated_at: 'x', holdings: [] } })
     mock.onPost(`/app/portfolios/${portfolioId}/holdings`).reply(201, { data: { holding_id: holdingId, portfolio_id: portfolioId, symbol: 'AAPL', quantity: 1, acquisition_price: 10, currency: 'EUR', buy_date: '2026-03-01', created_at: 'x', updated_at: 'x' } })
+    mock.onPost(`/app/portfolios/${portfolioId}/holdings/refresh-current-prices`).reply(200, {
+      data: {
+        portfolio_id: portfolioId,
+        status: 'not_implemented_yet',
+        accepted: false,
+        detail: 'Technischer Refresh-Flow vorbereitet. Marktpreislogik folgt in einem späteren Schritt.'
+      }
+    })
     mock.onGet('/app/marketdata/instruments/AAPL/profile').reply(200, { data: { symbol: 'AAPL', display_name: 'Apple', company_name: 'Apple Inc.', last_price: 180, currency: 'USD' } })
+    mock.onPost('/app/marketdata/instruments/AAPL/refresh-price').reply(200, {
+      data: {
+        symbol: 'AAPL',
+        trade_date: '2026-04-03',
+        current_price: 180.42,
+        price_source: 'yfinance_1d_1m',
+        price_cache_hit: false,
+        history_cache_present: true,
+        history_action: 'enrich_in_background',
+        fetched_at: '2026-04-03T12:34:56Z'
+      }
+    })
     mock.onDelete(`/app/portfolios/${portfolioId}/holdings/${holdingId}`).reply(204)
 
     const list = await apiClient.portfolios(personId)
@@ -223,9 +243,59 @@ describe('apiClient portfolio and holdings endpoints', () => {
     await apiClient.portfolio(portfolioId)
     const selection = await apiClient.marketdataProfile('AAPL')
     await apiClient.addHolding(portfolioId, { symbol: 'AAPL', quantity: 1, acquisition_price: 10, currency: 'EUR', buy_date: '2026-03-01' })
+    const refreshResponse = await apiClient.refreshHoldingPrices(portfolioId)
+    const instrumentRefresh = await apiClient.refreshInstrumentPrice('AAPL')
     await apiClient.deleteHolding(portfolioId, holdingId)
 
     expect(list.total).toBe(0)
     expect(selection.last_price).toBe(180)
+    expect(refreshResponse.status).toBe('not_implemented_yet')
+    expect(instrumentRefresh.price_source).toBe('yfinance_1d_1m')
+    expect(mock.history.post.some((entry) => entry.url === '/app/marketdata/instruments/AAPL/refresh-price')).toBe(true)
   })
 })
+
+
+describe('apiClient refresh instrument price typing', () => {
+  it('matches InstrumentPriceRefreshResponse contract', async () => {
+    mock.onPost('/app/marketdata/instruments/CBK.DE/refresh-price').reply(200, {
+      data: {
+        symbol: 'CBK.DE',
+        trade_date: '2026-04-03',
+        current_price: 31.48,
+        price_source: 'cache_today',
+        price_cache_hit: true,
+        history_cache_present: false,
+        history_action: 'seed_max_in_background',
+        fetched_at: '2026-04-03T12:34:56Z'
+      }
+    })
+
+    const payload = await apiClient.refreshInstrumentPrice('CBK.DE')
+
+    expect(payload.symbol).toBe('CBK.DE')
+    expect(payload.history_action).toBe('seed_max_in_background')
+  })
+})
+
+
+describe('apiClient instrument history', () => {
+  it('calls history endpoint with selected range', async () => {
+    mock.onGet('/app/marketdata/instruments/AAPL/history').reply(200, {
+      data: {
+        symbol: 'AAPL',
+        range: '3m',
+        points: [{ date: '2026-01-01', close: 150 }],
+        cache_present: true,
+        updated_at: '2026-04-03T12:34:56Z'
+      }
+    })
+
+    const payload = await apiClient.instrumentHistory('AAPL', '3m')
+
+    expect(payload.range).toBe('3m')
+    expect(mock.history.get.at(-1)?.url).toBe('/app/marketdata/instruments/AAPL/history')
+    expect(mock.history.get.at(-1)?.params).toEqual({ range: '3m' })
+  })
+})
+

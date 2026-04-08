@@ -205,6 +205,8 @@ export interface HoldingReadModel {
   display_name?: string | null
   quantity: number
   acquisition_price: number
+  current_price?: number | null
+  current_price_updated_at?: string | null
   currency: string
   buy_date: string
   notes?: string | null
@@ -241,6 +243,40 @@ export interface HoldingUpdatePayload {
   notes?: string | null
 }
 
+export interface HoldingsRefreshStubResponse {
+  portfolio_id: string
+  status: string
+  accepted: boolean
+  detail: string
+}
+
+export interface InstrumentPriceRefreshResponse {
+  symbol: string
+  trade_date: string
+  current_price: number
+  price_source: 'cache_today' | 'yfinance_1d_1m'
+  price_cache_hit: boolean
+  history_cache_present: boolean
+  history_action: 'seed_max_in_background' | 'enrich_in_background'
+  fetched_at: string
+}
+
+
+export type InstrumentHistoryRange = '1m' | '3m' | '6m' | 'ytd' | '1y' | 'max'
+
+export interface InstrumentHistoryPoint {
+  date: string
+  close: number
+}
+
+export interface InstrumentHistoryResponse {
+  symbol: string
+  range: InstrumentHistoryRange
+  points: InstrumentHistoryPoint[]
+  cache_present: boolean
+  updated_at: string
+}
+
 export interface InstrumentSearchItem {
   symbol: string
   company_name: string
@@ -260,6 +296,7 @@ export interface MarketdataProfile {
   symbol: string
   company_name: string
   price?: number | null
+  last_price?: number | null
   currency?: string | null
   isin?: string | null
   wkn?: string | null
