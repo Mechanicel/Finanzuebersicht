@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from statistics import mean
@@ -59,54 +60,71 @@ class AnalyticsService:
         self._dashboard_cache_ttl_seconds = dashboard_cache_ttl_seconds
         self._dashboard_cache: dict[UUID, tuple[float, DashboardData]] = {}
 
-    def _request_json(self, url: str) -> dict | list[dict]:
-        with httpx.Client(timeout=self._timeout) as client:
+    def _request_json(self, url: str, client: httpx.Client | None = None) -> dict | list[dict]:
+        if client is None:
+            with httpx.Client(timeout=self._timeout) as local_client:
+                response = local_client.get(url)
+        else:
             response = client.get(url)
         response.raise_for_status()
         return response.json()["data"]
 
-    def _person_exists(self, person_id: UUID) -> None:
+    def _person_exists(self, person_id: UUID, client: httpx.Client | None = None) -> None:
         try:
-            self._request_json(f"{self._person_base_url}/api/v1/persons/{person_id}")
+            self._request_json(f"{self._person_base_url}/api/v1/persons/{person_id}", client=client)
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code == 404:
                 raise KeyError(f"Unknown person_id: {person_id}") from exc
             raise
 
-    def _load_accounts(self, person_id: UUID) -> list[dict]:
-        payload = self._request_json(f"{self._account_base_url}/api/v1/persons/{person_id}/accounts")
+    def _load_accounts(self, person_id: UUID, client: httpx.Client | None = None) -> list[dict]:
+        payload = self._request_json(f"{self._account_base_url}/api/v1/persons/{person_id}/accounts", client=client)
         return payload if isinstance(payload, list) else []
 
-    def _load_portfolios(self, person_id: UUID) -> list[dict]:
-        payload = self._request_json(f"{self._portfolio_base_url}/api/v1/persons/{person_id}/portfolios")
+    def _load_portfolios(self, person_id: UUID, client: httpx.Client | None = None) -> list[dict]:
+        payload = self._request_json(f"{self._portfolio_base_url}/api/v1/persons/{person_id}/portfolios", client=client)
         if not isinstance(payload, dict):
             return []
         return payload.get("items", [])
 
-    def _load_holdings(self, portfolio_id: str) -> list[dict]:
-        payload = self._request_json(f"{self._portfolio_base_url}/api/v1/portfolios/{portfolio_id}")
+    def _load_holdings(self, portfolio_id: str, client: httpx.Client | None = None) -> list[dict]:
+        payload = self._request_json(f"{self._portfolio_base_url}/api/v1/portfolios/{portfolio_id}", client=client)
         if not isinstance(payload, dict):
             return []
         holdings = payload.get("holdings", [])
         return holdings if isinstance(holdings, list) else []
 
-    def _load_price(self, symbol: str) -> float | None:
+    def _load_price(self, symbol: str, client: httpx.Client | None = None) -> float | None:
         payload = self._request_json(
-            f"{self._marketdata_base_url}/api/v1/marketdata/instruments/{symbol}/profile"
+            f"{self._marketdata_base_url}/api/v1/marketdata/instruments/{symbol}/profile",
+            client=client,
         )
         if not isinstance(payload, dict):
             return None
         price = payload.get("price")
         return float(price) if isinstance(price, int | float) else None
 
-    def _load_history_points(self, symbol: str) -> list[dict]:
+    def _load_history_points(self, symbol: str, client: httpx.Client | None = None) -> list[dict]:
         payload = self._request_json(
-            f"{self._marketdata_base_url}/api/v1/marketdata/instruments/{symbol}/history?range=3m"
+            f"{self._marketdata_base_url}/api/v1/marketdata/instruments/{symbol}/history?range=3m",
+            client=client,
         )
         if not isinstance(payload, dict):
             return []
         points = payload.get("points", [])
         return points if isinstance(points, list) else []
+
+    def _safe_load_price(self, symbol: str, client: httpx.Client) -> float | None:
+        try:
+            return self._load_price(symbol, client=client)
+        except httpx.HTTPError:
+            return None
+
+    def _safe_load_history_points(self, symbol: str, client: httpx.Client) -> list[dict]:
+        try:
+            return self._load_history_points(symbol, client=client)
+        except httpx.HTTPError:
+            return []
 
     @staticmethod
     def _as_float(value: object) -> float:
@@ -119,17 +137,14 @@ class AnalyticsService:
                 return 0.0
         return 0.0
 
-    def _build_timeseries(self, holdings: list[dict]) -> list[ChartPoint]:
+    def _build_timeseries(self, holdings: list[dict], symbol_histories: dict[str, list[dict]]) -> list[ChartPoint]:
         totals_by_day: dict[str, float] = defaultdict(float)
         for holding in holdings:
             symbol = str(holding.get("symbol", "")).upper().strip()
             quantity = self._as_float(holding.get("quantity"))
             if not symbol or quantity <= 0:
                 continue
-            try:
-                history = self._load_history_points(symbol)
-            except httpx.HTTPStatusError:
-                history = []
+            history = symbol_histories.get(symbol, [])
             for point in history:
                 day = str(point.get("date", ""))
                 close = self._as_float(point.get("close"))
@@ -143,38 +158,68 @@ class AnalyticsService:
         return [ChartPoint(x=day, y=round(totals_by_day[day], 2)) for day in ordered_days]
 
     def _build_dashboard_data(self, person_id: UUID) -> DashboardData:
-        self._person_exists(person_id)
-        accounts = self._load_accounts(person_id)
-        portfolios = self._load_portfolios(person_id)
+        with httpx.Client(timeout=self._timeout) as client:
+            self._person_exists(person_id, client=client)
+            accounts = self._load_accounts(person_id, client=client)
+            portfolios = self._load_portfolios(person_id, client=client)
 
-        holdings: list[dict] = []
-        for portfolio in portfolios:
-            portfolio_id = str(portfolio.get("portfolio_id", ""))
-            if portfolio_id:
-                holdings.extend(self._load_holdings(portfolio_id))
+            portfolio_ids = [
+                str(portfolio.get("portfolio_id", "")).strip()
+                for portfolio in portfolios
+                if str(portfolio.get("portfolio_id", "")).strip()
+            ]
 
-        account_allocation: dict[str, float] = defaultdict(float)
-        for account in accounts:
-            account_type = str(account.get("account_type", "unknown")).lower()
-            account_allocation[account_type] += self._as_float(account.get("balance"))
+            holdings: list[dict] = []
+            if portfolio_ids:
+                with ThreadPoolExecutor(max_workers=min(8, len(portfolio_ids))) as executor:
+                    for portfolio_holdings in executor.map(
+                        lambda pid: self._load_holdings(pid, client=client),
+                        portfolio_ids,
+                    ):
+                        holdings.extend(portfolio_holdings)
 
-        invested_value = 0.0
-        current_value = 0.0
-        for holding in holdings:
-            quantity = self._as_float(holding.get("quantity"))
-            acquisition_price = self._as_float(holding.get("acquisition_price"))
-            symbol = str(holding.get("symbol", "")).upper().strip()
-            invested_value += quantity * acquisition_price
-            if symbol:
-                try:
-                    current_price = self._load_price(symbol)
-                except httpx.HTTPStatusError:
-                    current_price = None
-            else:
-                current_price = None
-            current_value += quantity * (current_price if current_price is not None else acquisition_price)
+            account_allocation: dict[str, float] = defaultdict(float)
+            for account in accounts:
+                account_type = str(account.get("account_type", "unknown")).lower()
+                account_allocation[account_type] += self._as_float(account.get("balance"))
 
-        timeseries_points = self._build_timeseries(holdings)
+            symbol_sequence = [
+                str(holding.get("symbol", "")).upper().strip()
+                for holding in holdings
+                if str(holding.get("symbol", "")).upper().strip()
+            ]
+            unique_symbols = list(dict.fromkeys(symbol_sequence))
+
+            symbol_prices: dict[str, float | None] = {}
+            symbol_histories: dict[str, list[dict]] = {}
+            if unique_symbols:
+                with ThreadPoolExecutor(max_workers=min(16, len(unique_symbols))) as executor:
+                    for symbol, price in zip(
+                        unique_symbols,
+                        executor.map(lambda s: self._safe_load_price(s, client=client), unique_symbols),
+                        strict=True,
+                    ):
+                        symbol_prices[symbol] = price
+
+                with ThreadPoolExecutor(max_workers=min(16, len(unique_symbols))) as executor:
+                    for symbol, history in zip(
+                        unique_symbols,
+                        executor.map(lambda s: self._safe_load_history_points(s, client=client), unique_symbols),
+                        strict=True,
+                    ):
+                        symbol_histories[symbol] = history
+
+            invested_value = 0.0
+            current_value = 0.0
+            for holding in holdings:
+                quantity = self._as_float(holding.get("quantity"))
+                acquisition_price = self._as_float(holding.get("acquisition_price"))
+                symbol = str(holding.get("symbol", "")).upper().strip()
+                invested_value += quantity * acquisition_price
+                current_price = symbol_prices.get(symbol) if symbol else None
+                current_value += quantity * (current_price if current_price is not None else acquisition_price)
+
+            timeseries_points = self._build_timeseries(holdings, symbol_histories)
 
         return DashboardData(
             person_id=person_id,

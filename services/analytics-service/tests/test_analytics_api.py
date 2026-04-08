@@ -3,6 +3,9 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from uuid import UUID
+
+import httpx
 
 ROOT = Path(__file__).resolve().parents[3]
 SHARED_SRC = ROOT / "shared" / "src"
@@ -33,7 +36,7 @@ class FakeAnalyticsService(AnalyticsService):
             dashboard_cache_ttl_seconds=120.0,
         )
 
-    def _request_json(self, url: str) -> dict | list[dict]:
+    def _request_json(self, url: str, client=None) -> dict | list[dict]:
         if UNKNOWN_PERSON_ID in url:
             raise KeyError("Unknown person_id")
 
@@ -129,7 +132,7 @@ def test_unknown_person_returns_404() -> None:
 
 def test_known_person_with_empty_data_returns_stable_structure() -> None:
     class EmptyDataService(FakeAnalyticsService):
-        def _request_json(self, url: str) -> dict | list[dict]:
+        def _request_json(self, url: str, client=None) -> dict | list[dict]:
             if "/persons/" in url and url.endswith(PERSON_ID):
                 return {"person": {"person_id": PERSON_ID}}
             if "/accounts" in url:
@@ -147,3 +150,74 @@ def test_known_person_with_empty_data_returns_stable_structure() -> None:
     payload = response.json()["data"]
     assert payload["series"][0]["points"] == []
     assert payload["summary"]["value"] == 0
+
+
+def test_dashboard_deduplicates_symbol_requests() -> None:
+    class DedupService(FakeAnalyticsService):
+        def __init__(self) -> None:
+            super().__init__()
+            self.price_calls: dict[str, int] = {}
+            self.history_calls: dict[str, int] = {}
+
+        def _request_json(self, url: str, client=None) -> dict | list[dict]:
+            if url.endswith(f"/persons/{PERSON_ID}/portfolios"):
+                return {
+                    "items": [
+                        {"portfolio_id": "p-1", "display_name": "Depot 1"},
+                        {"portfolio_id": "p-2", "display_name": "Depot 2"},
+                    ],
+                    "total": 2,
+                }
+            if url.endswith("/portfolios/p-1"):
+                return {
+                    "holdings": [
+                        {"symbol": "AAPL", "quantity": 2, "acquisition_price": 100},
+                        {"symbol": "MSFT", "quantity": 1, "acquisition_price": 150},
+                    ]
+                }
+            if url.endswith("/portfolios/p-2"):
+                return {
+                    "holdings": [
+                        {"symbol": "AAPL", "quantity": 3, "acquisition_price": 90},
+                    ]
+                }
+            if "/profile" in url:
+                symbol = url.split("/instruments/")[1].split("/")[0]
+                self.price_calls[symbol] = self.price_calls.get(symbol, 0) + 1
+            if "/history" in url:
+                symbol = url.split("/instruments/")[1].split("/")[0]
+                self.history_calls[symbol] = self.history_calls.get(symbol, 0) + 1
+            return super()._request_json(url)
+
+    service = DedupService()
+    dashboard = service._dashboard_data(UUID(PERSON_ID))
+
+    assert dashboard.holdings_count == 3
+    assert service.price_calls == {"AAPL": 1, "MSFT": 1}
+    assert service.history_calls == {"AAPL": 1, "MSFT": 1}
+
+
+def test_dashboard_falls_back_when_marketdata_for_symbol_fails() -> None:
+    class PartialFailureService(FakeAnalyticsService):
+        def _request_json(self, url: str, client=None) -> dict | list[dict]:
+            if "/profile" in url and "MSFT" in url:
+                raise httpx.HTTPStatusError(
+                    "marketdata unavailable",
+                    request=httpx.Request("GET", url),
+                    response=httpx.Response(503, request=httpx.Request("GET", url)),
+                )
+            if "/history" in url and "MSFT" in url:
+                raise httpx.HTTPStatusError(
+                    "history unavailable",
+                    request=httpx.Request("GET", url),
+                    response=httpx.Response(503, request=httpx.Request("GET", url)),
+                )
+            return super()._request_json(url)
+
+    service = PartialFailureService()
+    dashboard = service._dashboard_data(UUID(PERSON_ID))
+
+    # AAPL: 2 * 110, MSFT fallback: 1 * 150 acquisition
+    assert dashboard.current_value == 370.0
+    assert [point.x for point in dashboard.timeseries_points] == ["2026-01-01", "2026-01-02"]
+    assert [point.y for point in dashboard.timeseries_points] == [200.0, 220.0]
