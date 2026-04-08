@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date, timedelta
 import logging
 import threading
+import time
 from typing import Any
 
 from app.clients.fmp_client import FMPClient
@@ -75,16 +76,64 @@ class MarketDataService:
         self._inflight_guard = threading.Lock()
 
     def search_instruments(self, query: str, limit: int) -> InstrumentSearchResponse:
+        method_started_at = time.perf_counter()
+        LOGGER.info('search_trace marketdata_service_enter query="%s" limit=%s', query, limit)
         cleaned_query = query.strip()
         if len(cleaned_query) < 1:
+            duration_ms = round((time.perf_counter() - method_started_at) * 1000, 2)
+            LOGGER.info(
+                "search_trace marketdata_service_exit success=false duration_ms=%s reason=invalid_query query=%r",
+                duration_ms,
+                query,
+            )
             raise BadRequestError("query must contain at least 1 character")
         bounded_limit = max(1, min(limit, self.MAX_SEARCH_LIMIT))
 
         cache_key = (cleaned_query.lower(), bounded_limit)
+        LOGGER.info(
+            'search_trace marketdata_service_before_cache_check query="%s" bounded_limit=%s cache_enabled=%s',
+            cleaned_query,
+            bounded_limit,
+            self._cache_enabled,
+        )
         if self._cache_enabled and cache_key in self._search_cache:
-            return self._search_cache[cache_key]
+            cached_response = self._search_cache[cache_key]
+            duration_ms = round((time.perf_counter() - method_started_at) * 1000, 2)
+            LOGGER.info(
+                'search_trace marketdata_service_cache_hit query="%s" bounded_limit=%s total=%s duration_ms=%s',
+                cleaned_query,
+                bounded_limit,
+                cached_response.total,
+                duration_ms,
+            )
+            return cached_response
+        LOGGER.info(
+            'search_trace marketdata_service_cache_miss query="%s" bounded_limit=%s',
+            cleaned_query,
+            bounded_limit,
+        )
 
-        rows = self._fmp_client.search_name(query=cleaned_query, limit=bounded_limit)
+        fmp_started_at = time.perf_counter()
+        LOGGER.info('search_trace marketdata_service_before_fmp query="%s" limit=%s', cleaned_query, bounded_limit)
+        try:
+            rows = self._fmp_client.search_name(query=cleaned_query, limit=bounded_limit)
+            fmp_duration_ms = round((time.perf_counter() - fmp_started_at) * 1000, 2)
+            LOGGER.info(
+                'search_trace marketdata_service_after_fmp success=true query="%s" limit=%s duration_ms=%s row_count=%s',
+                cleaned_query,
+                bounded_limit,
+                fmp_duration_ms,
+                len(rows),
+            )
+        except Exception:
+            fmp_duration_ms = round((time.perf_counter() - fmp_started_at) * 1000, 2)
+            LOGGER.exception(
+                'search_trace marketdata_service_after_fmp success=false query="%s" limit=%s duration_ms=%s',
+                cleaned_query,
+                bounded_limit,
+                fmp_duration_ms,
+            )
+            raise
         items = [
             InstrumentSearchItem.model_validate(
                 {
@@ -102,6 +151,14 @@ class MarketDataService:
         response = InstrumentSearchResponse(query=cleaned_query, items=items, total=len(items))
         if self._cache_enabled:
             self._search_cache[cache_key] = response
+        total_duration_ms = round((time.perf_counter() - method_started_at) * 1000, 2)
+        LOGGER.info(
+            'search_trace marketdata_service_exit success=true query="%s" bounded_limit=%s total=%s duration_ms=%s',
+            cleaned_query,
+            bounded_limit,
+            response.total,
+            total_duration_ms,
+        )
         return response
 
     def get_instrument_profile(self, symbol: str) -> InstrumentProfile:
