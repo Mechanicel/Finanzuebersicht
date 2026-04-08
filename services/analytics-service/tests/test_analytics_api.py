@@ -122,12 +122,22 @@ def test_all_analytics_endpoints_exist() -> None:
         assert response.status_code == 200, suffix
         assert response.json()["data"]["meta"]["loading"] is False
 
+    dashboard_suffixes = ["overview", "allocation", "timeseries", "metrics"]
+    for suffix in dashboard_suffixes:
+        response = client.get(f"/api/v1/analytics/persons/{PERSON_ID}/dashboard/{suffix}")
+        assert response.status_code == 200, suffix
+        payload = response.json()["data"]
+        assert payload["section"] == suffix
+        assert payload["state"] in {"pending", "ready", "stale", "error"}
+
 
 def test_unknown_person_returns_404() -> None:
     client = _client_with_fake_service()
     response = client.get(f"/api/v1/analytics/persons/{UNKNOWN_PERSON_ID}/overview")
 
     assert response.status_code == 404
+    section_response = client.get(f"/api/v1/analytics/persons/{UNKNOWN_PERSON_ID}/dashboard/overview")
+    assert section_response.status_code == 404
 
 
 def test_known_person_with_empty_data_returns_stable_structure() -> None:

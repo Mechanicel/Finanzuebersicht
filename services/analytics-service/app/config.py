@@ -13,6 +13,7 @@ class Settings(ServiceSettings):
     marketdata_service_url: str = "http://localhost:8005"
     request_timeout_seconds: float = 3.0
     dashboard_cache_ttl_seconds: float = 45.0
+    dashboard_section_refresh_workers: int = 8
 
 
 @lru_cache(maxsize=1)

@@ -177,6 +177,18 @@ class StubGatewayService:
             kpis=[{"key": "wealth", "value": 1}],
         )
 
+    async def get_dashboard_section(self, person_id: UUID, section: str) -> dict:
+        return {
+            "person_id": str(person_id),
+            "section": section,
+            "state": "ready",
+            "generated_at": "2026-04-08T12:34:56Z",
+            "stale_at": "2026-04-08T12:35:56Z",
+            "refresh_in_progress": False,
+            "warnings": [],
+            "payload": {"person_id": str(person_id), "labels": []},
+        }
+
     async def list_accounts(self, person_id: UUID) -> list[dict]:
         return [
             {
@@ -446,6 +458,10 @@ def test_app_endpoints_for_vue_pages() -> None:
     assert client.get(f"/api/v1/app/persons/{PERSON_ID}/allowances/summary", params={"tax_year": 2025}).status_code == 200
 
     assert client.get(f"/api/v1/app/persons/{PERSON_ID}/dashboard").status_code == 200
+    assert client.get(f"/api/v1/app/persons/{PERSON_ID}/dashboard/overview").status_code == 200
+    assert client.get(f"/api/v1/app/persons/{PERSON_ID}/dashboard/allocation").status_code == 200
+    assert client.get(f"/api/v1/app/persons/{PERSON_ID}/dashboard/timeseries").status_code == 200
+    assert client.get(f"/api/v1/app/persons/{PERSON_ID}/dashboard/metrics").status_code == 200
     assert client.get(f"/api/v1/app/persons/{PERSON_ID}/accounts").status_code == 200
     assert (
         client.get(f"/api/v1/app/persons/{PERSON_ID}/accounts/10000000-0000-0000-0000-000000000001").status_code == 200
