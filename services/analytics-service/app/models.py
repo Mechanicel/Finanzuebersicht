@@ -123,14 +123,3 @@ class ForecastReadModel(BaseModel):
     summary: SummaryItem
     meta: LoadingMeta = Field(default_factory=LoadingMeta)
 
-
-class HoldingSnapshot(BaseModel):
-    date: date
-    total_value: float
-    holdings: dict[str, float]
-
-
-class PersonSnapshots(BaseModel):
-    person_id: UUID
-    currency: str = "EUR"
-    snapshots: list[HoldingSnapshot]
