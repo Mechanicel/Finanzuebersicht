@@ -5,6 +5,8 @@ from finanzuebersicht_shared.models import ApiResponse
 
 from app.dependencies import get_marketdata_service
 from app.models import (
+    BatchHistoryResponse,
+    BatchPricesResponse,
     HoldingsSummaryResponse,
     InstrumentHistoryResponse,
     InstrumentPriceRefreshResponse,
@@ -39,6 +41,23 @@ async def holdings_summary(
     service: MarketDataService = Depends(get_marketdata_service),
 ) -> ApiResponse[HoldingsSummaryResponse]:
     return ApiResponse(data=service.get_holdings_summary(symbols))
+
+
+@router.get("/marketdata/batch/prices", response_model=ApiResponse[BatchPricesResponse])
+async def batch_prices(
+    symbols: str = Query(..., min_length=1),
+    service: MarketDataService = Depends(get_marketdata_service),
+) -> ApiResponse[BatchPricesResponse]:
+    return ApiResponse(data=service.get_batch_prices(symbols))
+
+
+@router.get("/marketdata/batch/history", response_model=ApiResponse[BatchHistoryResponse])
+async def batch_history(
+    symbols: str = Query(..., min_length=1),
+    range_value: str = Query(default="3m", alias="range"),
+    service: MarketDataService = Depends(get_marketdata_service),
+) -> ApiResponse[BatchHistoryResponse]:
+    return ApiResponse(data=service.get_batch_history(symbols, range_value))
 
 
 @router.get("/marketdata/instruments/{symbol}/snapshot", response_model=ApiResponse[dict])

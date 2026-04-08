@@ -400,7 +400,31 @@ def test_holdings_summary_returns_partial_warnings(monkeypatch) -> None:
     assert result.total == 2
     assert result.items[0].symbol == "CBK.DE"
     assert result.items[1].coverage == "none"
-    assert result.meta["warnings"][0]["symbol"] == "NONE"
+    assert result.meta["errors"][0]["symbol"] == "NONE"
+
+
+def test_batch_prices_returns_cache_status(monkeypatch) -> None:
+    service, _, _, current_price_repository, _ = build_service()
+    fake_yf = FakeYFinance()
+    monkeypatch.setattr(MarketDataService, "_get_yf_module", staticmethod(lambda: fake_yf))
+    current_price_repository.upsert("CBK.DE", date.today().isoformat(), 31.48)
+
+    result = service.get_batch_prices("CBK.DE")
+
+    assert result.total == 1
+    assert result.items[0].cache_status == "fresh_cache"
+    assert result.items[0].current_price == 31.48
+
+
+def test_batch_history_cache_miss_seeded(monkeypatch) -> None:
+    service, _, _, _, _ = build_service()
+    fake_yf = FakeYFinance()
+    monkeypatch.setattr(MarketDataService, "_get_yf_module", staticmethod(lambda: fake_yf))
+
+    result = service.get_batch_history("CBK.DE", "3m")
+
+    assert result.items[0].cache_status == "cache_miss_seeded"
+    assert len(result.items[0].points) == 2
 
 
 def test_financials_rejects_invalid_period() -> None:

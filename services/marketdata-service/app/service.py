@@ -2,11 +2,17 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 import logging
+import threading
 from typing import Any
 
 from app.clients.fmp_client import FMPClient
 from app.models import (
     BadRequestError,
+    BatchHistoryItem,
+    BatchHistoryResponse,
+    BatchPriceItem,
+    BatchPricesResponse,
+    CacheStatus,
     FMPInstrumentProfile,
     HistoryRange,
     HoldingsSummaryItem,
@@ -40,6 +46,8 @@ LOGGER = logging.getLogger(__name__)
 class MarketDataService:
     MAX_SEARCH_LIMIT = 20
     VALID_HISTORY_RANGES: tuple[HistoryRange, ...] = ("1m", "3m", "6m", "ytd", "1y", "max")
+    PRICE_CACHE_STALE_AFTER = timedelta(hours=20)
+    HISTORY_STALE_AFTER = timedelta(hours=24)
 
     def __init__(
         self,
@@ -63,6 +71,8 @@ class MarketDataService:
         self._fundamentals_cache: dict[str, dict[str, Any]] = {}
         self._financials_cache: dict[tuple[str, str], dict[str, Any]] = {}
         self._benchmark_catalog_cache: dict[str, Any] | None = None
+        self._inflight_locks: dict[tuple[str, str], threading.Lock] = {}
+        self._inflight_guard = threading.Lock()
 
     def search_instruments(self, query: str, limit: int) -> InstrumentSearchResponse:
         cleaned_query = query.strip()
@@ -130,32 +140,95 @@ class MarketDataService:
         symbols = self._parse_symbols_csv(symbols_csv)
         items: list[HoldingsSummaryItem] = []
         warnings: list[MetaWarning] = []
+        errors: list[MetaWarning] = []
 
         for symbol in symbols:
             try:
-                snapshot = self.get_instrument_snapshot(symbol)
+                profile_payload = self._get_profile_with_swr(symbol)
+                price_payload = self._get_price_with_swr(symbol)
+                cache_status = self._combine_cache_status(profile_payload["cache_status"], price_payload["cache_status"])
                 items.append(
                     HoldingsSummaryItem(
                         symbol=symbol,
-                        name=snapshot.get("name"),
-                        sector=snapshot.get("sector"),
-                        country=snapshot.get("country"),
-                        currency=snapshot.get("currency"),
-                        current_price=snapshot.get("current_price"),
-                        provider=snapshot.get("provider"),
-                        as_of=snapshot.get("as_of"),
-                        coverage=snapshot.get("coverage", "basic"),
+                        name=profile_payload.get("name"),
+                        sector=profile_payload.get("sector"),
+                        country=profile_payload.get("country"),
+                        currency=profile_payload.get("currency"),
+                        current_price=price_payload.get("current_price"),
+                        provider=price_payload.get("provider") or profile_payload.get("provider"),
+                        as_of=price_payload.get("as_of"),
+                        coverage="profile+price",
+                        cache_status=cache_status,
                     )
                 )
             except Exception as exc:
-                warnings.append(MetaWarning(symbol=symbol, code="symbol_unavailable", message=str(exc)))
-                items.append(HoldingsSummaryItem(symbol=symbol, coverage="none"))
+                errors.append(MetaWarning(symbol=symbol, code="symbol_unavailable", message=str(exc)))
+                items.append(HoldingsSummaryItem(symbol=symbol, coverage="none", cache_status="cache_miss_pending"))
 
         return HoldingsSummaryResponse(
             items=items,
             requested_symbols=symbols,
             total=len(items),
-            meta={"warnings": [warning.model_dump() for warning in warnings]},
+            meta={"warnings": [warning.model_dump() for warning in warnings], "errors": [error.model_dump() for error in errors]},
+        )
+
+    def get_batch_prices(self, symbols_csv: str) -> BatchPricesResponse:
+        symbols = self._parse_symbols_csv(symbols_csv)
+        items: list[BatchPriceItem] = []
+        warnings: list[MetaWarning] = []
+        errors: list[MetaWarning] = []
+        for symbol in symbols:
+            try:
+                payload = self._get_price_with_swr(symbol)
+                items.append(
+                    BatchPriceItem(
+                        symbol=symbol,
+                        current_price=payload.get("current_price"),
+                        trade_date=payload.get("as_of"),
+                        price_source=payload.get("price_source"),
+                        fetched_at=payload.get("fetched_at"),
+                        cache_status=payload["cache_status"],
+                    )
+                )
+            except Exception as exc:
+                errors.append(MetaWarning(symbol=symbol, code="symbol_unavailable", message=str(exc)))
+                items.append(BatchPriceItem(symbol=symbol, cache_status="cache_miss_pending"))
+        return BatchPricesResponse(
+            items=items,
+            requested_symbols=symbols,
+            total=len(items),
+            meta={"warnings": [warning.model_dump() for warning in warnings], "errors": [error.model_dump() for error in errors]},
+        )
+
+    def get_batch_history(self, symbols_csv: str, range_value: str = "3m") -> BatchHistoryResponse:
+        symbols = self._parse_symbols_csv(symbols_csv)
+        if range_value not in self.VALID_HISTORY_RANGES:
+            raise BadRequestError("range must be one of: 1m, 3m, 6m, ytd, 1y, max")
+
+        items: list[BatchHistoryItem] = []
+        errors: list[MetaWarning] = []
+        for symbol in symbols:
+            try:
+                payload = self._get_history_with_swr(symbol, range_value)
+                items.append(
+                    BatchHistoryItem(
+                        symbol=symbol,
+                        range=range_value,  # type: ignore[arg-type]
+                        points=payload["points"],
+                        cache_present=payload["cache_present"],
+                        updated_at=payload["updated_at"],
+                        cache_status=payload["cache_status"],
+                    )
+                )
+            except Exception as exc:
+                errors.append(MetaWarning(symbol=symbol, code="symbol_unavailable", message=str(exc)))
+                items.append(BatchHistoryItem(symbol=symbol, range=range_value, points=[], cache_present=False, cache_status="cache_miss_pending"))  # type: ignore[arg-type]
+
+        return BatchHistoryResponse(
+            items=items,
+            requested_symbols=symbols,
+            total=len(items),
+            meta={"warnings": [], "errors": [error.model_dump() for error in errors]},
         )
 
     def get_instrument_snapshot(self, symbol: str) -> dict[str, Any]:
@@ -446,33 +519,71 @@ class MarketDataService:
         self._price_history_repository.enrich_history_rows(normalized, rows)
 
     def get_instrument_history(self, symbol: str, range_value: str = "3m") -> InstrumentHistoryResponse:
-        normalized = symbol.strip().upper()
-        if not normalized:
-            raise BadRequestError("symbol must not be empty")
-        if range_value not in self.VALID_HISTORY_RANGES:
-            raise BadRequestError("range must be one of: 1m, 3m, 6m, ytd, 1y, max")
-
-        cache_document = self._price_history_repository.get(normalized)
-        cache_present = cache_document is not None
-        if cache_document is None:
-            self.seed_history_max(normalized)
-            cache_document = self._price_history_repository.get(normalized)
-
-        if cache_document is None or not cache_document.history_rows:
-            raise NotFoundError(f"No price history available for instrument '{normalized}'")
-
-        cutoff = self._history_cutoff(date.today(), range_value)
-        filtered_rows = cache_document.history_rows if cutoff is None else [row for row in cache_document.history_rows if row.date >= cutoff]
-        filtered_rows.sort(key=lambda row: row.date)
-
-        points = [InstrumentHistoryPoint(date=row.date, close=row.close) for row in filtered_rows]
+        normalized = self._normalize_symbol(symbol)
+        payload = self._get_history_with_swr(normalized, range_value)
         return InstrumentHistoryResponse(
             symbol=normalized,
             range=range_value,
-            points=points,
-            cache_present=cache_present,
-            updated_at=cache_document.updated_at,
+            points=payload["points"],
+            cache_present=payload["cache_present"],
+            updated_at=payload["updated_at"],
         )
+
+    def _get_profile_with_swr(self, symbol: str) -> dict[str, Any]:
+        normalized = self._normalize_symbol(symbol)
+        cached = self._profile_repository.get(normalized)
+        if cached is not None and self._is_fresh(cached.fetched_at):
+            return {"name": cached.visible_profile.company_name, "sector": cached.visible_profile.sector, "country": cached.visible_profile.country, "currency": cached.visible_profile.currency, "provider": cached.source, "cache_status": "fresh_cache"}
+        if cached is not None:
+            self._trigger_background_refresh("profile", normalized, self._refresh_profile_now)
+            return {"name": cached.visible_profile.company_name, "sector": cached.visible_profile.sector, "country": cached.visible_profile.country, "currency": cached.visible_profile.currency, "provider": cached.source, "cache_status": "stale_cache"}
+        refreshed = self._refresh_profile_now(normalized)
+        if refreshed is None:
+            return {"name": None, "sector": None, "country": None, "currency": None, "provider": None, "cache_status": "cache_miss_pending"}
+        return refreshed | {"cache_status": "cache_miss_seeded"}
+
+    def _get_price_with_swr(self, symbol: str) -> dict[str, Any]:
+        normalized = self._normalize_symbol(symbol)
+        trade_date = date.today().isoformat()
+        cached_today = self._current_price_repository.get(normalized, trade_date)
+        if cached_today is not None:
+            return {"current_price": cached_today.current_price, "as_of": cached_today.trade_date, "provider": "yfinance", "price_source": "cache_today", "fetched_at": cached_today.fetched_at, "cache_status": "fresh_cache"}
+
+        latest = self._current_price_repository.get_latest(normalized)
+        if latest is not None:
+            if utcnow() - latest.fetched_at > self.PRICE_CACHE_STALE_AFTER:
+                self._trigger_background_refresh("price", normalized, self._refresh_price_now)
+                return {"current_price": latest.current_price, "as_of": latest.trade_date, "provider": "yfinance", "price_source": latest.source, "fetched_at": latest.fetched_at, "cache_status": "stale_cache"}
+
+        refreshed = self._refresh_price_now(normalized)
+        if refreshed is None and latest is not None:
+            return {"current_price": latest.current_price, "as_of": latest.trade_date, "provider": "yfinance", "price_source": latest.source, "fetched_at": latest.fetched_at, "cache_status": "provider_error_fallback"}
+        if refreshed is None:
+            return {"current_price": None, "as_of": trade_date, "provider": "yfinance", "price_source": "yfinance_1d_1m", "fetched_at": None, "cache_status": "cache_miss_pending"}
+        return refreshed | {"cache_status": "cache_miss_seeded"}
+
+    def _get_history_with_swr(self, symbol: str, range_value: str) -> dict[str, Any]:
+        normalized = self._normalize_symbol(symbol)
+        if range_value not in self.VALID_HISTORY_RANGES:
+            raise BadRequestError("range must be one of: 1m, 3m, 6m, ytd, 1y, max")
+        cache_document = self._price_history_repository.get(normalized)
+        if cache_document is None:
+            seeded = self._refresh_history_seed_now(normalized)
+            if not seeded:
+                return {"points": [], "cache_present": False, "updated_at": None, "cache_status": "cache_miss_pending"}
+            cache_document = self._price_history_repository.get(normalized)
+            cache_status: CacheStatus = "cache_miss_seeded"
+        else:
+            cache_status = "fresh_cache"
+            if utcnow() - cache_document.updated_at > self.HISTORY_STALE_AFTER:
+                cache_status = "stale_cache"
+                self._trigger_background_refresh("history", normalized, self._refresh_history_enrich_now)
+        if cache_document is None or not cache_document.history_rows:
+            raise NotFoundError(f"No price history available for instrument '{normalized}'")
+        cutoff = self._history_cutoff(date.today(), range_value)  # type: ignore[arg-type]
+        filtered_rows = cache_document.history_rows if cutoff is None else [row for row in cache_document.history_rows if row.date >= cutoff]
+        filtered_rows.sort(key=lambda row: row.date)
+        return {"points": [InstrumentHistoryPoint(date=row.date, close=row.close) for row in filtered_rows], "cache_present": True, "updated_at": cache_document.updated_at, "cache_status": cache_status}
 
     def _extract_market_cap(self, symbol: str) -> float | None:
         cached = self._profile_repository.get(symbol)
@@ -532,6 +643,83 @@ class MarketDataService:
         if not prefix_parts:
             return None
         return ", ".join(prefix_parts)
+
+    def _lock_for(self, datatype: str, symbol: str) -> threading.Lock:
+        key = (datatype, symbol)
+        with self._inflight_guard:
+            if key not in self._inflight_locks:
+                self._inflight_locks[key] = threading.Lock()
+            return self._inflight_locks[key]
+
+    def _trigger_background_refresh(self, datatype: str, symbol: str, func) -> None:
+        lock = self._lock_for(datatype, symbol)
+        if not lock.acquire(blocking=False):
+            return
+
+        def _run() -> None:
+            try:
+                func(symbol)
+            except Exception:
+                LOGGER.warning("background refresh failed for %s/%s", datatype, symbol, exc_info=True)
+            finally:
+                lock.release()
+
+        threading.Thread(target=_run, daemon=True).start()
+
+    def _refresh_profile_now(self, symbol: str) -> dict[str, Any] | None:
+        lock = self._lock_for("profile", symbol)
+        with lock:
+            rows = self._fmp_client.profile(symbol=symbol)
+            if not rows:
+                return None
+            parsed = FMPInstrumentProfile.model_validate(rows[0] | {"symbol": symbol})
+            visible_profile = self._build_visible_profile(parsed)
+            persistence_only_profile = self._build_persistence_profile(parsed)
+            self._profile_repository.upsert(
+                symbol,
+                visible_profile=visible_profile.model_dump(),
+                persistence_only_profile=persistence_only_profile.model_dump(),
+            )
+            return {"name": visible_profile.company_name, "sector": visible_profile.sector, "country": visible_profile.country, "currency": visible_profile.currency, "provider": "fmp_profile_v2"}
+
+    def _refresh_price_now(self, symbol: str) -> dict[str, Any] | None:
+        lock = self._lock_for("price", symbol)
+        with lock:
+            try:
+                current_price = self._fetch_current_price(symbol)
+                trade_date = date.today().isoformat()
+                stored = self._current_price_repository.upsert(symbol, trade_date, current_price, source="yfinance_1d_1m")
+                return {"current_price": current_price, "as_of": trade_date, "provider": "yfinance", "price_source": "yfinance_1d_1m", "fetched_at": stored.fetched_at}
+            except Exception:
+                LOGGER.warning("price refresh failed for %s", symbol, exc_info=True)
+                return None
+
+    def _refresh_history_seed_now(self, symbol: str) -> bool:
+        lock = self._lock_for("history", symbol)
+        with lock:
+            try:
+                if self._price_history_repository.get(symbol) is None:
+                    self.seed_history_max(symbol)
+                return self._price_history_repository.get(symbol) is not None
+            except Exception:
+                LOGGER.warning("history seed failed for %s", symbol, exc_info=True)
+                return False
+
+    def _refresh_history_enrich_now(self, symbol: str) -> None:
+        lock = self._lock_for("history", symbol)
+        with lock:
+            self.enrich_history_recent(symbol)
+
+    @staticmethod
+    def _combine_cache_status(left: CacheStatus, right: CacheStatus) -> CacheStatus:
+        severity = {
+            "provider_error_fallback": 5,
+            "cache_miss_pending": 4,
+            "cache_miss_seeded": 3,
+            "stale_cache": 2,
+            "fresh_cache": 1,
+        }
+        return left if severity[left] >= severity[right] else right
 
     def _is_fresh(self, fetched_at) -> bool:
         return utcnow() - fetched_at <= timedelta(seconds=self._profile_cache_ttl_seconds)

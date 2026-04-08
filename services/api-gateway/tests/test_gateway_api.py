@@ -380,6 +380,12 @@ class StubGatewayService:
     async def get_marketdata_holdings_summary(self, symbols: str) -> dict:
         return {"requested_symbols": symbols.split(","), "items": [], "total": 0, "meta": {"warnings": []}}
 
+    async def get_marketdata_batch_prices(self, symbols: str) -> dict:
+        return {"requested_symbols": symbols.split(","), "items": [{"symbol": "AAPL", "cache_status": "fresh_cache"}], "total": 1, "meta": {"warnings": [], "errors": []}}
+
+    async def get_marketdata_batch_history(self, symbols: str, *, range_value: str | None = None) -> dict:
+        return {"requested_symbols": symbols.split(","), "items": [{"symbol": "AAPL", "range": range_value or "3m", "cache_status": "fresh_cache", "points": []}], "total": 1, "meta": {"warnings": [], "errors": []}}
+
     async def get_marketdata_snapshot(self, symbol: str) -> dict:
         return {"symbol": symbol, "coverage": "profile+price"}
 
@@ -501,6 +507,8 @@ def test_app_endpoints_for_vue_pages() -> None:
     assert client.get("/api/v1/app/marketdata/instruments/AAPL/timeseries", params={"series": "close", "benchmark": "SPY"}).status_code == 200
     assert client.get("/api/v1/app/marketdata/instruments/AAPL/comparison-timeseries", params={"symbols": "MSFT,NVDA"}).status_code == 200
     assert client.get("/api/v1/app/marketdata/depot/holdings-summary", params={"symbols": "AAPL,MSFT"}).status_code == 200
+    assert client.get("/api/v1/app/marketdata/batch/prices", params={"symbols": "AAPL,MSFT"}).status_code == 200
+    assert client.get("/api/v1/app/marketdata/batch/history", params={"symbols": "AAPL,MSFT", "range": "3m"}).status_code == 200
     assert client.get("/api/v1/app/marketdata/benchmark-catalog").status_code == 200
     assert client.get("/api/v1/app/marketdata/benchmark-search", params={"q": "sp"}).status_code == 200
     assert client.post("/api/v1/app/marketdata/instruments/AAPL/refresh-price").status_code == 200

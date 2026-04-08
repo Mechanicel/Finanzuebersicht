@@ -426,6 +426,23 @@ async def marketdata_holdings_summary(
     return ApiResponse(data=await service.get_marketdata_holdings_summary(symbols))
 
 
+@router.get("/app/marketdata/batch/prices", response_model=ApiResponse[dict])
+async def marketdata_batch_prices(
+    service: Annotated[GatewayService, Depends(get_gateway_service)],
+    symbols: str = Query(..., min_length=1),
+) -> ApiResponse[dict]:
+    return ApiResponse(data=await service.get_marketdata_batch_prices(symbols))
+
+
+@router.get("/app/marketdata/batch/history", response_model=ApiResponse[dict])
+async def marketdata_batch_history(
+    service: Annotated[GatewayService, Depends(get_gateway_service)],
+    symbols: str = Query(..., min_length=1),
+    range_value: Literal["1m", "3m", "6m", "ytd", "1y", "max"] = Query(default="3m", alias="range"),
+) -> ApiResponse[dict]:
+    return ApiResponse(data=await service.get_marketdata_batch_history(symbols, range_value=range_value))
+
+
 @router.get("/app/marketdata/instruments/{symbol}/snapshot", response_model=ApiResponse[dict])
 async def marketdata_snapshot(
     symbol: str,

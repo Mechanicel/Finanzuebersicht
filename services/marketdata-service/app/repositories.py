@@ -138,6 +138,12 @@ class CurrentPriceCacheRepository:
             fetched_at=fetched_at,
         )
 
+    def get_latest(self, symbol: str) -> CurrentPriceCacheDocument | None:
+        document = self._collection.find_one({"symbol": symbol}, sort=[("trade_date", -1)])
+        if document is None:
+            return None
+        return self._to_document(document)
+
     @staticmethod
     def _to_document(document: dict) -> CurrentPriceCacheDocument | None:
         fetched_at = document.get("fetched_at")
@@ -181,6 +187,12 @@ class InMemoryCurrentPriceCacheRepository:
         )
         self._data[(symbol, trade_date)] = document
         return document
+
+    def get_latest(self, symbol: str) -> CurrentPriceCacheDocument | None:
+        matching = [doc for (stored_symbol, _), doc in self._data.items() if stored_symbol == symbol]
+        if not matching:
+            return None
+        return max(matching, key=lambda item: item.trade_date)
 
 
 class PriceHistoryCacheRepository:
