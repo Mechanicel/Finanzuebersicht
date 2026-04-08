@@ -115,17 +115,29 @@
       <section v-if="showHoldingsSection">
         <div class="holdings-header">
           <h4>Vorhandene Positionen</h4>
-          <button
-            type="button"
-            class="btn secondary"
-            data-testid="holdings-refresh-button"
-            :disabled="!selectedPortfolioId || refreshLoading || loading"
-            @click="refreshHoldingPrices"
-          >
-            {{ refreshLoading ? 'Aktualisieren läuft…' : 'Aktualisieren' }}
-          </button>
+          <p v-if="refreshLoading" class="muted">Tagespreise werden aktualisiert …</p>
         </div>
         <p v-if="refreshError" class="muted" data-testid="holdings-refresh-error">{{ refreshError }}</p>
+        <section class="chart-card" data-testid="portfolio-chart-card">
+          <PortfolioValueChart
+            v-if="canRenderPortfolioChart"
+            :points="portfolioChartPoints"
+            :range="portfolioChartRange"
+            :loading="chartLoading"
+            :error="chartError || ''"
+            @range-change="onPortfolioChartRangeChange"
+          >
+            <template #title>
+              <h5 class="chart-title">Portfolio-Chart</h5>
+            </template>
+          </PortfolioValueChart>
+          <p v-else class="muted" data-testid="portfolio-chart-currency-hint">
+            Portfolio-Chart aktuell nur für einheitliche Depot-Währung verfügbar.
+          </p>
+          <p class="muted chart-meta" data-testid="portfolio-chart-meta">
+            Stand: {{ chartLastUpdatedLabel }} · Range: {{ portfolioChartRange.toUpperCase() }}<span v-if="chartCacheHint"> · {{ chartCacheHint }}</span>
+          </p>
+        </section>
         <div v-if="holdingsForSummary.length" class="portfolio-summary" data-testid="portfolio-summary">
           <div class="summary-card">
             <p class="muted">Aktueller Gesamtwert</p>
@@ -217,6 +229,8 @@ import { useRoute, useRouter } from 'vue-router'
 import { apiClient } from '@/shared/api/client'
 import type {
   HoldingCreatePayload,
+  InstrumentHistoryPoint,
+  InstrumentHistoryRange,
   HoldingReadModel,
   InstrumentPriceRefreshResponse,
   InstrumentSearchItem,
@@ -227,6 +241,7 @@ import type {
 import ErrorState from '@/shared/ui/ErrorState.vue'
 import LoadingState from '@/shared/ui/LoadingState.vue'
 import EmptyState from '@/shared/ui/EmptyState.vue'
+import PortfolioValueChart from '@/shared/ui/PortfolioValueChart.vue'
 
 const props = withDefaults(
   defineProps<{ personId: string; depotLabel: string; title?: string; viewMode?: 'all' | 'holdings' | 'add' }>(),
@@ -245,6 +260,12 @@ const refreshLoading = ref(false)
 const refreshError = ref<string | null>(null)
 const currentPriceBySymbol = ref<Record<string, number>>({})
 const refreshMetaBySymbol = ref<Record<string, InstrumentPriceRefreshResponse>>({})
+const portfolioChartRange = ref<InstrumentHistoryRange>('3m')
+const portfolioChartPoints = ref<Array<{ date: string; value: number }>>([])
+const chartLoading = ref(false)
+const chartError = ref<string | null>(null)
+const chartLastUpdatedAt = ref<string | null>(null)
+const chartCacheHint = ref<string | null>(null)
 const searching = ref(false)
 const profileLoading = ref(false)
 const searchQuery = ref('')
@@ -330,6 +351,14 @@ const filteredHoldings = computed(() => {
   })
 })
 const holdingsForSummary = computed(() => portfolioDetail.value?.holdings ?? [])
+const holdingsCurrencies = computed(() => Array.from(new Set(holdingsForSummary.value.map((holding) => holding.currency).filter((currency) => typeof currency === 'string' && currency.trim().length > 0))))
+const canRenderPortfolioChart = computed(() => holdingsForSummary.value.length > 0 && holdingsCurrencies.value.length <= 1)
+const chartLastUpdatedLabel = computed(() => {
+  if (!chartLastUpdatedAt.value) return '—'
+  const date = new Date(chartLastUpdatedAt.value)
+  if (Number.isNaN(date.getTime())) return '—'
+  return new Intl.DateTimeFormat('de-DE', { dateStyle: 'short', timeStyle: 'short' }).format(date)
+})
 
 type HoldingMetrics = {
   holding: HoldingReadModel
@@ -432,6 +461,7 @@ async function load() {
   try {
     await resolvePortfolio()
     await refreshPortfolio()
+    await refreshHoldingsAndChart()
   } catch (e) {
     errorMessage.value = e instanceof Error ? e.message : 'Depot-Positionen konnten nicht geladen werden.'
   } finally {
@@ -445,6 +475,11 @@ async function refreshPortfolio() {
     return
   }
   portfolioDetail.value = await apiClient.portfolio(selectedPortfolioId.value)
+}
+
+async function refreshHoldingsAndChart() {
+  await refreshHoldingPrices()
+  await loadPortfolioChartData()
 }
 
 async function searchInstrument(requestId: number) {
@@ -696,32 +731,119 @@ async function removeHolding(holdingId: string) {
 
 async function refreshHoldingPrices() {
   if (!selectedPortfolioId.value) return
-  const symbols = Array.from(new Set(filteredHoldings.value.map((holding) => normalizeSymbol(holding.symbol)).filter(Boolean)))
+  const symbols = Array.from(new Set(holdingsForSummary.value.map((holding) => normalizeSymbol(holding.symbol)).filter(Boolean)))
   if (!symbols.length) return
   refreshLoading.value = true
   refreshError.value = null
-  feedbackMessage.value = ''
   const failedSymbols: string[] = []
   try {
-    for (const symbol of symbols) {
-      try {
-        const response = await apiClient.refreshInstrumentPrice(symbol)
-        currentPriceBySymbol.value = { ...currentPriceBySymbol.value, [symbol]: response.current_price }
-        refreshMetaBySymbol.value = { ...refreshMetaBySymbol.value, [symbol]: response }
-      } catch {
+    const results = await Promise.allSettled(symbols.map((symbol) => apiClient.refreshInstrumentPrice(symbol)))
+    results.forEach((result, index) => {
+      const symbol = symbols[index]
+      if (result.status === 'fulfilled') {
+        currentPriceBySymbol.value = { ...currentPriceBySymbol.value, [symbol]: result.value.current_price }
+        refreshMetaBySymbol.value = { ...refreshMetaBySymbol.value, [symbol]: result.value }
+      } else {
         failedSymbols.push(symbol)
       }
-    }
+    })
     if (failedSymbols.length > 0) {
       refreshError.value = `Kurs-Refresh fehlgeschlagen für: ${failedSymbols.join(', ')}`
     }
-    await showSuccessFeedback(`Kurs-Refresh abgeschlossen (${symbols.length - failedSymbols.length}/${symbols.length} erfolgreich).`)
   } catch (e) {
-    feedbackMessage.value = ''
     refreshError.value = e instanceof Error ? e.message : 'Kurs-Aktualisierung konnte nicht ausgelöst werden.'
   } finally {
     refreshLoading.value = false
   }
+}
+
+function buildPortfolioSeriesByHistory(
+  holdings: HoldingReadModel[],
+  historyBySymbol: Record<string, InstrumentHistoryPoint[]>
+) {
+  const allDates = new Set<string>()
+  Object.values(historyBySymbol).forEach((points) => {
+    points.forEach((point) => allDates.add(point.date))
+  })
+  const sortedDates = Array.from(allDates).sort((a, b) => a.localeCompare(b))
+  const lastKnownCloseBySymbol: Record<string, number | null> = {}
+  const firstKnownDateBySymbol: Record<string, string | null> = {}
+  Object.entries(historyBySymbol).forEach(([symbol, points]) => {
+    firstKnownDateBySymbol[symbol] = points[0]?.date ?? null
+    lastKnownCloseBySymbol[symbol] = null
+  })
+
+  return sortedDates.map((date) => {
+    let totalValue = 0
+    holdings.forEach((holding) => {
+      if (holding.buy_date > date) return
+      const symbol = normalizeSymbol(holding.symbol)
+      const points = historyBySymbol[symbol] ?? []
+      const currentPoint = points.find((point) => point.date === date)
+      if (currentPoint) {
+        lastKnownCloseBySymbol[symbol] = currentPoint.close
+      }
+      const firstKnownDate = firstKnownDateBySymbol[symbol]
+      if (!firstKnownDate || date < firstKnownDate) return
+      const effectiveClose = lastKnownCloseBySymbol[symbol]
+      if (typeof effectiveClose !== 'number' || !Number.isFinite(effectiveClose)) return
+      totalValue += holding.quantity * effectiveClose
+    })
+    return { date, value: totalValue }
+  })
+}
+
+async function loadPortfolioChartData() {
+  chartError.value = null
+  chartLastUpdatedAt.value = null
+  chartCacheHint.value = null
+  if (!canRenderPortfolioChart.value) {
+    portfolioChartPoints.value = []
+    return
+  }
+  const symbols = Array.from(new Set(holdingsForSummary.value.map((holding) => normalizeSymbol(holding.symbol)).filter(Boolean)))
+  if (!symbols.length) {
+    portfolioChartPoints.value = []
+    return
+  }
+  chartLoading.value = true
+  try {
+    const results = await Promise.allSettled(symbols.map((symbol) => apiClient.instrumentHistory(symbol, portfolioChartRange.value)))
+    const historyBySymbol: Record<string, InstrumentHistoryPoint[]> = {}
+    let cachePresentCount = 0
+    let latestUpdatedAt: string | null = null
+
+    results.forEach((result, index) => {
+      if (result.status !== 'fulfilled') return
+      const symbol = symbols[index]
+      historyBySymbol[symbol] = result.value.points ?? []
+      if (result.value.cache_present) cachePresentCount += 1
+      if (!latestUpdatedAt || result.value.updated_at > latestUpdatedAt) {
+        latestUpdatedAt = result.value.updated_at
+      }
+    })
+
+    if (!Object.keys(historyBySymbol).length) {
+      portfolioChartPoints.value = []
+      chartError.value = 'Kursverlauf konnte nicht geladen werden.'
+      return
+    }
+
+    portfolioChartPoints.value = buildPortfolioSeriesByHistory(holdingsForSummary.value, historyBySymbol)
+    chartLastUpdatedAt.value = latestUpdatedAt
+    chartCacheHint.value = cachePresentCount > 0 ? `Cache-Hits: ${cachePresentCount}/${symbols.length}` : null
+  } catch (e) {
+    chartError.value = e instanceof Error ? e.message : 'Kursverlauf konnte nicht geladen werden.'
+    portfolioChartPoints.value = []
+  } finally {
+    chartLoading.value = false
+  }
+}
+
+async function onPortfolioChartRangeChange(nextRange: InstrumentHistoryRange) {
+  if (nextRange === portfolioChartRange.value) return
+  portfolioChartRange.value = nextRange
+  await loadPortfolioChartData()
 }
 
 watch(() => [props.personId, props.depotLabel], () => { void load() })
@@ -776,7 +898,16 @@ onBeforeUnmount(() => {
 .wide { grid-column: span 3; }
 .context-panel { display: flex; align-items: center; justify-content: space-between; gap: .75rem; margin-top: .75rem; }
 .manager-grid { display: grid; gap: 1rem; }
-.holdings-header { display: flex; align-items: center; justify-content: space-between; gap: .75rem; }
+.holdings-header { display: flex; align-items: center; justify-content: space-between; gap: .75rem; flex-wrap: wrap; }
+.chart-card {
+  margin: .6rem 0 .8rem;
+  border: 1px solid #dbeafe;
+  border-radius: 8px;
+  padding: .7rem;
+  background: #f8fbff;
+}
+.chart-title { margin: 0; font-size: .95rem; }
+.chart-meta { margin-top: .35rem; }
 .portfolio-summary {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -907,5 +1038,8 @@ onBeforeUnmount(() => {
   background: #f0fdf4;
   color: #166534;
   font-weight: 600;
+}
+@media (max-width: 780px) {
+  .holdings-header { align-items: flex-start; }
 }
 </style>
