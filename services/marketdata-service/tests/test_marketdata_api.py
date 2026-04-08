@@ -282,7 +282,13 @@ def test_history_endpoint_invalid_range_returns_400() -> None:
 def test_new_analysis_endpoints_are_reachable() -> None:
     class FakeService:
         def get_holdings_summary(self, symbols: str):
-            return {"items": [{"symbol": "AAPL", "coverage": "profile+price"}], "requested_symbols": symbols.split(","), "total": 1, "meta": {"warnings": []}}
+            return {"items": [{"symbol": "AAPL", "coverage": "profile+price", "cache_status": "fresh_cache"}], "requested_symbols": symbols.split(","), "total": 1, "meta": {"warnings": [], "errors": []}}
+
+        def get_batch_prices(self, symbols: str):
+            return {"items": [{"symbol": "AAPL", "current_price": 100.0, "trade_date": "2026-04-08", "price_source": "cache_today", "cache_status": "fresh_cache", "fetched_at": "2026-04-08T12:34:56Z"}], "requested_symbols": symbols.split(","), "total": 1, "meta": {"warnings": [], "errors": []}}
+
+        def get_batch_history(self, symbols: str, range_value: str):
+            return {"items": [{"symbol": "AAPL", "range": range_value, "points": [{"date": "2026-04-01", "close": 100.0}], "cache_present": True, "updated_at": "2026-04-08T12:34:56Z", "cache_status": "fresh_cache"}], "requested_symbols": symbols.split(","), "total": 1, "meta": {"warnings": [], "errors": []}}
 
         def get_instrument_snapshot(self, symbol: str):
             return {"symbol": symbol, "coverage": "profile+price"}
@@ -321,6 +327,8 @@ def test_new_analysis_endpoints_are_reachable() -> None:
     client = create_test_client(app)
 
     assert client.get("/api/v1/marketdata/depot/holdings-summary", params={"symbols": "AAPL,MSFT"}).status_code == 200
+    assert client.get("/api/v1/marketdata/batch/prices", params={"symbols": "AAPL,MSFT"}).status_code == 200
+    assert client.get("/api/v1/marketdata/batch/history", params={"symbols": "AAPL,MSFT", "range": "3m"}).status_code == 200
     assert client.get("/api/v1/marketdata/instruments/AAPL/snapshot").status_code == 200
     assert client.get("/api/v1/marketdata/instruments/AAPL/full").status_code == 200
     assert client.get("/api/v1/marketdata/instruments/AAPL/fundamentals").status_code == 200

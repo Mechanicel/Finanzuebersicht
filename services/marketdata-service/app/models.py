@@ -6,6 +6,15 @@ from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 from typing import Literal
 
 
+CacheStatus = Literal[
+    "fresh_cache",
+    "stale_cache",
+    "cache_miss_seeded",
+    "cache_miss_pending",
+    "provider_error_fallback",
+]
+
+
 class InstrumentSearchItem(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -149,10 +158,43 @@ class HoldingsSummaryItem(BaseModel):
     provider: str | None = None
     as_of: str | None = None
     coverage: str
+    cache_status: CacheStatus = "cache_miss_pending"
 
 
 class HoldingsSummaryResponse(BaseModel):
     items: list[HoldingsSummaryItem]
+    requested_symbols: list[str]
+    total: int
+    meta: dict
+
+
+class BatchPriceItem(BaseModel):
+    symbol: str
+    current_price: float | None = None
+    trade_date: str | None = None
+    price_source: str | None = None
+    cache_status: CacheStatus
+    fetched_at: datetime | None = None
+
+
+class BatchPricesResponse(BaseModel):
+    items: list[BatchPriceItem]
+    requested_symbols: list[str]
+    total: int
+    meta: dict
+
+
+class BatchHistoryItem(BaseModel):
+    symbol: str
+    range: HistoryRange
+    points: list[InstrumentHistoryPoint]
+    cache_present: bool
+    updated_at: datetime | None = None
+    cache_status: CacheStatus
+
+
+class BatchHistoryResponse(BaseModel):
+    items: list[BatchHistoryItem]
     requested_symbols: list[str]
     total: int
     meta: dict

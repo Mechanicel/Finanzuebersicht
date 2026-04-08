@@ -175,6 +175,12 @@ class GatewayService:
     async def get_marketdata_holdings_summary(self, symbols: str) -> dict:
         return await self._request_marketdata_service("GET", "/api/v1/marketdata/depot/holdings-summary", params={"symbols": symbols})
 
+    async def get_marketdata_batch_prices(self, symbols: str) -> dict:
+        return await self._request_marketdata_service("GET", "/api/v1/marketdata/batch/prices", params={"symbols": symbols})
+
+    async def get_marketdata_batch_history(self, symbols: str, *, range_value: str | None = None) -> dict:
+        return await self._request_marketdata_service("GET", "/api/v1/marketdata/batch/history", params={"symbols": symbols, "range": range_value})
+
     async def get_marketdata_snapshot(self, symbol: str) -> dict:
         return await self._request_marketdata_service("GET", f"/api/v1/marketdata/instruments/{symbol}/snapshot")
 

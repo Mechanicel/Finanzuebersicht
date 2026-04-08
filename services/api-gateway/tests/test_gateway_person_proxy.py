@@ -604,6 +604,9 @@ async def test_gateway_marketdata_forwarding_success(monkeypatch: pytest.MonkeyP
     history = await service.get_marketdata_history("AAPL", range_value="6m")
     profile = await service.get_marketdata_profile("AAPL")
     refresh = await service.refresh_marketdata_price("AAPL")
+    holdings_summary = await service.get_marketdata_holdings_summary("AAPL,MSFT")
+    batch_prices = await service.get_marketdata_batch_prices("AAPL,MSFT")
+    batch_history = await service.get_marketdata_batch_history("AAPL,MSFT", range_value="3m")
 
     assert search["total"] == 1
     assert summary["symbol"] == "AAPL"
@@ -611,6 +614,9 @@ async def test_gateway_marketdata_forwarding_success(monkeypatch: pytest.MonkeyP
     assert history["symbol"] == "AAPL"
     assert profile["symbol"] == "AAPL"
     assert refresh["symbol"] == "AAPL"
+    assert holdings_summary["symbol"] == "AAPL"
+    assert batch_prices["symbol"] == "AAPL"
+    assert batch_history["symbol"] == "AAPL"
     assert calls[0][1].endswith("/api/v1/marketdata/instruments/search")
     assert calls[0][3] == {"q": "apple", "limit": 5}
     assert calls[1][1].endswith("/api/v1/marketdata/instruments/AAPL/summary")
@@ -621,6 +627,12 @@ async def test_gateway_marketdata_forwarding_success(monkeypatch: pytest.MonkeyP
     assert calls[4][1].endswith("/api/v1/marketdata/instruments/AAPL/profile")
     assert calls[5][0] == "POST"
     assert calls[5][1].endswith("/api/v1/marketdata/instruments/AAPL/refresh-price")
+    assert calls[6][1].endswith("/api/v1/marketdata/depot/holdings-summary")
+    assert calls[6][3] == {"symbols": "AAPL,MSFT"}
+    assert calls[7][1].endswith("/api/v1/marketdata/batch/prices")
+    assert calls[7][3] == {"symbols": "AAPL,MSFT"}
+    assert calls[8][1].endswith("/api/v1/marketdata/batch/history")
+    assert calls[8][3] == {"symbols": "AAPL,MSFT", "range": "3m"}
 
 
 @pytest.mark.anyio
