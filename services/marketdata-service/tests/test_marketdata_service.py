@@ -466,6 +466,10 @@ def test_financials_cache_miss_loads_balance_sheet_and_stores() -> None:
     assert payload["statements"]["cash_flow"] == []
     assert len(payload["statements"]["balance_sheet"]) == 1
     assert payload["statements"]["balance_sheet"][0]["totalAssets"] == 100.0
+    assert payload["statements"]["balance_sheet"][0]["fiscalYear"] == "2025"
+    assert payload["statements"]["balance_sheet"][0]["reportedCurrency"] == "EUR"
+    assert payload["meta"]["warnings"][0]["code"] == "income_statement_not_integrated"
+    assert payload["meta"]["warnings"][1]["code"] == "cash_flow_not_integrated"
     assert financials_repository.get("CBK.DE", "annual") is not None
 
 
@@ -480,3 +484,30 @@ def test_financials_cache_hit_avoids_upstream_call() -> None:
 
     payload = service.get_instrument_financials("CBK.DE", "annual")
     assert payload["symbol"] == "CBK.DE"
+
+
+def test_financials_payload_exposes_total_equity_total_debt_and_net_debt() -> None:
+    service, client, _, _, _, _ = build_service()
+
+    def custom_balance_sheet(*, symbol: str, period: str):
+        return [
+            {
+                "symbol": symbol,
+                "date": "2025-12-31",
+                "calendarYear": "2025",
+                "period": "FY",
+                "reportedCurrency": "EUR",
+                "totalStockholdersEquity": 55.0,
+                "shortTermDebt": 10.0,
+                "longTermDebt": 20.0,
+                "cashAndCashEquivalents": 7.0,
+            }
+        ]
+
+    client.balance_sheet_statement = custom_balance_sheet  # type: ignore[method-assign]
+    payload = service.get_instrument_financials("CBK.DE", "annual")
+    row = payload["statements"]["balance_sheet"][0]
+
+    assert row["totalEquity"] == 55.0
+    assert row["totalDebt"] == 30.0
+    assert row["netDebt"] == 23.0
