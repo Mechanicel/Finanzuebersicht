@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { mount, flushPromises } from '@vue/test-utils'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { flushPromises, mount } from '@vue/test-utils'
 import { reactive } from 'vue'
 import DashboardPage from '@/modules/dashboard/pages/DashboardPage.vue'
 
@@ -37,62 +37,107 @@ function makeSection(section: string, state: 'ready' | 'pending' | 'stale' | 'er
   }
 }
 
+function mountDashboardPage() {
+  return mount(DashboardPage, {
+    global: {
+      stubs: {
+        RouterLink: { template: '<a><slot /></a>' },
+        DashboardOverviewSection: {
+          props: ['section', 'errorMessage'],
+          template: '<div data-test="overview">overview:{{ section.state }}|{{ errorMessage }}</div>'
+        },
+        DashboardAllocationSection: {
+          props: ['section'],
+          template: '<div data-test="allocation">allocation:{{ section.state }}</div>'
+        },
+        DashboardTimeseriesSection: {
+          props: ['section'],
+          template: '<div data-test="timeseries">timeseries:{{ section.state }}</div>'
+        },
+        DashboardMetricsSection: {
+          props: ['section'],
+          template: '<div data-test="metrics">metrics:{{ section.state }}</div>'
+        },
+        LegacyAnalyticsSection: {
+          props: ['open'],
+          emits: ['update:open'],
+          template:
+            '<section data-test="legacy"><button data-test="open-legacy" @click="$emit(\'update:open\', true)" />' +
+            '<button data-test="close-legacy" @click="$emit(\'update:open\', false)" /><slot /></section>'
+        },
+        PortfolioDashboardContainer: { template: '<div data-test="portfolio-cockpit" />' },
+        DepotAnalysisWorkspace: { template: '<div data-test="depot" />' }
+      }
+    }
+  })
+}
+
 describe('DashboardPage', () => {
+  const wrappers: Array<ReturnType<typeof mountDashboardPage>> = []
+
   beforeEach(() => {
     vi.resetAllMocks()
     route.query.personId = 'person-1'
-  })
 
-  it('loads dashboard sections independently and keeps shell visible', async () => {
-    vi.mocked(fetchDashboardOverview).mockRejectedValue({
-      isAxiosError: true,
-      code: 'ECONNABORTED',
-      message: 'timeout of 8000ms exceeded'
-    })
+    vi.mocked(fetchDashboardOverview).mockResolvedValue(makeSection('overview', 'ready'))
     vi.mocked(fetchDashboardAllocation).mockResolvedValue(makeSection('allocation', 'ready'))
     vi.mocked(fetchDashboardTimeseries).mockResolvedValue(makeSection('timeseries', 'stale'))
     vi.mocked(fetchDashboardMetrics).mockResolvedValue(makeSection('metrics', 'ready'))
+  })
 
-    const wrapper = mount(DashboardPage, {
-      global: {
-        stubs: {
-          RouterLink: { template: '<a><slot /></a>' },
-          DashboardOverviewSection: {
-            props: ['section', 'errorMessage'],
-            template: '<div data-test="overview">overview:{{ section.state }}|{{ errorMessage }}</div>'
-          },
-          DashboardAllocationSection: {
-            props: ['section'],
-            template: '<div data-test="allocation">allocation:{{ section.state }}</div>'
-          },
-          DashboardTimeseriesSection: {
-            props: ['section'],
-            template: '<div data-test="timeseries">timeseries:{{ section.state }}</div>'
-          },
-          DashboardMetricsSection: {
-            props: ['section'],
-            template: '<div data-test="metrics">metrics:{{ section.state }}</div>'
-          },
-          LegacyAnalyticsSection: { template: '<section data-test="legacy"><slot /></section>' },
-          PortfolioDashboardContainer: { template: '<div data-test="portfolio-cockpit" />' },
-          DepotAnalysisWorkspace: { template: '<div data-test="depot" />' }
-        }
-      }
-    })
+  afterEach(() => {
+    while (wrappers.length > 0) {
+      wrappers.pop()?.unmount()
+    }
+  })
+
+  it('does not start legacy requests on initial load while legacy section is closed', async () => {
+    const wrapper = mountDashboardPage()
+    wrappers.push(wrapper)
 
     await flushPromises()
 
-    expect(wrapper.text()).toContain('Analytics-Dashboard')
     expect(wrapper.find('[data-test="legacy"]').exists()).toBe(true)
+    expect(fetchDashboardOverview).not.toHaveBeenCalled()
+    expect(fetchDashboardAllocation).not.toHaveBeenCalled()
+    expect(fetchDashboardTimeseries).not.toHaveBeenCalled()
+    expect(fetchDashboardMetrics).not.toHaveBeenCalled()
+  })
+
+  it('does not mount DepotAnalysisWorkspace initially', async () => {
+    const wrapper = mountDashboardPage()
+    wrappers.push(wrapper)
+
+    await flushPromises()
+
+    expect(wrapper.find('[data-test="depot"]').exists()).toBe(false)
+  })
+
+  it('starts legacy requests when opening legacy section', async () => {
+    const wrapper = mountDashboardPage()
+    wrappers.push(wrapper)
+
+    await wrapper.get('[data-test="open-legacy"]').trigger('click')
+    await flushPromises()
+
     expect(fetchDashboardOverview).toHaveBeenCalledWith('person-1')
     expect(fetchDashboardAllocation).toHaveBeenCalledWith('person-1')
     expect(fetchDashboardTimeseries).toHaveBeenCalledWith('person-1')
     expect(fetchDashboardMetrics).toHaveBeenCalledWith('person-1')
+    expect(wrapper.find('[data-test="depot"]').exists()).toBe(true)
+  })
 
-    expect(wrapper.get('[data-test="overview"]').text()).toContain('overview:error')
-    expect(wrapper.get('[data-test="overview"]').text()).not.toContain('timeout of 8000ms exceeded')
-    expect(wrapper.get('[data-test="allocation"]').text()).toContain('allocation:ready')
-    expect(wrapper.get('[data-test="timeseries"]').text()).toContain('timeseries:stale')
-    expect(wrapper.get('[data-test="metrics"]').text()).toContain('metrics:ready')
+  it('does not start legacy requests on personId change while legacy section stays closed', async () => {
+    const wrapper = mountDashboardPage()
+    wrappers.push(wrapper)
+    await flushPromises()
+
+    route.query.personId = 'person-2'
+    await flushPromises()
+
+    expect(fetchDashboardOverview).not.toHaveBeenCalled()
+    expect(fetchDashboardAllocation).not.toHaveBeenCalled()
+    expect(fetchDashboardTimeseries).not.toHaveBeenCalled()
+    expect(fetchDashboardMetrics).not.toHaveBeenCalled()
   })
 })

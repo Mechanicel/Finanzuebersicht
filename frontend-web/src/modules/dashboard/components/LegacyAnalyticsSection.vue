@@ -1,6 +1,6 @@
 <template>
   <!-- Legacy analytics stay available intentionally, but portfolio cockpit is the primary flow. -->
-  <details class="legacy-sections">
+  <details class="legacy-sections" :open="open" @toggle="onToggle">
     <summary class="legacy-header">
       <span>
         <strong>{{ title }}</strong>
@@ -13,18 +13,35 @@
 </template>
 
 <script setup lang="ts">
-withDefaults(
+const props = withDefaults(
   defineProps<{
     title?: string
     subtitle?: string
     description?: string
+    open?: boolean
   }>(),
   {
     title: 'Weitere Analytics (Legacy)',
     subtitle: 'Optional · sekundärer Bereich',
-    description: 'Bestehende Auswertungen bleiben verfügbar, sind aber nicht mehr der primäre Cockpit-Fokus.'
+    description: 'Bestehende Auswertungen bleiben verfügbar, sind aber nicht mehr der primäre Cockpit-Fokus.',
+    open: false
   }
 )
+
+const emit = defineEmits<{
+  (event: 'update:open', value: boolean): void
+}>()
+
+function onToggle(event: Event) {
+  const target = event.target
+  if (!(target instanceof HTMLDetailsElement)) {
+    return
+  }
+
+  if (target.open !== props.open) {
+    emit('update:open', target.open)
+  }
+}
 </script>
 
 <style scoped>
