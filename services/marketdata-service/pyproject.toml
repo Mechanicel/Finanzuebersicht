@@ -10,6 +10,7 @@ dependencies = [
   "finanzuebersicht-shared",
   "pymongo>=4.8,<5",
   "requests>=2.32,<3",
+  "yfinance>=0.2,<1",
 ]
 
 [build-system]

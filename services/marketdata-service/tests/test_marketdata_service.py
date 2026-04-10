@@ -114,10 +114,57 @@ class FakeYFinance:
         return FakeTicker(symbol, self.calls)
 
 
+class FakeYFinanceClient:
+    def __init__(self, backend: FakeYFinance) -> None:
+        self._backend = backend
+        self.balance_sheet_calls: list[tuple[str, str]] = []
+        self._balance_sheet_rows: list[dict] = [
+            {
+                "symbol": "CBK.DE",
+                "date": "2025-12-31",
+                "calendarYear": "2025",
+                "period": "FY",
+                "reportedCurrency": "EUR",
+                "cashAndCashEquivalents": 9.0,
+                "totalAssets": 110.0,
+            }
+        ]
+        self._raise_balance_sheet_error = False
+
+    def fetch_current_price(self, symbol: str) -> float:
+        ticker = self._backend.Ticker(symbol)
+        hist = ticker.history(period="1d", interval="1m")
+        if getattr(hist, "empty", True):
+            raise UpstreamServiceError("Market data provider returned no intraday data")
+        close_series = hist["Close"].dropna()
+        if getattr(close_series, "empty", True):
+            raise UpstreamServiceError("Market data provider returned no close prices")
+        return float(close_series.iloc[-1])
+
+    def fetch_history(self, symbol: str, *, period: str, interval: str = "1d"):
+        ticker = self._backend.Ticker(symbol)
+        return ticker.history(period=period, interval=interval)
+
+    def balance_sheet_statement(self, *, symbol: str, period: str):
+        self.balance_sheet_calls.append((symbol, period))
+        if self._raise_balance_sheet_error:
+            raise UpstreamServiceError("yfinance failed")
+        if symbol == "EMPTY":
+            return []
+        rows: list[dict] = []
+        for row in self._balance_sheet_rows:
+            copied = dict(row)
+            copied["symbol"] = symbol
+            copied["period"] = "FY" if period == "annual" else "Q"
+            rows.append(copied)
+        return rows
+
+
 class FakeFMPClient:
     def __init__(self) -> None:
         self.search_calls: list[tuple[str, int]] = []
         self.profile_calls: list[str] = []
+        self.balance_sheet_calls: list[tuple[str, str]] = []
 
     def search_name(self, *, query: str, limit: int):
         self.search_calls.append((query, limit))
@@ -134,6 +181,7 @@ class FakeFMPClient:
         return [{"symbol": symbol, "companyName": "Commerzbank AG", "currency": "EUR", "exchange": "XETRA", "exchangeFullName": "Deutsche Börse Xetra", "price": 18.35, "isEtf": False, "isFund": False, "marketCap": 25000000000, "cusip": "123456789", "address": "Kaiserplatz", "zip": "60311", "city": "Frankfurt am Main"}]
 
     def balance_sheet_statement(self, *, symbol: str, period: str):
+        self.balance_sheet_calls.append((symbol, period))
         return [
             {
                 "symbol": symbol,
@@ -155,14 +203,16 @@ class BrokenRepository:
         raise RuntimeError("mongo unavailable")
 
 
-def build_service(*, ttl_seconds: int = 300):
+def build_service(*, ttl_seconds: int = 300, yfinance_client: FakeYFinanceClient | None = None):
     client = FakeFMPClient()
+    yf_client = yfinance_client or FakeYFinanceClient(FakeYFinance())
     profile_repository = InMemoryInstrumentProfileCacheRepository()
     current_price_repository = InMemoryCurrentPriceCacheRepository()
     history_repository = InMemoryPriceHistoryCacheRepository()
     financials_repository = InMemoryFinancialsCacheRepository()
     service = MarketDataService(
         fmp_client=client,
+        yfinance_client=yf_client,
         profile_repository=profile_repository,
         current_price_repository=current_price_repository,
         price_history_repository=history_repository,
@@ -222,6 +272,7 @@ def test_profile_with_unavailable_repository_falls_back_to_fmp() -> None:
     client = FakeFMPClient()
     service = MarketDataService(
         fmp_client=client,
+        yfinance_client=FakeYFinanceClient(FakeYFinance()),
         profile_repository=BrokenRepository(),
         current_price_repository=InMemoryCurrentPriceCacheRepository(),
         price_history_repository=InMemoryPriceHistoryCacheRepository(),
@@ -234,10 +285,11 @@ def test_profile_with_unavailable_repository_falls_back_to_fmp() -> None:
     assert profile.company_name == "Commerzbank AG"
 
 
-def test_refresh_price_cache_hit_for_today(monkeypatch) -> None:
-    service, _, _, current_price_repository, history_repository, _ = build_service()
+def test_refresh_price_cache_hit_for_today() -> None:
     fake_yf = FakeYFinance()
-    monkeypatch.setattr(MarketDataService, "_get_yf_module", staticmethod(lambda: fake_yf))
+    service, _, _, current_price_repository, history_repository, _ = build_service(
+        yfinance_client=FakeYFinanceClient(fake_yf)
+    )
 
     trade_date = date.today().isoformat()
     current_price_repository.upsert("CBK.DE", trade_date, 31.48)
@@ -262,10 +314,9 @@ def test_refresh_price_cache_hit_for_today(monkeypatch) -> None:
     assert fake_yf.calls == []
 
 
-def test_refresh_price_cache_miss_uses_1d_1m_and_stores(monkeypatch) -> None:
-    service, _, _, current_price_repository, _, _ = build_service()
+def test_refresh_price_cache_miss_uses_1d_1m_and_stores() -> None:
     fake_yf = FakeYFinance()
-    monkeypatch.setattr(MarketDataService, "_get_yf_module", staticmethod(lambda: fake_yf))
+    service, _, _, current_price_repository, _, _ = build_service(yfinance_client=FakeYFinanceClient(fake_yf))
 
     response = service.refresh_instrument_price("cbk.de")
 
@@ -278,10 +329,9 @@ def test_refresh_price_cache_miss_uses_1d_1m_and_stores(monkeypatch) -> None:
     assert cached.current_price == 31.48
 
 
-def test_period_max_only_for_first_seed(monkeypatch) -> None:
-    service, _, _, _, history_repository, _ = build_service()
+def test_period_max_only_for_first_seed() -> None:
     fake_yf = FakeYFinance()
-    monkeypatch.setattr(MarketDataService, "_get_yf_module", staticmethod(lambda: fake_yf))
+    service, _, _, _, history_repository, _ = build_service(yfinance_client=FakeYFinanceClient(fake_yf))
 
     response = service.refresh_instrument_price("CBK.DE")
     assert response.history_action == "seed_max_in_background"
@@ -294,10 +344,9 @@ def test_period_max_only_for_first_seed(monkeypatch) -> None:
     assert ("CBK.DE", "max", "1d") in fake_yf.calls
 
 
-def test_no_period_max_when_history_exists_and_enrich_uses_5d(monkeypatch) -> None:
-    service, _, _, _, history_repository, _ = build_service()
+def test_no_period_max_when_history_exists_and_enrich_uses_5d() -> None:
     fake_yf = FakeYFinance()
-    monkeypatch.setattr(MarketDataService, "_get_yf_module", staticmethod(lambda: fake_yf))
+    service, _, _, _, history_repository, _ = build_service(yfinance_client=FakeYFinanceClient(fake_yf))
 
     history_repository.upsert_document(
         PriceHistoryCacheDocument(
@@ -348,10 +397,9 @@ def test_get_instrument_history_cache_hit_returns_sorted_points() -> None:
     assert [point.close for point in response.points] == [30.4, 31.48]
 
 
-def test_get_instrument_history_cache_miss_seeds_synchronously(monkeypatch) -> None:
-    service, _, _, _, history_repository, _ = build_service()
+def test_get_instrument_history_cache_miss_seeds_synchronously() -> None:
     fake_yf = FakeYFinance()
-    monkeypatch.setattr(MarketDataService, "_get_yf_module", staticmethod(lambda: fake_yf))
+    service, _, _, _, history_repository, _ = build_service(yfinance_client=FakeYFinanceClient(fake_yf))
 
     response = service.get_instrument_history("cbk.de", "max")
 
@@ -399,10 +447,9 @@ def test_get_instrument_history_rejects_invalid_range() -> None:
         assert isinstance(exc, BadRequestError)
 
 
-def test_holdings_summary_returns_partial_warnings(monkeypatch) -> None:
-    service, _, _, _, history_repository, _ = build_service()
+def test_holdings_summary_returns_partial_warnings() -> None:
     fake_yf = FakeYFinance()
-    monkeypatch.setattr(MarketDataService, "_get_yf_module", staticmethod(lambda: fake_yf))
+    service, _, _, _, history_repository, _ = build_service(yfinance_client=FakeYFinanceClient(fake_yf))
 
     history_repository.upsert_document(
         PriceHistoryCacheDocument(
@@ -422,10 +469,9 @@ def test_holdings_summary_returns_partial_warnings(monkeypatch) -> None:
     assert result.meta["errors"][0]["symbol"] == "NONE"
 
 
-def test_batch_prices_returns_cache_status(monkeypatch) -> None:
-    service, _, _, current_price_repository, _, _ = build_service()
+def test_batch_prices_returns_cache_status() -> None:
     fake_yf = FakeYFinance()
-    monkeypatch.setattr(MarketDataService, "_get_yf_module", staticmethod(lambda: fake_yf))
+    service, _, _, current_price_repository, _, _ = build_service(yfinance_client=FakeYFinanceClient(fake_yf))
     current_price_repository.upsert("CBK.DE", date.today().isoformat(), 31.48)
 
     result = service.get_batch_prices("CBK.DE")
@@ -435,10 +481,9 @@ def test_batch_prices_returns_cache_status(monkeypatch) -> None:
     assert result.items[0].current_price == 31.48
 
 
-def test_batch_history_cache_miss_seeded(monkeypatch) -> None:
-    service, _, _, _, _, _ = build_service()
+def test_batch_history_cache_miss_seeded() -> None:
     fake_yf = FakeYFinance()
-    monkeypatch.setattr(MarketDataService, "_get_yf_module", staticmethod(lambda: fake_yf))
+    service, _, _, _, _, _ = build_service(yfinance_client=FakeYFinanceClient(fake_yf))
 
     result = service.get_batch_history("CBK.DE", "3m")
 
@@ -456,7 +501,8 @@ def test_financials_rejects_invalid_period() -> None:
 
 
 def test_financials_cache_miss_loads_balance_sheet_and_stores() -> None:
-    service, _, _, _, _, financials_repository = build_service()
+    fake_yf_client = FakeYFinanceClient(FakeYFinance())
+    service, client, _, _, _, financials_repository = build_service(yfinance_client=fake_yf_client)
 
     payload = service.get_instrument_financials("CBK.DE", "annual")
 
@@ -465,49 +511,113 @@ def test_financials_cache_miss_loads_balance_sheet_and_stores() -> None:
     assert payload["statements"]["income_statement"] == []
     assert payload["statements"]["cash_flow"] == []
     assert len(payload["statements"]["balance_sheet"]) == 1
-    assert payload["statements"]["balance_sheet"][0]["totalAssets"] == 100.0
+    assert payload["statements"]["balance_sheet"][0]["totalAssets"] == 110.0
     assert payload["statements"]["balance_sheet"][0]["fiscalYear"] == "2025"
-    assert payload["statements"]["balance_sheet"][0]["reportedCurrency"] == "EUR"
+    assert payload["meta"]["source"] == "yfinance_balance_sheet_v1"
     assert payload["meta"]["warnings"][0]["code"] == "income_statement_not_integrated"
     assert payload["meta"]["warnings"][1]["code"] == "cash_flow_not_integrated"
+    assert fake_yf_client.balance_sheet_calls == [("CBK.DE", "annual")]
+    assert client.balance_sheet_calls == []
     assert financials_repository.get("CBK.DE", "annual") is not None
 
 
 def test_financials_cache_hit_avoids_upstream_call() -> None:
-    service, client, _, _, _, _ = build_service()
+    fake_yf_client = FakeYFinanceClient(FakeYFinance())
+    service, client, _, _, _, _ = build_service(yfinance_client=fake_yf_client)
     _ = service.get_instrument_financials("CBK.DE", "annual")
 
     def fail_balance_sheet_statement(*, symbol: str, period: str):
         raise AssertionError("upstream call should not happen on fresh cache hit")
 
     client.balance_sheet_statement = fail_balance_sheet_statement  # type: ignore[method-assign]
+    fake_yf_client.balance_sheet_statement = fail_balance_sheet_statement  # type: ignore[method-assign]
 
     payload = service.get_instrument_financials("CBK.DE", "annual")
     assert payload["symbol"] == "CBK.DE"
 
 
 def test_financials_payload_exposes_total_equity_total_debt_and_net_debt() -> None:
-    service, client, _, _, _, _ = build_service()
-
-    def custom_balance_sheet(*, symbol: str, period: str):
-        return [
-            {
-                "symbol": symbol,
-                "date": "2025-12-31",
-                "calendarYear": "2025",
-                "period": "FY",
-                "reportedCurrency": "EUR",
-                "totalStockholdersEquity": 55.0,
-                "shortTermDebt": 10.0,
-                "longTermDebt": 20.0,
-                "cashAndCashEquivalents": 7.0,
-            }
-        ]
-
-    client.balance_sheet_statement = custom_balance_sheet  # type: ignore[method-assign]
+    fake_yf_client = FakeYFinanceClient(FakeYFinance())
+    fake_yf_client._balance_sheet_rows = [
+        {
+            "symbol": "CBK.DE",
+            "date": "2025-12-31",
+            "calendarYear": "2025",
+            "period": "FY",
+            "reportedCurrency": "EUR",
+            "totalStockholdersEquity": 55.0,
+            "shortTermDebt": 10.0,
+            "longTermDebt": 20.0,
+            "cashAndCashEquivalents": 7.0,
+        }
+    ]
+    service, _, _, _, _, _ = build_service(yfinance_client=fake_yf_client)
     payload = service.get_instrument_financials("CBK.DE", "annual")
     row = payload["statements"]["balance_sheet"][0]
 
     assert row["totalEquity"] == 55.0
     assert row["totalDebt"] == 30.0
     assert row["netDebt"] == 23.0
+
+
+def test_financials_uses_fmp_when_yfinance_is_empty() -> None:
+    fake_yf_client = FakeYFinanceClient(FakeYFinance())
+    service, client, _, _, _, _ = build_service(yfinance_client=fake_yf_client)
+
+    payload = service.get_instrument_financials("EMPTY", "annual")
+
+    assert fake_yf_client.balance_sheet_calls == [("EMPTY", "annual")]
+    assert client.balance_sheet_calls == [("EMPTY", "annual")]
+    assert payload["meta"]["source"] == "fmp_balance_sheet_v1"
+    assert payload["meta"]["warnings"][2]["code"] == "yfinance_balance_sheet_empty"
+
+
+def test_financials_uses_fmp_when_yfinance_errors() -> None:
+    fake_yf_client = FakeYFinanceClient(FakeYFinance())
+    fake_yf_client._raise_balance_sheet_error = True
+    service, client, _, _, _, _ = build_service(yfinance_client=fake_yf_client)
+
+    payload = service.get_instrument_financials("CBK.DE", "annual")
+
+    assert fake_yf_client.balance_sheet_calls == [("CBK.DE", "annual")]
+    assert client.balance_sheet_calls == [("CBK.DE", "annual")]
+    assert payload["meta"]["source"] == "fmp_balance_sheet_v1"
+    assert payload["meta"]["warnings"][2]["code"] == "yfinance_balance_sheet_failed"
+
+
+def test_financials_both_providers_fail_uses_stale_cache() -> None:
+    fake_yf_client = FakeYFinanceClient(FakeYFinance())
+    fake_yf_client._raise_balance_sheet_error = True
+    service, client, _, _, _, _ = build_service(yfinance_client=fake_yf_client)
+    _ = service.get_instrument_financials("CBK.DE", "annual")
+
+    def fail_balance_sheet_statement(*, symbol: str, period: str):
+        raise UpstreamServiceError("fmp unavailable")
+
+    client.balance_sheet_statement = fail_balance_sheet_statement  # type: ignore[method-assign]
+
+    payload = service.get_instrument_financials("CBK.DE", "annual")
+    codes = [warning["code"] for warning in payload["meta"]["warnings"]]
+    assert "provider_error_fallback" in codes
+
+
+def test_financials_yfinance_quarterly_is_supported() -> None:
+    fake_yf_client = FakeYFinanceClient(FakeYFinance())
+    service, _, _, _, _, _ = build_service(yfinance_client=fake_yf_client)
+
+    payload = service.get_instrument_financials("CBK.DE", "quarterly")
+
+    assert fake_yf_client.balance_sheet_calls == [("CBK.DE", "quarterly")]
+    assert payload["period"] == "quarterly"
+
+
+def test_financials_quarterly_empty_yfinance_falls_back_to_fmp() -> None:
+    fake_yf_client = FakeYFinanceClient(FakeYFinance())
+    service, client, _, _, _, _ = build_service(yfinance_client=fake_yf_client)
+
+    payload = service.get_instrument_financials("EMPTY", "quarterly")
+
+    assert fake_yf_client.balance_sheet_calls == [("EMPTY", "quarterly")]
+    assert client.balance_sheet_calls == [("EMPTY", "quarterly")]
+    assert payload["period"] == "quarterly"
+    assert payload["meta"]["source"] == "fmp_balance_sheet_v1"

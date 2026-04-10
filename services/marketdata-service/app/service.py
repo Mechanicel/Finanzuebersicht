@@ -7,6 +7,7 @@ import time
 from typing import Any, cast
 
 from app.clients.fmp_client import FMPClient
+from app.clients.yfinance_client import YFinanceClient
 from app.models import (
     BadRequestError,
     BatchHistoryItem,
@@ -60,6 +61,7 @@ class MarketDataService:
         self,
         *,
         fmp_client: FMPClient,
+        yfinance_client: YFinanceClient,
         profile_repository: InstrumentProfileCacheRepository | InMemoryInstrumentProfileCacheRepository,
         current_price_repository: CurrentPriceCacheRepository | InMemoryCurrentPriceCacheRepository,
         price_history_repository: PriceHistoryCacheRepository | InMemoryPriceHistoryCacheRepository,
@@ -69,6 +71,7 @@ class MarketDataService:
         financials_cache_ttl_seconds: int,
     ) -> None:
         self._fmp_client = fmp_client
+        self._yfinance_client = yfinance_client
         self._profile_repository = profile_repository
         self._current_price_repository = current_price_repository
         self._price_history_repository = price_history_repository
@@ -382,6 +385,33 @@ class MarketDataService:
         if cached is not None and self._is_financials_fresh(cached.fetched_at):
             return self._financials_document_to_payload(cached, warnings=warnings)
 
+        yfinance_rows: list[BalanceSheetStatement] = []
+        yfinance_error: UpstreamServiceError | None = None
+        try:
+            yfinance_payload = self._yfinance_client.balance_sheet_statement(symbol=normalized, period=financials_period)
+            yfinance_rows = self._map_balance_sheet_rows(normalized, yfinance_payload)
+        except UpstreamServiceError as exc:
+            yfinance_error = exc
+            LOGGER.warning("yfinance balance sheet failed for %s; using FMP fallback", normalized, exc_info=True)
+            warnings.append({"code": "yfinance_balance_sheet_failed", "message": "yfinance failed; trying FMP fallback."})
+
+        if yfinance_rows:
+            currency = yfinance_rows[0].reported_currency if yfinance_rows else None
+            document = FinancialsCacheDocument(
+                symbol=normalized,
+                period=financials_period,
+                source="yfinance_balance_sheet_v1",
+                currency=currency,
+                statements=FinancialStatements(balance_sheet=yfinance_rows),
+                fetched_at=utcnow(),
+            )
+            self._financials_repository.upsert_document(document)
+            return self._financials_document_to_payload(document, warnings=warnings)
+
+        if yfinance_error is None:
+            LOGGER.info("yfinance balance sheet empty for %s; using FMP fallback", normalized)
+            warnings.append({"code": "yfinance_balance_sheet_empty", "message": "yfinance returned no usable balance sheet; trying FMP fallback."})
+
         try:
             rows = self._fmp_client.balance_sheet_statement(symbol=normalized, period=financials_period)
             balance_sheet_rows = self._map_balance_sheet_rows(normalized, rows)
@@ -532,7 +562,7 @@ class MarketDataService:
             price_cache_hit = True
             fetched_at = cached.fetched_at
         else:
-            current_price = self._fetch_current_price(normalized)
+            current_price = self._yfinance_client.fetch_current_price(normalized)
             stored = self._current_price_repository.upsert(normalized, trade_date, current_price, source="yfinance_1d_1m")
             price_source = "yfinance_1d_1m"
             price_cache_hit = False
@@ -554,12 +584,7 @@ class MarketDataService:
 
     def seed_history_max(self, symbol: str) -> None:
         normalized = symbol.strip().upper()
-        try:
-            yf = self._get_yf_module()
-            ticker = yf.Ticker(normalized)
-            data = ticker.history(period="max", interval="1d")
-        except Exception as exc:
-            raise UpstreamServiceError("Market data provider temporarily unavailable") from exc
+        data = self._yfinance_client.fetch_history(normalized, period="max", interval="1d")
         rows = self._to_history_rows(data)
         if not rows:
             raise UpstreamServiceError("Market data provider returned no daily history for seed")
@@ -577,12 +602,7 @@ class MarketDataService:
 
     def enrich_history_recent(self, symbol: str) -> None:
         normalized = symbol.strip().upper()
-        try:
-            yf = self._get_yf_module()
-            ticker = yf.Ticker(normalized)
-            data = ticker.history(period="5d", interval="1d")
-        except Exception as exc:
-            raise UpstreamServiceError("Market data provider temporarily unavailable") from exc
+        data = self._yfinance_client.fetch_history(normalized, period="5d", interval="1d")
         rows = self._to_history_rows(data)
         if not rows:
             return
@@ -756,7 +776,7 @@ class MarketDataService:
         lock = self._lock_for("price", symbol)
         with lock:
             try:
-                current_price = self._fetch_current_price(symbol)
+                current_price = self._yfinance_client.fetch_current_price(symbol)
                 trade_date = date.today().isoformat()
                 stored = self._current_price_repository.upsert(symbol, trade_date, current_price, source="yfinance_1d_1m")
                 return {"current_price": current_price, "as_of": trade_date, "provider": "yfinance", "price_source": "yfinance_1d_1m", "fetched_at": stored.fetched_at}
@@ -855,31 +875,6 @@ class MarketDataService:
             except Exception:
                 continue
         return mapped_rows
-
-    @staticmethod
-    def _get_yf_module():
-        try:
-            import yfinance as yf
-        except ImportError as exc:
-            raise UpstreamServiceError("yfinance dependency is unavailable") from exc
-        return yf
-
-    def _fetch_current_price(self, symbol: str) -> float:
-        try:
-            yf = self._get_yf_module()
-            ticker = yf.Ticker(symbol)
-            hist = ticker.history(period="1d", interval="1m")
-            if getattr(hist, "empty", True):
-                raise UpstreamServiceError("Market data provider returned no intraday data")
-            close_series = hist["Close"].dropna()
-            if getattr(close_series, "empty", True):
-                raise UpstreamServiceError("Market data provider returned no close prices")
-            last_price = close_series.iloc[-1]
-            return float(last_price)
-        except UpstreamServiceError:
-            raise
-        except Exception as exc:
-            raise UpstreamServiceError("Market data provider temporarily unavailable") from exc
 
     @staticmethod
     def _to_history_rows(data) -> list[PriceHistoryRow]:

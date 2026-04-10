@@ -27,6 +27,7 @@ from app.dependencies import (
     get_marketdata_service,
     get_price_history_repository,
     get_profile_repository,
+    get_yfinance_client,
 )
 from app.main import app
 from app.models import BadRequestError, UpstreamServiceError
@@ -43,6 +44,7 @@ def reset_singletons(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MARKETDATA_MONGO_ENABLED", "false")
     get_settings.cache_clear()
     get_fmp_client.cache_clear()
+    get_yfinance_client.cache_clear()
     get_profile_repository.cache_clear()
     get_current_price_repository.cache_clear()
     get_price_history_repository.cache_clear()
