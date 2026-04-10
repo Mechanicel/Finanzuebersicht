@@ -106,20 +106,42 @@
               <option value="quarterly">Quarterly</option>
             </select>
           </div>
-          <div class="blocks">
-            <section class="block">
-              <h6>Income Statement</h6>
-              <p>{{ financials?.statements?.income_statement?.length ?? 0 }} Einträge</p>
-            </section>
-            <section class="block">
-              <h6>Balance Sheet</h6>
-              <p>{{ financials?.statements?.balance_sheet?.length ?? 0 }} Einträge</p>
-            </section>
-            <section class="block">
-              <h6>Cash Flow</h6>
-              <p>{{ financials?.statements?.cash_flow?.length ?? 0 }} Einträge</p>
-            </section>
-          </div>
+          <p v-if="financialsSummaryText" class="financials-summary">{{ financialsSummaryText }}</p>
+
+          <template v-if="latestBalanceSheet">
+            <h6>Neueste Balance-Sheet-Periode</h6>
+            <dl class="kv-grid latest-financials">
+              <template v-for="entry in latestBalanceSheetHighlights" :key="entry.key">
+                <dt>{{ entry.key }}</dt>
+                <dd>{{ entry.value }}</dd>
+              </template>
+            </dl>
+          </template>
+          <EmptyState v-else>Für dieses Instrument liegen aktuell keine Balance-Sheet-Daten vor.</EmptyState>
+
+          <section v-if="balanceSheetRows.length" class="balance-sheet-table-wrap">
+            <h6>Balance Sheet Verlauf ({{ balanceSheetRows.length }} Perioden)</h6>
+            <div class="table-scroll">
+              <table class="financials-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Kennzahl</th>
+                    <th v-for="row in balanceSheetRows" :key="balanceSheetColumnTitle(row)" scope="col">
+                      {{ balanceSheetColumnTitle(row) }}
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="metric in balanceSheetTableRows" :key="metric.label">
+                    <th scope="row">{{ metric.label }}</th>
+                    <td v-for="row in balanceSheetRows" :key="`${metric.key}-${balanceSheetColumnTitle(row)}`">
+                      {{ formatStatementValue(row[metric.key], metric.monetary, row.reportedCurrency) }}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
         </article>
 
         <article v-else class="card content-card">
@@ -154,6 +176,7 @@ import {
 import type {
   DepotInstrumentBenchmarkCatalog,
   DepotInstrumentBenchmarkSearchResult,
+  DepotInstrumentBalanceSheetStatementRow,
   DepotInstrumentFinancials,
   DepotInstrumentFundamentals,
   DepotInstrumentRisk,
@@ -177,7 +200,8 @@ const tabs = [
 const timeseriesSeries = ['price', 'benchmark_price', 'returns', 'drawdown', 'benchmark_relative']
 const activeTab = ref<(typeof tabs)[number]['key']>('overview')
 const loading = ref(false)
-const warnings = ref<string[]>([])
+const nonFinancialWarnings = ref<string[]>([])
+const financialWarnings = ref<string[]>([])
 const benchmarkInput = ref('SPY')
 const searchTerm = ref('')
 const financialPeriod = ref<'annual' | 'quarterly'>('annual')
@@ -189,7 +213,58 @@ const financials = ref<DepotInstrumentFinancials | null>(null)
 const benchmarkCatalog = ref<DepotInstrumentBenchmarkCatalog>({ items: [] })
 const benchmarkSearch = ref<DepotInstrumentBenchmarkSearchResult>({ query: '', items: [], total: 0 })
 
+const warnings = computed(() => [...nonFinancialWarnings.value, ...financialWarnings.value])
 const chartPoints = computed(() => timeseries.value?.instrument.points ?? [])
+const balanceSheetRows = computed<DepotInstrumentBalanceSheetStatementRow[]>(() => {
+  const rawRows = financials.value?.statements?.balance_sheet ?? []
+  return [...rawRows]
+    .sort((left, right) => {
+      const leftDate = left?.date ? Date.parse(left.date) : Number.NaN
+      const rightDate = right?.date ? Date.parse(right.date) : Number.NaN
+      if (Number.isNaN(leftDate) && Number.isNaN(rightDate)) return 0
+      if (Number.isNaN(leftDate)) return 1
+      if (Number.isNaN(rightDate)) return -1
+      return rightDate - leftDate
+    })
+    .slice(0, 6)
+})
+const latestBalanceSheet = computed(() => balanceSheetRows.value[0] ?? null)
+const latestBalanceSheetHighlights = computed(() => {
+  const row = latestBalanceSheet.value
+  if (!row) return []
+  return [
+    { key: 'Stichtag', value: row.date ?? '—' },
+    { key: 'Geschäftsjahr', value: row.fiscalYear != null ? String(row.fiscalYear) : '—' },
+    { key: 'Periode', value: row.period ?? '—' },
+    { key: 'Währung', value: row.reportedCurrency ?? financials.value?.currency ?? '—' },
+    { key: 'Gesamtvermögen', value: formatStatementValue(row.totalAssets, true, row.reportedCurrency) },
+    { key: 'Gesamtverbindlichkeiten', value: formatStatementValue(row.totalLiabilities, true, row.reportedCurrency) },
+    { key: 'Eigenkapital', value: formatStatementValue(row.totalEquity, true, row.reportedCurrency) },
+    { key: 'Nettoverschuldung', value: formatStatementValue(row.netDebt, true, row.reportedCurrency) }
+  ]
+})
+const financialsSummaryText = computed(() => {
+  if (!financials.value) return ''
+  const incomeCount = financials.value.statements?.income_statement?.length ?? 0
+  const balanceCount = financials.value.statements?.balance_sheet?.length ?? 0
+  const cashflowCount = financials.value.statements?.cash_flow?.length ?? 0
+  return `Income Statement: ${incomeCount} | Balance Sheet: ${balanceCount} | Cash Flow: ${cashflowCount}`
+})
+const balanceSheetTableRows: Array<{ label: string; key: keyof DepotInstrumentBalanceSheetStatementRow; monetary: boolean }> = [
+  { label: 'Date', key: 'date', monetary: false },
+  { label: 'Fiscal Year', key: 'fiscalYear', monetary: false },
+  { label: 'Period', key: 'period', monetary: false },
+  { label: 'Reported Currency', key: 'reportedCurrency', monetary: false },
+  { label: 'Total Assets', key: 'totalAssets', monetary: true },
+  { label: 'Total Current Assets', key: 'totalCurrentAssets', monetary: true },
+  { label: 'Total Liabilities', key: 'totalLiabilities', monetary: true },
+  { label: 'Total Current Liabilities', key: 'totalCurrentLiabilities', monetary: true },
+  { label: 'Total Equity', key: 'totalEquity', monetary: true },
+  { label: 'Cash & Cash Equivalents', key: 'cashAndCashEquivalents', monetary: true },
+  { label: 'Cash & Short Term Investments', key: 'cashAndShortTermInvestments', monetary: true },
+  { label: 'Total Debt', key: 'totalDebt', monetary: true },
+  { label: 'Net Debt', key: 'netDebt', monetary: true }
+]
 const overviewPairs = computed(() => [
   { key: 'Symbol', value: props.selectedSymbol ?? 'n/a' },
   { key: 'Benchmark', value: risk.value?.benchmark ?? benchmarkInput.value },
@@ -214,7 +289,8 @@ watch(
 
 async function loadAll(symbol: string) {
   loading.value = true
-  warnings.value = []
+  nonFinancialWarnings.value = []
+  financialWarnings.value = []
   try {
     const [seriesPayload, riskPayload, benchmarkPayload, catalogPayload, fundamentalsPayload, financialPayload] = await Promise.all([
       fetchInstrumentTimeseries(symbol, timeseriesSeries[0], benchmarkInput.value),
@@ -233,15 +309,16 @@ async function loadAll(symbol: string) {
 
     const collectedWarnings = [
       ...(seriesPayload.meta?.warnings ?? []).map((entry) => `${entry.code}: ${entry.message}`),
-      ...(riskPayload.meta?.warnings ?? []).map((entry) => `${entry.code}: ${entry.message}`),
-      ...(financialPayload.meta?.warnings ?? []).map((entry) => `${entry.code}: ${entry.message}`)
+      ...(riskPayload.meta?.warnings ?? []).map((entry) => `${entry.code}: ${entry.message}`)
     ]
+    financialWarnings.value = (financialPayload.meta?.warnings ?? []).map((entry) => `${entry.code}: ${entry.message}`)
     if (benchmarkPayload?.benchmark && benchmarkPayload.benchmark !== benchmarkInput.value) {
       collectedWarnings.push(`Benchmark automatisch auf ${benchmarkPayload.benchmark} gesetzt.`)
     }
-    warnings.value = collectedWarnings
+    nonFinancialWarnings.value = collectedWarnings
   } catch {
-    warnings.value = ['Einige Instrumentdaten konnten nicht geladen werden.']
+    nonFinancialWarnings.value = ['Einige Instrumentdaten konnten nicht geladen werden.']
+    financialWarnings.value = []
   } finally {
     loading.value = false
   }
@@ -279,6 +356,31 @@ async function searchBenchmark() {
 async function loadFinancials() {
   if (!props.selectedSymbol) return
   financials.value = await fetchInstrumentFinancials(props.selectedSymbol, financialPeriod.value)
+  financialWarnings.value = (financials.value.meta?.warnings ?? []).map((entry) => `${entry.code}: ${entry.message}`)
+}
+
+function balanceSheetColumnTitle(row: DepotInstrumentBalanceSheetStatementRow) {
+  return [row.date, row.period, row.fiscalYear != null ? `FY${row.fiscalYear}` : undefined].filter(Boolean).join(' · ') || 'Periode'
+}
+
+function formatStatementValue(value: unknown, monetary: boolean, currency?: string | null) {
+  if (value == null || value === '') return '—'
+  if (!monetary) return String(value)
+  const numericValue = typeof value === 'number' ? value : Number(value)
+  if (!Number.isFinite(numericValue)) return String(value)
+  const resolvedCurrency = currency ?? financials.value?.currency ?? undefined
+  if (resolvedCurrency) {
+    return new Intl.NumberFormat('de-DE', {
+      style: 'currency',
+      currency: resolvedCurrency,
+      notation: 'compact',
+      maximumFractionDigits: 2
+    }).format(numericValue)
+  }
+  return new Intl.NumberFormat('de-DE', {
+    notation: 'compact',
+    maximumFractionDigits: 2
+  }).format(numericValue)
 }
 </script>
 
@@ -305,4 +407,24 @@ async function loadFinancials() {
 .list { margin: 0.2rem 0 0; padding-left: 1.1rem; }
 .link-btn { border: none; padding: 0; background: none; color: #2563eb; text-decoration: underline; cursor: pointer; }
 .small { padding: 0.25rem 0.45rem; font-size: 0.8rem; }
+.financials-summary { margin: 0.35rem 0 0.65rem; color: #475569; font-size: 0.9rem; }
+.latest-financials { margin-bottom: 0.85rem; }
+.balance-sheet-table-wrap { display: grid; gap: 0.5rem; }
+.table-scroll { overflow-x: auto; border: 1px solid #e2e8f0; border-radius: 8px; }
+.financials-table { width: 100%; border-collapse: collapse; min-width: 860px; }
+.financials-table th,
+.financials-table td {
+  border-bottom: 1px solid #e2e8f0;
+  text-align: left;
+  padding: 0.45rem 0.55rem;
+  white-space: nowrap;
+}
+.financials-table thead th {
+  position: sticky;
+  top: 0;
+  background: #f8fafc;
+  z-index: 1;
+}
+.financials-table tbody tr:last-child th,
+.financials-table tbody tr:last-child td { border-bottom: none; }
 </style>
