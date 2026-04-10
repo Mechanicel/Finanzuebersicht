@@ -24,6 +24,7 @@ from app.models import (
 )
 from app.repositories import (
     InMemoryCurrentPriceCacheRepository,
+    InMemoryFinancialsCacheRepository,
     InMemoryInstrumentProfileCacheRepository,
     InMemoryPriceHistoryCacheRepository,
 )
@@ -132,6 +133,19 @@ class FakeFMPClient:
             return []
         return [{"symbol": symbol, "companyName": "Commerzbank AG", "currency": "EUR", "exchange": "XETRA", "exchangeFullName": "Deutsche Börse Xetra", "price": 18.35, "isEtf": False, "isFund": False, "marketCap": 25000000000, "cusip": "123456789", "address": "Kaiserplatz", "zip": "60311", "city": "Frankfurt am Main"}]
 
+    def balance_sheet_statement(self, *, symbol: str, period: str):
+        return [
+            {
+                "symbol": symbol,
+                "date": "2025-12-31",
+                "calendarYear": "2025",
+                "period": "FY",
+                "reportedCurrency": "EUR",
+                "cashAndCashEquivalents": 10.0,
+                "totalAssets": 100.0,
+            }
+        ]
+
 
 class BrokenRepository:
     def get(self, symbol: str):
@@ -146,19 +160,22 @@ def build_service(*, ttl_seconds: int = 300):
     profile_repository = InMemoryInstrumentProfileCacheRepository()
     current_price_repository = InMemoryCurrentPriceCacheRepository()
     history_repository = InMemoryPriceHistoryCacheRepository()
+    financials_repository = InMemoryFinancialsCacheRepository()
     service = MarketDataService(
         fmp_client=client,
         profile_repository=profile_repository,
         current_price_repository=current_price_repository,
         price_history_repository=history_repository,
+        financials_repository=financials_repository,
         cache_enabled=True,
         profile_cache_ttl_seconds=ttl_seconds,
+        financials_cache_ttl_seconds=3600,
     )
-    return service, client, profile_repository, current_price_repository, history_repository
+    return service, client, profile_repository, current_price_repository, history_repository, financials_repository
 
 
 def test_search_fmp_success_maps_fields() -> None:
-    service, client, _, _, _ = build_service()
+    service, client, _, _, _, _ = build_service()
     result = service.search_instruments("Commerzbank", 10)
     assert result.total == 1
     assert result.items[0].symbol == "CBK.DE"
@@ -166,7 +183,7 @@ def test_search_fmp_success_maps_fields() -> None:
 
 
 def test_profile_cache_miss_calls_fmp_and_upserts_structured_document() -> None:
-    service, client, repository, _, _ = build_service()
+    service, client, repository, _, _, _ = build_service()
     profile = service.get_instrument_profile("cbk.de")
     assert profile.symbol == "CBK.DE"
     assert client.profile_calls == ["CBK.DE"]
@@ -174,7 +191,7 @@ def test_profile_cache_miss_calls_fmp_and_upserts_structured_document() -> None:
 
 
 def test_profile_cache_hit_fresh_avoids_fmp_call() -> None:
-    service, client, repository, _, _ = build_service()
+    service, client, repository, _, _, _ = build_service()
     repository._data["CBK.DE"] = CachedInstrumentProfile(
         symbol="CBK.DE",
         source="fmp_profile_v2",
@@ -188,7 +205,7 @@ def test_profile_cache_hit_fresh_avoids_fmp_call() -> None:
 
 
 def test_profile_cache_stale_refreshes_from_fmp() -> None:
-    service, client, repository, _, _ = build_service(ttl_seconds=60)
+    service, client, repository, _, _, _ = build_service(ttl_seconds=60)
     repository._data["CBK.DE"] = CachedInstrumentProfile(
         symbol="CBK.DE",
         source="fmp_profile_v2",
@@ -208,15 +225,17 @@ def test_profile_with_unavailable_repository_falls_back_to_fmp() -> None:
         profile_repository=BrokenRepository(),
         current_price_repository=InMemoryCurrentPriceCacheRepository(),
         price_history_repository=InMemoryPriceHistoryCacheRepository(),
+        financials_repository=InMemoryFinancialsCacheRepository(),
         cache_enabled=True,
         profile_cache_ttl_seconds=300,
+        financials_cache_ttl_seconds=3600,
     )
     profile = service.get_instrument_profile("CBK.DE")
     assert profile.company_name == "Commerzbank AG"
 
 
 def test_refresh_price_cache_hit_for_today(monkeypatch) -> None:
-    service, _, _, current_price_repository, history_repository = build_service()
+    service, _, _, current_price_repository, history_repository, _ = build_service()
     fake_yf = FakeYFinance()
     monkeypatch.setattr(MarketDataService, "_get_yf_module", staticmethod(lambda: fake_yf))
 
@@ -244,7 +263,7 @@ def test_refresh_price_cache_hit_for_today(monkeypatch) -> None:
 
 
 def test_refresh_price_cache_miss_uses_1d_1m_and_stores(monkeypatch) -> None:
-    service, _, _, current_price_repository, _ = build_service()
+    service, _, _, current_price_repository, _, _ = build_service()
     fake_yf = FakeYFinance()
     monkeypatch.setattr(MarketDataService, "_get_yf_module", staticmethod(lambda: fake_yf))
 
@@ -260,7 +279,7 @@ def test_refresh_price_cache_miss_uses_1d_1m_and_stores(monkeypatch) -> None:
 
 
 def test_period_max_only_for_first_seed(monkeypatch) -> None:
-    service, _, _, _, history_repository = build_service()
+    service, _, _, _, history_repository, _ = build_service()
     fake_yf = FakeYFinance()
     monkeypatch.setattr(MarketDataService, "_get_yf_module", staticmethod(lambda: fake_yf))
 
@@ -276,7 +295,7 @@ def test_period_max_only_for_first_seed(monkeypatch) -> None:
 
 
 def test_no_period_max_when_history_exists_and_enrich_uses_5d(monkeypatch) -> None:
-    service, _, _, _, history_repository = build_service()
+    service, _, _, _, history_repository, _ = build_service()
     fake_yf = FakeYFinance()
     monkeypatch.setattr(MarketDataService, "_get_yf_module", staticmethod(lambda: fake_yf))
 
@@ -305,7 +324,7 @@ def test_no_period_max_when_history_exists_and_enrich_uses_5d(monkeypatch) -> No
 
 
 def test_get_instrument_history_cache_hit_returns_sorted_points() -> None:
-    service, _, _, _, history_repository = build_service()
+    service, _, _, _, history_repository, _ = build_service()
     history_repository.upsert_document(
         PriceHistoryCacheDocument(
             symbol="CBK.DE",
@@ -330,7 +349,7 @@ def test_get_instrument_history_cache_hit_returns_sorted_points() -> None:
 
 
 def test_get_instrument_history_cache_miss_seeds_synchronously(monkeypatch) -> None:
-    service, _, _, _, history_repository = build_service()
+    service, _, _, _, history_repository, _ = build_service()
     fake_yf = FakeYFinance()
     monkeypatch.setattr(MarketDataService, "_get_yf_module", staticmethod(lambda: fake_yf))
 
@@ -343,7 +362,7 @@ def test_get_instrument_history_cache_miss_seeds_synchronously(monkeypatch) -> N
 
 
 def test_get_instrument_history_range_filtering() -> None:
-    service, _, _, _, history_repository = build_service()
+    service, _, _, _, history_repository, _ = build_service()
     today = date.today()
     within_window = today - timedelta(days=20)
     outside_window = today - timedelta(days=150)
@@ -369,7 +388,7 @@ def test_get_instrument_history_range_filtering() -> None:
 
 
 def test_get_instrument_history_rejects_invalid_range() -> None:
-    service, _, _, _, _ = build_service()
+    service, _, _, _, _, _ = build_service()
 
     try:
         service.get_instrument_history("CBK.DE", "2m")
@@ -381,7 +400,7 @@ def test_get_instrument_history_rejects_invalid_range() -> None:
 
 
 def test_holdings_summary_returns_partial_warnings(monkeypatch) -> None:
-    service, _, _, _, history_repository = build_service()
+    service, _, _, _, history_repository, _ = build_service()
     fake_yf = FakeYFinance()
     monkeypatch.setattr(MarketDataService, "_get_yf_module", staticmethod(lambda: fake_yf))
 
@@ -404,7 +423,7 @@ def test_holdings_summary_returns_partial_warnings(monkeypatch) -> None:
 
 
 def test_batch_prices_returns_cache_status(monkeypatch) -> None:
-    service, _, _, current_price_repository, _ = build_service()
+    service, _, _, current_price_repository, _, _ = build_service()
     fake_yf = FakeYFinance()
     monkeypatch.setattr(MarketDataService, "_get_yf_module", staticmethod(lambda: fake_yf))
     current_price_repository.upsert("CBK.DE", date.today().isoformat(), 31.48)
@@ -417,7 +436,7 @@ def test_batch_prices_returns_cache_status(monkeypatch) -> None:
 
 
 def test_batch_history_cache_miss_seeded(monkeypatch) -> None:
-    service, _, _, _, _ = build_service()
+    service, _, _, _, _, _ = build_service()
     fake_yf = FakeYFinance()
     monkeypatch.setattr(MarketDataService, "_get_yf_module", staticmethod(lambda: fake_yf))
 
@@ -428,9 +447,36 @@ def test_batch_history_cache_miss_seeded(monkeypatch) -> None:
 
 
 def test_financials_rejects_invalid_period() -> None:
-    service, _, _, _, _ = build_service()
+    service, _, _, _, _, _ = build_service()
     try:
         service.get_instrument_financials("CBK.DE", "monthly")
         raise AssertionError("expected BadRequestError")
     except Exception as exc:
         assert "period must be annual or quarterly" in str(exc)
+
+
+def test_financials_cache_miss_loads_balance_sheet_and_stores() -> None:
+    service, _, _, _, _, financials_repository = build_service()
+
+    payload = service.get_instrument_financials("CBK.DE", "annual")
+
+    assert payload["symbol"] == "CBK.DE"
+    assert payload["period"] == "annual"
+    assert payload["statements"]["income_statement"] == []
+    assert payload["statements"]["cash_flow"] == []
+    assert len(payload["statements"]["balance_sheet"]) == 1
+    assert payload["statements"]["balance_sheet"][0]["totalAssets"] == 100.0
+    assert financials_repository.get("CBK.DE", "annual") is not None
+
+
+def test_financials_cache_hit_avoids_upstream_call() -> None:
+    service, client, _, _, _, _ = build_service()
+    _ = service.get_instrument_financials("CBK.DE", "annual")
+
+    def fail_balance_sheet_statement(*, symbol: str, period: str):
+        raise AssertionError("upstream call should not happen on fresh cache hit")
+
+    client.balance_sheet_statement = fail_balance_sheet_statement  # type: ignore[method-assign]
+
+    payload = service.get_instrument_financials("CBK.DE", "annual")
+    assert payload["symbol"] == "CBK.DE"

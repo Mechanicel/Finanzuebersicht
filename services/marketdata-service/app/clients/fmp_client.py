@@ -65,6 +65,13 @@ class FMPClient:
     def profile(self, *, symbol: str) -> list[dict[str, Any]]:
         return self._get_json("/profile", {"symbol": symbol})
 
+    def balance_sheet_statement(self, *, symbol: str, period: str) -> list[dict[str, Any]]:
+        fmp_period = "annual" if period == "annual" else "quarter"
+        return self._get_json(
+            "/balance-sheet-statement",
+            {"symbol": symbol, "period": fmp_period},
+        )
+
     def _get_json(self, path: str, params: dict[str, Any]) -> list[dict[str, Any]]:
         started_at = time.perf_counter()
         req_params = dict(params)

@@ -200,6 +200,46 @@ class BatchHistoryResponse(BaseModel):
     meta: dict
 
 
+FinancialsPeriod = Literal["annual", "quarterly"]
+
+
+class BalanceSheetStatement(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="allow")
+
+    symbol: str
+    date: str | None = None
+    period: str | None = None
+    calendar_year: str | None = Field(default=None, validation_alias=AliasChoices("calendarYear", "calendar_year"))
+    reported_currency: str | None = Field(default=None, validation_alias=AliasChoices("reportedCurrency", "reported_currency"))
+    cik: str | None = None
+    filling_date: str | None = Field(default=None, validation_alias=AliasChoices("fillingDate", "filling_date"))
+    accepted_date: str | None = Field(default=None, validation_alias=AliasChoices("acceptedDate", "accepted_date"))
+
+
+class FinancialStatements(BaseModel):
+    income_statement: list[dict] = Field(default_factory=list)
+    balance_sheet: list[BalanceSheetStatement] = Field(default_factory=list)
+    cash_flow: list[dict] = Field(default_factory=list)
+
+
+class InstrumentFinancialsResponse(BaseModel):
+    symbol: str
+    period: FinancialsPeriod
+    currency: str | None = None
+    statements: FinancialStatements
+    derived: dict[str, float | None]
+    meta: dict
+
+
+class FinancialsCacheDocument(BaseModel):
+    symbol: str
+    period: FinancialsPeriod
+    source: str
+    currency: str | None = None
+    statements: FinancialStatements
+    fetched_at: datetime
+
+
 class NotFoundError(Exception):
     def __init__(self, message: str) -> None:
         self.message = message
