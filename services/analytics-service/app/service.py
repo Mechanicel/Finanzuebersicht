@@ -86,8 +86,15 @@ class PortfolioHoldingSnapshot:
     warnings: list[str] = field(default_factory=list)
 
 
+@dataclass(slots=True)
+class PortfolioSnapshotCacheEntry:
+    snapshot: tuple[list[dict], list[PortfolioHoldingSnapshot], list[str]]
+    stale_at: datetime
+
+
 class AnalyticsService:
     DEFAULT_BENCHMARK_SYMBOL = "SPY"
+
     def __init__(
         self,
         *,
@@ -98,6 +105,7 @@ class AnalyticsService:
         timeout_seconds: float,
         dashboard_cache_ttl_seconds: float = 45.0,
         section_refresh_workers: int = 8,
+        portfolio_snapshot_cache_ttl_seconds: float = 10.0,
     ) -> None:
         self._person_base_url = person_base_url.rstrip("/")
         self._account_base_url = account_base_url.rstrip("/")
@@ -110,6 +118,13 @@ class AnalyticsService:
         self._refresh_executor = ThreadPoolExecutor(max_workers=max(1, section_refresh_workers))
         self._known_persons: set[UUID] = set()
         self._unknown_persons: set[UUID] = set()
+        self._portfolio_snapshot_cache_ttl_seconds = portfolio_snapshot_cache_ttl_seconds
+        self._portfolio_snapshot_cache: dict[UUID, PortfolioSnapshotCacheEntry] = {}
+        self._portfolio_snapshot_inflight: dict[
+            UUID,
+            Future[tuple[list[dict], list[PortfolioHoldingSnapshot], list[str]]],
+        ] = {}
+        self._portfolio_snapshot_lock = Lock()
 
     def _request_json(self, url: str, client: httpx.Client | None = None) -> dict | list[dict]:
         if client is None:
@@ -488,6 +503,39 @@ class AnalyticsService:
                 warnings.append("holdings_with_missing_symbol")
 
         return portfolios, snapshots, warnings
+
+    def _get_portfolio_holdings_snapshot(self, person_id: UUID) -> tuple[list[dict], list[PortfolioHoldingSnapshot], list[str]]:
+        now = datetime.now(UTC)
+        with self._portfolio_snapshot_lock:
+            cache_entry = self._portfolio_snapshot_cache.get(person_id)
+            if cache_entry is not None and now < cache_entry.stale_at:
+                return cache_entry.snapshot
+
+            inflight = self._portfolio_snapshot_inflight.get(person_id)
+            should_build = inflight is None
+            if inflight is None:
+                inflight = Future()
+                self._portfolio_snapshot_inflight[person_id] = inflight
+
+        if not should_build:
+            return inflight.result()
+
+        try:
+            snapshot = self._build_portfolio_holdings_snapshot(person_id)
+            stale_at = datetime.now(UTC) + timedelta(seconds=self._portfolio_snapshot_cache_ttl_seconds)
+            with self._portfolio_snapshot_lock:
+                self._portfolio_snapshot_cache[person_id] = PortfolioSnapshotCacheEntry(
+                    snapshot=snapshot,
+                    stale_at=stale_at,
+                )
+                self._portfolio_snapshot_inflight.pop(person_id, None)
+                inflight.set_result(snapshot)
+            return snapshot
+        except Exception as exc:
+            with self._portfolio_snapshot_lock:
+                self._portfolio_snapshot_inflight.pop(person_id, None)
+                inflight.set_exception(exc)
+            raise
 
     @staticmethod
     def _aggregate_exposure(
@@ -887,7 +935,16 @@ class AnalyticsService:
         )
 
     def portfolio_summary(self, person_id: UUID) -> PortfolioSummaryReadModel:
-        portfolios, holdings, warnings = self._build_portfolio_holdings_snapshot(person_id)
+        portfolios, holdings, warnings = self._get_portfolio_holdings_snapshot(person_id)
+        return self._build_portfolio_summary_from_snapshot(person_id, portfolios, holdings, warnings)
+
+    def _build_portfolio_summary_from_snapshot(
+        self,
+        person_id: UUID,
+        portfolios: list[dict],
+        holdings: list[PortfolioHoldingSnapshot],
+        warnings: list[str],
+    ) -> PortfolioSummaryReadModel:
         total_market_value = sum(item.market_value for item in holdings)
         total_invested_value = sum(item.invested_value for item in holdings)
         total_unrealized_pnl = total_market_value - total_invested_value
@@ -915,7 +972,7 @@ class AnalyticsService:
         )
 
     def portfolio_performance(self, person_id: UUID, range_value: str = "3m") -> PortfolioPerformanceReadModel:
-        _, holdings, warnings = self._build_portfolio_holdings_snapshot(person_id)
+        _, holdings, warnings = self._get_portfolio_holdings_snapshot(person_id)
         with httpx.Client(timeout=self._timeout) as client:
             portfolio_points, history_warnings = self._build_portfolio_history_from_snapshots(holdings, client)
             benchmark_points_raw = self._safe_load_history_points(self.DEFAULT_BENCHMARK_SYMBOL, client)
@@ -962,7 +1019,7 @@ class AnalyticsService:
         )
 
     def portfolio_exposures(self, person_id: UUID) -> PortfolioExposuresReadModel:
-        _, holdings, _ = self._build_portfolio_holdings_snapshot(person_id)
+        _, holdings, _ = self._get_portfolio_holdings_snapshot(person_id)
         by_position = self._aggregate_exposure(
             holdings,
             lambda item: item.display_name or item.symbol or "UNKNOWN",
@@ -979,8 +1036,8 @@ class AnalyticsService:
         )
 
     def portfolio_holdings(self, person_id: UUID) -> PortfolioHoldingsReadModel:
-        _, holdings, warnings = self._build_portfolio_holdings_snapshot(person_id)
-        summary = self.portfolio_summary(person_id)
+        portfolios, holdings, warnings = self._get_portfolio_holdings_snapshot(person_id)
+        summary = self._build_portfolio_summary_from_snapshot(person_id, portfolios, holdings, warnings)
         items = [
             PortfolioHoldingItem(
                 portfolio_id=item.portfolio_id,
@@ -1016,7 +1073,7 @@ class AnalyticsService:
         )
 
     def portfolio_risk(self, person_id: UUID) -> PortfolioRiskReadModel:
-        _, holdings, warnings = self._build_portfolio_holdings_snapshot(person_id)
+        _, holdings, warnings = self._get_portfolio_holdings_snapshot(person_id)
         top_position_weight, top3_weight, concentration_note = self._concentration_metrics(holdings)
 
         with httpx.Client(timeout=self._timeout) as client:
@@ -1064,7 +1121,7 @@ class AnalyticsService:
         )
 
     def portfolio_contributors(self, person_id: UUID) -> PortfolioContributorsReadModel:
-        _, holdings, _ = self._build_portfolio_holdings_snapshot(person_id)
+        _, holdings, _ = self._get_portfolio_holdings_snapshot(person_id)
         enriched = sorted(holdings, key=lambda item: item.unrealized_pnl, reverse=True)
         top_positive = [item for item in enriched if item.unrealized_pnl > 0][:5]
         top_negative = [item for item in sorted(holdings, key=lambda item: item.unrealized_pnl) if item.unrealized_pnl < 0][:5]
@@ -1089,7 +1146,7 @@ class AnalyticsService:
         )
 
     def portfolio_data_coverage(self, person_id: UUID) -> PortfolioDataCoverageReadModel:
-        _, holdings, warnings = self._build_portfolio_holdings_snapshot(person_id)
+        _, holdings, warnings = self._get_portfolio_holdings_snapshot(person_id)
         counters, coverage_warnings = self._coverage_summary(holdings, warnings)
 
         return PortfolioDataCoverageReadModel(

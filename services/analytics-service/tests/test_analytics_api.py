@@ -346,3 +346,45 @@ def test_dashboard_falls_back_when_marketdata_for_symbol_fails() -> None:
     assert dashboard.current_value == 370.0
     assert [point.x for point in dashboard.timeseries_points] == ["2026-01-01", "2026-01-02"]
     assert [point.y for point in dashboard.timeseries_points] == [200.0, 220.0]
+
+
+def test_portfolio_endpoints_reuse_snapshot_load_for_same_person() -> None:
+    class SnapshotCountingService(FakeAnalyticsService):
+        def __init__(self) -> None:
+            super().__init__()
+            self.portfolio_list_calls = 0
+
+        def _request_json(self, url: str, client=None) -> dict | list[dict]:
+            if url.endswith(f"/persons/{PERSON_ID}/portfolios"):
+                self.portfolio_list_calls += 1
+            return super()._request_json(url, client=client)
+
+    service = SnapshotCountingService()
+    person_id = UUID(PERSON_ID)
+
+    service.portfolio_summary(person_id)
+    service.portfolio_performance(person_id)
+    service.portfolio_exposures(person_id)
+    service.portfolio_holdings(person_id)
+    service.portfolio_risk(person_id)
+    service.portfolio_contributors(person_id)
+    service.portfolio_data_coverage(person_id)
+
+    assert service.portfolio_list_calls == 1
+
+
+def test_portfolio_holdings_does_not_trigger_second_snapshot_build_via_summary() -> None:
+    class BuildCountingService(FakeAnalyticsService):
+        def __init__(self) -> None:
+            super().__init__()
+            self.snapshot_build_calls = 0
+
+        def _build_portfolio_holdings_snapshot(self, person_id: UUID):
+            self.snapshot_build_calls += 1
+            return super()._build_portfolio_holdings_snapshot(person_id)
+
+    service = BuildCountingService()
+    payload = service.portfolio_holdings(UUID(PERSON_ID))
+
+    assert payload.summary.holdings_count == len(payload.items)
+    assert service.snapshot_build_calls == 1

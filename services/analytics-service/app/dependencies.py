@@ -17,4 +17,5 @@ def get_analytics_service() -> AnalyticsService:
         timeout_seconds=settings.request_timeout_seconds,
         dashboard_cache_ttl_seconds=settings.dashboard_cache_ttl_seconds,
         section_refresh_workers=settings.dashboard_section_refresh_workers,
+        portfolio_snapshot_cache_ttl_seconds=settings.portfolio_snapshot_cache_ttl_seconds,
     )
