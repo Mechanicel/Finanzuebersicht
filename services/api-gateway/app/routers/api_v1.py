@@ -29,10 +29,17 @@ from app.models import (
     PersonReadModel,
     PersonBankAssignmentReadModel,
     PersonUpdatePayload,
+    PortfolioContributorsReadModel,
     PortfolioCreatePayload,
+    PortfolioDataCoverageReadModel,
     PortfolioDetailReadModel,
+    PortfolioExposuresReadModel,
+    PortfolioHoldingsReadModel,
     PortfolioListReadModel,
+    PortfolioPerformanceReadModel,
     PortfolioReadModel,
+    PortfolioRiskReadModel,
+    PortfolioSummaryReadModel,
     HoldingCreatePayload,
     HoldingsRefreshStubReadModel,
     HoldingReadModel,
@@ -211,6 +218,70 @@ async def dashboard_metrics_section(
     person_id: UUID, service: Annotated[GatewayService, Depends(get_gateway_service)]
 ) -> ApiResponse[dict]:
     return ApiResponse(data=await service.get_dashboard_section(person_id, "metrics"))
+
+
+@router.get("/app/persons/{person_id}/portfolio-summary", response_model=ApiResponse[PortfolioSummaryReadModel])
+async def portfolio_summary(
+    person_id: UUID, service: Annotated[GatewayService, Depends(get_gateway_service)]
+) -> ApiResponse[PortfolioSummaryReadModel]:
+    return ApiResponse(data=await service.get_portfolio_summary(person_id))
+
+
+@router.get(
+    "/app/persons/{person_id}/portfolio-performance",
+    response_model=ApiResponse[PortfolioPerformanceReadModel],
+)
+async def portfolio_performance(
+    person_id: UUID, service: Annotated[GatewayService, Depends(get_gateway_service)]
+) -> ApiResponse[PortfolioPerformanceReadModel]:
+    return ApiResponse(data=await service.get_portfolio_performance(person_id))
+
+
+@router.get(
+    "/app/persons/{person_id}/portfolio-exposures",
+    response_model=ApiResponse[PortfolioExposuresReadModel],
+)
+async def portfolio_exposures(
+    person_id: UUID, service: Annotated[GatewayService, Depends(get_gateway_service)]
+) -> ApiResponse[PortfolioExposuresReadModel]:
+    return ApiResponse(data=await service.get_portfolio_exposures(person_id))
+
+
+@router.get(
+    "/app/persons/{person_id}/portfolio-holdings",
+    response_model=ApiResponse[PortfolioHoldingsReadModel],
+)
+async def portfolio_holdings(
+    person_id: UUID, service: Annotated[GatewayService, Depends(get_gateway_service)]
+) -> ApiResponse[PortfolioHoldingsReadModel]:
+    return ApiResponse(data=await service.get_portfolio_holdings(person_id))
+
+
+@router.get("/app/persons/{person_id}/portfolio-risk", response_model=ApiResponse[PortfolioRiskReadModel])
+async def portfolio_risk(
+    person_id: UUID, service: Annotated[GatewayService, Depends(get_gateway_service)]
+) -> ApiResponse[PortfolioRiskReadModel]:
+    return ApiResponse(data=await service.get_portfolio_risk(person_id))
+
+
+@router.get(
+    "/app/persons/{person_id}/portfolio-contributors",
+    response_model=ApiResponse[PortfolioContributorsReadModel],
+)
+async def portfolio_contributors(
+    person_id: UUID, service: Annotated[GatewayService, Depends(get_gateway_service)]
+) -> ApiResponse[PortfolioContributorsReadModel]:
+    return ApiResponse(data=await service.get_portfolio_contributors(person_id))
+
+
+@router.get(
+    "/app/persons/{person_id}/portfolio-data-coverage",
+    response_model=ApiResponse[PortfolioDataCoverageReadModel],
+)
+async def portfolio_data_coverage(
+    person_id: UUID, service: Annotated[GatewayService, Depends(get_gateway_service)]
+) -> ApiResponse[PortfolioDataCoverageReadModel]:
+    return ApiResponse(data=await service.get_portfolio_data_coverage(person_id))
 
 
 @router.get("/app/persons/{person_id}/accounts", response_model=ApiResponse[list[AccountReadModel]])

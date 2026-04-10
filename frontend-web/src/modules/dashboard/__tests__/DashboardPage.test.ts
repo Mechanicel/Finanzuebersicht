@@ -73,6 +73,8 @@ describe('DashboardPage', () => {
             props: ['section'],
             template: '<div data-test="metrics">metrics:{{ section.state }}</div>'
           },
+          LegacyAnalyticsSection: { template: '<section data-test="legacy"><slot /></section>' },
+          PortfolioDashboardContainer: { template: '<div data-test="portfolio-cockpit" />' },
           DepotAnalysisWorkspace: { template: '<div data-test="depot" />' }
         }
       }
@@ -81,6 +83,7 @@ describe('DashboardPage', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('Analytics-Dashboard')
+    expect(wrapper.find('[data-test="legacy"]').exists()).toBe(true)
     expect(fetchDashboardOverview).toHaveBeenCalledWith('person-1')
     expect(fetchDashboardAllocation).toHaveBeenCalledWith('person-1')
     expect(fetchDashboardTimeseries).toHaveBeenCalledWith('person-1')

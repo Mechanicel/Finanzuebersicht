@@ -28,35 +28,39 @@
         </EmptyState>
 
         <template v-else>
-          <DashboardOverviewSection
-            :section="overviewSection"
-            :meta-text="sectionMetaText(overviewSection)"
-            :error-message="overviewError"
-            @retry="void loadOverview()"
-          />
+          <PortfolioDashboardContainer :person-id="personId" />
 
-          <DashboardAllocationSection
-            :section="allocationSection"
-            :meta-text="sectionMetaText(allocationSection)"
-            :error-message="allocationError"
-            @retry="void loadAllocation()"
-          />
+          <LegacyAnalyticsSection>
+            <DashboardOverviewSection
+              :section="overviewSection"
+              :meta-text="sectionMetaText(overviewSection)"
+              :error-message="overviewError"
+              @retry="void loadOverview()"
+            />
 
-          <DashboardTimeseriesSection
-            :section="timeseriesSection"
-            :meta-text="sectionMetaText(timeseriesSection)"
-            :error-message="timeseriesError"
-            @retry="void loadTimeseries()"
-          />
+            <DashboardAllocationSection
+              :section="allocationSection"
+              :meta-text="sectionMetaText(allocationSection)"
+              :error-message="allocationError"
+              @retry="void loadAllocation()"
+            />
 
-          <DashboardMetricsSection
-            :section="metricsSection"
-            :meta-text="sectionMetaText(metricsSection)"
-            :error-message="metricsError"
-            @retry="void loadMetrics()"
-          />
+            <DashboardTimeseriesSection
+              :section="timeseriesSection"
+              :meta-text="sectionMetaText(timeseriesSection)"
+              :error-message="timeseriesError"
+              @retry="void loadTimeseries()"
+            />
 
-          <DepotAnalysisWorkspace :person-id="personId" />
+            <DashboardMetricsSection
+              :section="metricsSection"
+              :meta-text="sectionMetaText(metricsSection)"
+              :error-message="metricsError"
+              @retry="void loadMetrics()"
+            />
+
+            <DepotAnalysisWorkspace :person-id="personId" />
+          </LegacyAnalyticsSection>
         </template>
       </div>
     </article>
@@ -81,6 +85,8 @@ import DashboardOverviewSection from '@/modules/dashboard/components/DashboardOv
 import DashboardAllocationSection from '@/modules/dashboard/components/DashboardAllocationSection.vue'
 import DashboardTimeseriesSection from '@/modules/dashboard/components/DashboardTimeseriesSection.vue'
 import DashboardMetricsSection from '@/modules/dashboard/components/DashboardMetricsSection.vue'
+import PortfolioDashboardContainer from '@/modules/dashboard/components/PortfolioDashboardContainer.vue'
+import LegacyAnalyticsSection from '@/modules/dashboard/components/LegacyAnalyticsSection.vue'
 import {
   fetchDashboardAllocation,
   fetchDashboardMetrics,
@@ -301,4 +307,5 @@ watch(
   display: grid;
   gap: 1rem;
 }
+
 </style>

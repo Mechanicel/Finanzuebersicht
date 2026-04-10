@@ -100,7 +100,7 @@ describe('InstrumentAnalysisTabs', () => {
 
     expect(wrapper.text()).toContain('Neueste Balance-Sheet-Periode')
     expect(wrapper.text()).toContain('Balance Sheet Verlauf (2 Perioden)')
-    expect(wrapper.text()).toContain('partial_data: Some periods are missing.')
+    expect(wrapper.text()).toContain('Some periods are missing.')
     expect(wrapper.find('table.financials-table').exists()).toBe(true)
     expect(wrapper.text()).toContain('Total Assets')
     expect(wrapper.text()).not.toContain('undefined')

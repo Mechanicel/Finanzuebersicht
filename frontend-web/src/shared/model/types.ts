@@ -498,4 +498,137 @@ export interface DashboardTimeseriesPayload {
 
 export type DashboardMetricsPayload = Record<string, unknown>
 
+export interface PortfolioSummaryReadModel {
+  person_id: string
+  as_of: string
+  currency: string
+  market_value: number
+  invested_value: number
+  unrealized_pnl: number
+  unrealized_return_pct?: number | null
+  portfolios_count: number
+  holdings_count: number
+  top_position_weight?: number | null
+  top3_weight?: number | null
+  meta: { loading?: boolean; error?: string | null; [key: string]: unknown }
+}
+
+export interface PortfolioPerformanceSummary {
+  start_value?: number | null
+  end_value?: number | null
+  absolute_change?: number | null
+  return_pct?: number | null
+}
+
+export interface PortfolioPerformanceSeriesPoint {
+  x: string
+  y: number
+}
+
+export interface PortfolioPerformanceSeries {
+  key: string
+  label: string
+  points: PortfolioPerformanceSeriesPoint[]
+}
+
+export interface PortfolioPerformanceReadModel {
+  person_id: string
+  range: string
+  benchmark_symbol?: string | null
+  series: PortfolioPerformanceSeries[]
+  summary: PortfolioPerformanceSummary
+  meta: { loading?: boolean; error?: string | null; [key: string]: unknown }
+}
+
+export interface PortfolioExposureSlice {
+  label: string
+  market_value: number
+  weight: number
+}
+
+export interface PortfolioExposuresReadModel {
+  person_id: string
+  by_position: PortfolioExposureSlice[]
+  by_sector: PortfolioExposureSlice[]
+  by_country: PortfolioExposureSlice[]
+  by_currency: PortfolioExposureSlice[]
+  meta: { loading?: boolean; error?: string | null; [key: string]: unknown }
+}
+
+export interface PortfolioHoldingItem {
+  portfolio_id: string
+  portfolio_name?: string | null
+  holding_id?: string | null
+  symbol?: string | null
+  display_name?: string | null
+  quantity: number
+  acquisition_price?: number | null
+  current_price?: number | null
+  invested_value: number
+  market_value: number
+  unrealized_pnl: number
+  unrealized_return_pct?: number | null
+  weight: number
+  sector?: string | null
+  country?: string | null
+  currency?: string | null
+  data_status: string
+  warnings?: string[]
+}
+
+export interface PortfolioHoldingsReadModel {
+  person_id: string
+  as_of: string
+  currency: string
+  items: PortfolioHoldingItem[]
+  summary: PortfolioSummaryReadModel
+  meta: { loading?: boolean; error?: string | null; [key: string]: unknown }
+}
+
+export interface PortfolioRiskReadModel {
+  person_id: string
+  as_of: string
+  benchmark_symbol?: string | null
+  portfolio_volatility?: number | null
+  max_drawdown?: number | null
+  correlation?: number | null
+  beta?: number | null
+  tracking_error?: number | null
+  top_position_weight?: number | null
+  top3_weight?: number | null
+  concentration_note?: string | null
+  meta: { loading?: boolean; error?: string | null; [key: string]: unknown }
+}
+
+export interface PortfolioContributorItem {
+  symbol?: string | null
+  display_name?: string | null
+  market_value: number
+  weight: number
+  unrealized_pnl: number
+  contribution_weighted: number
+  direction?: string | null
+}
+
+export interface PortfolioContributorsReadModel {
+  person_id: string
+  top_contributors: PortfolioContributorItem[]
+  top_detractors: PortfolioContributorItem[]
+  meta: { loading?: boolean; error?: string | null; [key: string]: unknown }
+}
+
+export interface PortfolioDataCoverageReadModel {
+  person_id: string
+  as_of: string
+  total_holdings: number
+  missing_prices: number
+  missing_sectors: number
+  missing_countries: number
+  missing_currencies: number
+  fallback_acquisition_prices?: number
+  holdings_with_marketdata_warnings?: number
+  warnings: string[]
+  meta: { loading?: boolean; error?: string | null; [key: string]: unknown }
+}
+
 export interface ApiEnvelope<T> { data: T }

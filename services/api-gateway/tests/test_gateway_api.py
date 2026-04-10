@@ -296,6 +296,118 @@ class StubGatewayService:
     async def get_analytics_overview(self, person_id: UUID) -> dict:
         return {"labels": ["2026-02-28"], "series": []}
 
+    async def get_portfolio_summary(self, person_id: UUID) -> dict:
+        return {
+            "person_id": str(person_id),
+            "as_of": "2026-04-10",
+            "currency": "EUR",
+            "market_value": 360.0,
+            "invested_value": 350.0,
+            "unrealized_pnl": 10.0,
+            "unrealized_return_pct": 2.8571,
+            "portfolios_count": 1,
+            "holdings_count": 2,
+            "top_position_weight": 0.61,
+            "top3_weight": 1.0,
+            "meta": {"loading": False, "error": None},
+        }
+
+    async def get_portfolio_performance(self, person_id: UUID) -> dict:
+        return {
+            "person_id": str(person_id),
+            "range": "3m",
+            "benchmark_symbol": None,
+            "series": [{"key": "portfolio_value", "label": "Portfolio", "points": []}],
+            "summary": {"start_value": 300.0, "end_value": 360.0, "absolute_change": 60.0, "return_pct": 20.0},
+            "meta": {"loading": False, "error": None},
+        }
+
+    async def get_portfolio_exposures(self, person_id: UUID) -> dict:
+        return {
+            "person_id": str(person_id),
+            "by_position": [{"label": "Apple Inc.", "market_value": 220.0, "weight": 0.611111}],
+            "by_sector": [{"label": "Technology", "market_value": 360.0, "weight": 1.0}],
+            "by_country": [{"label": "US", "market_value": 360.0, "weight": 1.0}],
+            "by_currency": [{"label": "USD", "market_value": 360.0, "weight": 1.0}],
+            "meta": {"loading": False, "error": None},
+        }
+
+    async def get_portfolio_holdings(self, person_id: UUID) -> dict:
+        summary = await self.get_portfolio_summary(person_id)
+        return {
+            "person_id": str(person_id),
+            "as_of": "2026-04-10",
+            "currency": "EUR",
+            "items": [
+                {
+                    "portfolio_id": "p-1",
+                    "portfolio_name": "Depot",
+                    "holding_id": "h-1",
+                    "symbol": "AAPL",
+                    "display_name": "Apple Inc.",
+                    "quantity": 2.0,
+                    "acquisition_price": 100.0,
+                    "current_price": 110.0,
+                    "invested_value": 200.0,
+                    "market_value": 220.0,
+                    "unrealized_pnl": 20.0,
+                    "unrealized_return_pct": 10.0,
+                    "weight": 0.611111,
+                    "sector": "Technology",
+                    "country": "US",
+                    "currency": "USD",
+                    "data_status": "ok",
+                    "warnings": [],
+                }
+            ],
+            "summary": summary,
+            "meta": {"loading": False, "error": None},
+        }
+
+    async def get_portfolio_risk(self, person_id: UUID) -> dict:
+        return {
+            "person_id": str(person_id),
+            "as_of": "2026-04-10",
+            "benchmark_symbol": None,
+            "portfolio_volatility": None,
+            "max_drawdown": None,
+            "top_position_weight": 0.611111,
+            "top3_weight": 1.0,
+            "concentration_note": "high_top3_concentration",
+            "meta": {"loading": False, "error": "volatility_and_drawdown_not_available_yet"},
+        }
+
+    async def get_portfolio_contributors(self, person_id: UUID) -> dict:
+        return {
+            "person_id": str(person_id),
+            "top_contributors": [
+                {
+                    "symbol": "AAPL",
+                    "display_name": "Apple Inc.",
+                    "market_value": 220.0,
+                    "weight": 0.611111,
+                    "unrealized_pnl": 20.0,
+                    "contribution_weighted": 12.22222,
+                    "direction": "positive",
+                }
+            ],
+            "top_detractors": [],
+            "meta": {"loading": False, "error": None},
+        }
+
+    async def get_portfolio_data_coverage(self, person_id: UUID) -> dict:
+        return {
+            "person_id": str(person_id),
+            "as_of": "2026-04-10",
+            "total_holdings": 2,
+            "missing_prices": 0,
+            "missing_sectors": 0,
+            "missing_countries": 0,
+            "missing_currencies": 0,
+            "warnings": [],
+            "meta": {"loading": False, "error": None},
+        }
+
 
     async def list_banks(self) -> dict:
         return {
@@ -468,6 +580,13 @@ def test_app_endpoints_for_vue_pages() -> None:
     assert client.get(f"/api/v1/app/persons/{PERSON_ID}/dashboard/allocation").status_code == 200
     assert client.get(f"/api/v1/app/persons/{PERSON_ID}/dashboard/timeseries").status_code == 200
     assert client.get(f"/api/v1/app/persons/{PERSON_ID}/dashboard/metrics").status_code == 200
+    assert client.get(f"/api/v1/app/persons/{PERSON_ID}/portfolio-summary").status_code == 200
+    assert client.get(f"/api/v1/app/persons/{PERSON_ID}/portfolio-performance").status_code == 200
+    assert client.get(f"/api/v1/app/persons/{PERSON_ID}/portfolio-exposures").status_code == 200
+    assert client.get(f"/api/v1/app/persons/{PERSON_ID}/portfolio-holdings").status_code == 200
+    assert client.get(f"/api/v1/app/persons/{PERSON_ID}/portfolio-risk").status_code == 200
+    assert client.get(f"/api/v1/app/persons/{PERSON_ID}/portfolio-contributors").status_code == 200
+    assert client.get(f"/api/v1/app/persons/{PERSON_ID}/portfolio-data-coverage").status_code == 200
     assert client.get(f"/api/v1/app/persons/{PERSON_ID}/accounts").status_code == 200
     assert (
         client.get(f"/api/v1/app/persons/{PERSON_ID}/accounts/10000000-0000-0000-0000-000000000001").status_code == 200

@@ -194,7 +194,7 @@ const tabs = [
   { key: 'risk', label: 'Risiko & Benchmark' },
   { key: 'fundamentals', label: 'Fundamentals' },
   { key: 'financials', label: 'Finanzberichte' },
-  { key: 'raw', label: 'Rohdaten' }
+  { key: 'raw', label: 'Technische Details' }
 ] as const
 
 const timeseriesSeries = ['price', 'benchmark_price', 'returns', 'drawdown', 'benchmark_relative']
@@ -308,10 +308,10 @@ async function loadAll(symbol: string) {
     financials.value = financialPayload
 
     const collectedWarnings = [
-      ...(seriesPayload.meta?.warnings ?? []).map((entry) => `${entry.code}: ${entry.message}`),
-      ...(riskPayload.meta?.warnings ?? []).map((entry) => `${entry.code}: ${entry.message}`)
+      ...(seriesPayload.meta?.warnings ?? []).map((entry) => entry.message),
+      ...(riskPayload.meta?.warnings ?? []).map((entry) => entry.message)
     ]
-    financialWarnings.value = (financialPayload.meta?.warnings ?? []).map((entry) => `${entry.code}: ${entry.message}`)
+    financialWarnings.value = (financialPayload.meta?.warnings ?? []).map((entry) => entry.message)
     if (benchmarkPayload?.benchmark && benchmarkPayload.benchmark !== benchmarkInput.value) {
       collectedWarnings.push(`Benchmark automatisch auf ${benchmarkPayload.benchmark} gesetzt.`)
     }

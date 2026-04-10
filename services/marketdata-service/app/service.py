@@ -437,16 +437,57 @@ class MarketDataService:
     def get_instrument_risk(self, symbol: str, benchmark: str | None) -> dict[str, Any]:
         normalized = self._normalize_symbol(symbol)
         benchmark_symbol = (benchmark or "SPY").strip().upper()
-        series = self.get_instrument_timeseries(normalized, "close", benchmark_symbol)
+        series = self.get_instrument_timeseries(normalized, "returns", benchmark_symbol)
         instrument_points = series.get("instrument", {}).get("points", [])
         benchmark_points = series.get("benchmark", {}).get("points", [])
-        aligned = min(len(instrument_points), len(benchmark_points))
+        instrument_returns = [point["value"] for point in instrument_points]
+        benchmark_returns = [point["value"] for point in benchmark_points]
+        aligned = min(len(instrument_returns), len(benchmark_returns))
+        aligned_instrument_returns = instrument_returns[-aligned:] if aligned else []
+        aligned_benchmark_returns = benchmark_returns[-aligned:] if aligned else []
+
+        covariance: float | None = None
+        correlation: float | None = None
+        beta_proxy: float | None = None
+        if aligned >= 2:
+            benchmark_mean = sum(aligned_benchmark_returns) / aligned
+            instrument_mean = sum(aligned_instrument_returns) / aligned
+            covariance = sum(
+                (aligned_instrument_returns[idx] - instrument_mean)
+                * (aligned_benchmark_returns[idx] - benchmark_mean)
+                for idx in range(aligned)
+            ) / aligned
+            instrument_variance = sum((value - instrument_mean) ** 2 for value in aligned_instrument_returns) / aligned
+            benchmark_variance = sum((value - benchmark_mean) ** 2 for value in aligned_benchmark_returns) / aligned
+            if benchmark_variance != 0:
+                beta_proxy = covariance / benchmark_variance
+            if instrument_variance > 0 and benchmark_variance > 0:
+                correlation = covariance / ((instrument_variance ** 0.5) * (benchmark_variance ** 0.5))
+
+        tracking_error: float | None = None
+        if aligned >= 2:
+            active_returns = [
+                aligned_instrument_returns[idx] - aligned_benchmark_returns[idx]
+                for idx in range(aligned)
+            ]
+            tracking_error = self._volatility_proxy(active_returns)
+
+        drawdown_series = self.get_instrument_timeseries(normalized, "drawdown", benchmark_symbol)
+        drawdown_points = drawdown_series.get("instrument", {}).get("points", [])
+        max_drawdown = min((point["value"] for point in drawdown_points), default=None)
+
         payload = {
             "symbol": normalized,
             "benchmark": benchmark_symbol,
             "aligned_points": aligned,
-            "volatility_proxy": self._volatility_proxy([point["value"] for point in instrument_points]),
-            "benchmark_volatility_proxy": self._volatility_proxy([point["value"] for point in benchmark_points]),
+            "series": "returns",
+            "volatility_proxy": self._volatility_proxy(aligned_instrument_returns),
+            "benchmark_volatility_proxy": self._volatility_proxy(aligned_benchmark_returns),
+            "correlation": correlation,
+            "beta": beta_proxy,
+            "beta_proxy": beta_proxy,
+            "tracking_error": tracking_error,
+            "max_drawdown": max_drawdown,
             "meta": series.get("meta", {}),
         }
         return payload
@@ -463,7 +504,25 @@ class MarketDataService:
     def get_instrument_timeseries(self, symbol: str, series: str | None, benchmark: str | None) -> dict[str, Any]:
         normalized = self._normalize_symbol(symbol)
         benchmark_symbol = (benchmark or "SPY").strip().upper()
-        selected_series = (series or "close").strip().lower()
+        raw_series = (series or "price").strip().lower()
+        series_aliases = {
+            "close": "price",
+            "normalized_close": "normalized_price",
+        }
+        selected_series = series_aliases.get(raw_series, raw_series)
+        supported_series = {
+            "price",
+            "benchmark_price",
+            "returns",
+            "drawdown",
+            "benchmark_relative",
+            "normalized_price",
+        }
+        if selected_series not in supported_series:
+            raise BadRequestError(
+                "series must be one of: price, benchmark_price, returns, drawdown, benchmark_relative"
+            )
+
         instrument_history = self.get_instrument_history(normalized, "1y")
 
         warnings: list[dict[str, Any]] = []
@@ -473,17 +532,64 @@ class MarketDataService:
         except Exception as exc:
             warnings.append({"symbol": benchmark_symbol, "code": "benchmark_unavailable", "message": str(exc)})
 
+        instrument_prices = self._series_points(instrument_history.points, "price")
+        benchmark_prices = [] if benchmark_history is None else self._series_points(benchmark_history.points, "price")
+        aligned_price_series = self._align_series_by_date(instrument_prices, benchmark_prices)
+        aligned_instrument_prices = aligned_price_series["left"]
+        aligned_benchmark_prices = aligned_price_series["right"]
+
+        instrument_points: list[dict[str, float | str]] = []
+        benchmark_points: list[dict[str, float | str]] = []
+
+        if selected_series == "price":
+            instrument_points = instrument_prices
+            benchmark_points = benchmark_prices
+        elif selected_series == "benchmark_price":
+            benchmark_points = benchmark_prices
+            instrument_points = []
+            if not benchmark_points:
+                warnings.append(
+                    {
+                        "symbol": benchmark_symbol,
+                        "code": "benchmark_price_unavailable",
+                        "message": "Benchmark price series is unavailable.",
+                    }
+                )
+        elif selected_series == "returns":
+            instrument_points = self._series_points(instrument_history.points, "returns")
+            benchmark_points = [] if benchmark_history is None else self._series_points(benchmark_history.points, "returns")
+        elif selected_series == "drawdown":
+            instrument_points = self._series_points(instrument_history.points, "drawdown")
+            benchmark_points = [] if benchmark_history is None else self._series_points(benchmark_history.points, "drawdown")
+        elif selected_series == "normalized_price":
+            instrument_points = self._series_points(instrument_history.points, "normalized_price")
+            benchmark_points = [] if benchmark_history is None else self._series_points(benchmark_history.points, "normalized_price")
+        elif selected_series == "benchmark_relative":
+            if not aligned_instrument_prices or not aligned_benchmark_prices:
+                warnings.append(
+                    {
+                        "symbol": normalized,
+                        "code": "benchmark_relative_unavailable",
+                        "message": "Benchmark relative series requires aligned instrument and benchmark price data.",
+                    }
+                )
+            else:
+                instrument_points, benchmark_points = self._benchmark_relative_points(
+                    aligned_instrument_prices,
+                    aligned_benchmark_prices,
+                )
+
         return {
             "symbol": normalized,
-            "series": selected_series,
+            "series": raw_series,
             "benchmark_symbol": benchmark_symbol,
             "instrument": {
-                "points": [{"date": point.date, "value": point.close} for point in instrument_history.points],
+                "points": instrument_points,
             },
             "benchmark_data": {"available": benchmark_history is not None},
             "benchmark": {
                 "symbol": benchmark_symbol,
-                "points": [] if benchmark_history is None else [{"date": point.date, "value": point.close} for point in benchmark_history.points],
+                "points": benchmark_points,
             },
             "meta": {"warnings": warnings},
         }
@@ -688,6 +794,78 @@ class MarketDataService:
         return cached.persistence_only_profile.beta
 
     @staticmethod
+    def _series_points(points: list[InstrumentHistoryPoint], selected_series: str) -> list[dict[str, float | str]]:
+        if selected_series == "price":
+            return [{"date": point.date, "value": point.close} for point in points]
+
+        if selected_series == "normalized_price":
+            if not points:
+                return []
+            base = points[0].close
+            if base == 0:
+                return [{"date": point.date, "value": 0.0} for point in points]
+            return [{"date": point.date, "value": (point.close / base) * 100.0} for point in points]
+
+        if selected_series == "drawdown":
+            drawdown_points: list[dict[str, float | str]] = []
+            running_peak: float | None = None
+            for point in points:
+                running_peak = point.close if running_peak is None else max(running_peak, point.close)
+                if running_peak == 0:
+                    drawdown_points.append({"date": point.date, "value": 0.0})
+                else:
+                    drawdown_points.append({"date": point.date, "value": (point.close / running_peak) - 1.0})
+            return drawdown_points
+
+        returns_points: list[dict[str, float | str]] = []
+        for idx in range(1, len(points)):
+            previous = points[idx - 1].close
+            current = points[idx].close
+            if previous == 0:
+                continue
+            returns_points.append({"date": points[idx].date, "value": (current - previous) / previous})
+        return returns_points
+
+    @staticmethod
+    def _align_series_by_date(
+        left_points: list[dict[str, float | str]],
+        right_points: list[dict[str, float | str]],
+    ) -> dict[str, list[dict[str, float | str]]]:
+        right_by_date = {point["date"]: point["value"] for point in right_points}
+        aligned_left: list[dict[str, float | str]] = []
+        aligned_right: list[dict[str, float | str]] = []
+        for left in left_points:
+            date_key = left["date"]
+            if date_key not in right_by_date:
+                continue
+            aligned_left.append({"date": date_key, "value": left["value"]})
+            aligned_right.append({"date": date_key, "value": right_by_date[date_key]})
+        return {"left": aligned_left, "right": aligned_right}
+
+    @staticmethod
+    def _benchmark_relative_points(
+        aligned_instrument_prices: list[dict[str, float | str]],
+        aligned_benchmark_prices: list[dict[str, float | str]],
+    ) -> tuple[list[dict[str, float | str]], list[dict[str, float | str]]]:
+        if not aligned_instrument_prices or not aligned_benchmark_prices:
+            return [], []
+        instrument_base = float(aligned_instrument_prices[0]["value"])
+        benchmark_base = float(aligned_benchmark_prices[0]["value"])
+        if instrument_base == 0 or benchmark_base == 0:
+            return [], []
+
+        instrument_points: list[dict[str, float | str]] = []
+        benchmark_points: list[dict[str, float | str]] = []
+        for idx in range(len(aligned_instrument_prices)):
+            date_key = aligned_instrument_prices[idx]["date"]
+            instrument_norm = float(aligned_instrument_prices[idx]["value"]) / instrument_base
+            benchmark_norm = float(aligned_benchmark_prices[idx]["value"]) / benchmark_base
+            benchmark_relative = (instrument_norm / benchmark_norm) - 1.0 if benchmark_norm != 0 else 0.0
+            instrument_points.append({"date": date_key, "value": benchmark_relative})
+            benchmark_points.append({"date": date_key, "value": 0.0})
+        return instrument_points, benchmark_points
+
+    @staticmethod
     def _volatility_proxy(values: list[float]) -> float | None:
         if len(values) < 2:
             return None
@@ -844,6 +1022,11 @@ class MarketDataService:
                 "warnings": warnings or [],
                 "source": document.source,
                 "fetched_at": document.fetched_at.isoformat(),
+                "coverage": {
+                    "income_statement": "not_integrated",
+                    "balance_sheet": "integrated",
+                    "cash_flow": "not_integrated",
+                },
             },
         }
 
