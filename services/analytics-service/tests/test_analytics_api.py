@@ -67,14 +67,28 @@ class FakeAnalyticsService(AnalyticsService):
             }
 
         if "/profile" in url and "AAPL" in url:
-            return {"price": 110.0}
+            return {
+                "price": 110.0,
+                "name": "Apple Inc.",
+                "sector": "Technology",
+                "country": "US",
+                "currency": "USD",
+            }
         if "/profile" in url and "MSFT" in url:
-            return {"price": 140.0}
+            return {
+                "price": 140.0,
+                "name": "Microsoft Corp.",
+                "sector": "Technology",
+                "country": "US",
+                "currency": "USD",
+            }
 
         if "/history" in url and "AAPL" in url:
             return {"points": [{"date": "2026-01-01", "close": 100}, {"date": "2026-01-02", "close": 110}]}
         if "/history" in url and "MSFT" in url:
             return {"points": [{"date": "2026-01-01", "close": 140}, {"date": "2026-01-02", "close": 145}]}
+        if "/history" in url and "SPY" in url:
+            return {"points": [{"date": "2026-01-01", "close": 200}, {"date": "2026-01-02", "close": 210}]}
 
         return {}
 
@@ -129,6 +143,107 @@ def test_all_analytics_endpoints_exist() -> None:
         payload = response.json()["data"]
         assert payload["section"] == suffix
         assert payload["state"] in {"pending", "ready", "stale", "error"}
+
+    portfolio_suffixes = [
+        "portfolio-summary",
+        "portfolio-performance",
+        "portfolio-exposures",
+        "portfolio-holdings",
+        "portfolio-risk",
+        "portfolio-contributors",
+        "portfolio-data-coverage",
+    ]
+    for suffix in portfolio_suffixes:
+        response = client.get(f"/api/v1/analytics/persons/{PERSON_ID}/{suffix}")
+        assert response.status_code == 200, suffix
+        assert response.json()["data"]["meta"]["loading"] is False
+
+
+def test_portfolio_summary_uses_market_value_weights() -> None:
+    client = _client_with_fake_service()
+    response = client.get(f"/api/v1/analytics/persons/{PERSON_ID}/portfolio-summary")
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["market_value"] == 360.0
+    assert payload["invested_value"] == 350.0
+    assert payload["unrealized_pnl"] == 10.0
+    assert payload["top_position_weight"] == 0.611111
+
+
+def test_portfolio_data_coverage_reports_missing_prices() -> None:
+    class MissingPriceService(FakeAnalyticsService):
+        def _request_json(self, url: str, client=None) -> dict | list[dict]:
+            if "/profile" in url and "MSFT" in url:
+                return {
+                    "name": "Microsoft Corp.",
+                    "sector": "Technology",
+                    "country": "US",
+                    "currency": "USD",
+                }
+            return super()._request_json(url, client=client)
+
+    app.dependency_overrides[get_analytics_service] = lambda: MissingPriceService()
+    client = create_test_client(app)
+    response = client.get(f"/api/v1/analytics/persons/{PERSON_ID}/portfolio-data-coverage")
+
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["missing_prices"] == 1
+    assert payload["fallback_acquisition_prices"] == 1
+    assert payload["holdings_with_marketdata_warnings"] == 1
+    assert "price_fallback_used_for_some_holdings" in payload["warnings"]
+
+
+def test_portfolio_performance_summary_is_calculated_from_portfolio_series() -> None:
+    client = _client_with_fake_service()
+    response = client.get(f"/api/v1/analytics/persons/{PERSON_ID}/portfolio-performance")
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["summary"]["start_value"] == 340.0
+    assert payload["summary"]["end_value"] == 365.0
+    assert payload["summary"]["absolute_change"] == 25.0
+    assert payload["summary"]["return_pct"] == 7.3529
+    assert payload["benchmark_symbol"] == "SPY"
+
+
+def test_portfolio_risk_computes_volatility_and_max_drawdown() -> None:
+    class VolatileService(FakeAnalyticsService):
+        def _request_json(self, url: str, client=None) -> dict | list[dict]:
+            if "/history" in url and "AAPL" in url:
+                return {
+                    "points": [
+                        {"date": "2026-01-01", "close": 100},
+                        {"date": "2026-01-02", "close": 120},
+                        {"date": "2026-01-03", "close": 90},
+                    ]
+                }
+            if "/history" in url and "MSFT" in url:
+                return {
+                    "points": [
+                        {"date": "2026-01-01", "close": 140},
+                        {"date": "2026-01-02", "close": 150},
+                        {"date": "2026-01-03", "close": 130},
+                    ]
+                }
+            if "/history" in url and "SPY" in url:
+                return {
+                    "points": [
+                        {"date": "2026-01-01", "close": 200},
+                        {"date": "2026-01-02", "close": 205},
+                        {"date": "2026-01-03", "close": 190},
+                    ]
+                }
+            return super()._request_json(url, client=client)
+
+    app.dependency_overrides[get_analytics_service] = lambda: VolatileService()
+    client = create_test_client(app)
+    response = client.get(f"/api/v1/analytics/persons/{PERSON_ID}/portfolio-risk")
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["portfolio_volatility"] is not None
+    assert payload["max_drawdown"] == -0.205128
+    assert payload["top_position_weight"] == 0.611111
+    assert payload["top3_weight"] == 1.0
 
 
 def test_unknown_person_returns_404() -> None:

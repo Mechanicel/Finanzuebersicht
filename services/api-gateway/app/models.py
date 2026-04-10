@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 from uuid import UUID
 
 from typing import Literal
@@ -274,6 +275,123 @@ class DashboardReadModel(BaseModel):
     metrics: dict
     timeseries: dict
     kpis: list[dict] = Field(default_factory=list)
+
+
+class PortfolioSummaryReadModel(BaseModel):
+    person_id: UUID
+    as_of: date
+    currency: str = "EUR"
+    market_value: float
+    invested_value: float
+    unrealized_pnl: float
+    unrealized_return_pct: float | None = None
+    portfolios_count: int
+    holdings_count: int
+    top_position_weight: float | None = None
+    top3_weight: float | None = None
+    meta: dict = Field(default_factory=dict)
+
+
+class PortfolioPerformanceSummary(BaseModel):
+    start_value: float | None = None
+    end_value: float | None = None
+    absolute_change: float | None = None
+    return_pct: float | None = None
+
+
+class PortfolioPerformanceReadModel(BaseModel):
+    person_id: UUID
+    range: str
+    benchmark_symbol: str | None = None
+    series: list[dict] = Field(default_factory=list)
+    summary: PortfolioPerformanceSummary
+    meta: dict = Field(default_factory=dict)
+
+
+class PortfolioExposureSliceReadModel(BaseModel):
+    label: str
+    market_value: float
+    weight: float
+
+
+class PortfolioExposuresReadModel(BaseModel):
+    person_id: UUID
+    by_position: list[PortfolioExposureSliceReadModel] = Field(default_factory=list)
+    by_sector: list[PortfolioExposureSliceReadModel] = Field(default_factory=list)
+    by_country: list[PortfolioExposureSliceReadModel] = Field(default_factory=list)
+    by_currency: list[PortfolioExposureSliceReadModel] = Field(default_factory=list)
+    meta: dict = Field(default_factory=dict)
+
+
+class PortfolioHoldingItemReadModel(BaseModel):
+    portfolio_id: str
+    portfolio_name: str | None = None
+    holding_id: str | None = None
+    symbol: str | None = None
+    display_name: str | None = None
+    quantity: float
+    acquisition_price: float | None = None
+    current_price: float | None = None
+    invested_value: float
+    market_value: float
+    unrealized_pnl: float
+    unrealized_return_pct: float | None = None
+    weight: float
+    sector: str | None = None
+    country: str | None = None
+    currency: str | None = None
+    data_status: str
+    warnings: list[str] = Field(default_factory=list)
+
+
+class PortfolioHoldingsReadModel(BaseModel):
+    person_id: UUID
+    as_of: date
+    currency: str = "EUR"
+    items: list[PortfolioHoldingItemReadModel] = Field(default_factory=list)
+    summary: PortfolioSummaryReadModel
+    meta: dict = Field(default_factory=dict)
+
+
+class PortfolioRiskReadModel(BaseModel):
+    person_id: UUID
+    as_of: date
+    benchmark_symbol: str | None = None
+    portfolio_volatility: float | None = None
+    max_drawdown: float | None = None
+    top_position_weight: float | None = None
+    top3_weight: float | None = None
+    concentration_note: str | None = None
+    meta: dict = Field(default_factory=dict)
+
+
+class PortfolioContributorReadModel(BaseModel):
+    symbol: str | None = None
+    display_name: str | None = None
+    market_value: float
+    weight: float
+    unrealized_pnl: float
+    contribution_weighted: float
+    direction: str | None = None
+
+
+class PortfolioContributorsReadModel(BaseModel):
+    person_id: UUID
+    top_contributors: list[PortfolioContributorReadModel] = Field(default_factory=list)
+    top_detractors: list[PortfolioContributorReadModel] = Field(default_factory=list)
+    meta: dict = Field(default_factory=dict)
+
+
+class PortfolioDataCoverageReadModel(BaseModel):
+    person_id: UUID
+    as_of: date
+    total_holdings: int
+    missing_prices: int
+    missing_sectors: int
+    missing_countries: int
+    missing_currencies: int
+    warnings: list[str] = Field(default_factory=list)
+    meta: dict = Field(default_factory=dict)
 
 
 class HealthDependency(BaseModel):

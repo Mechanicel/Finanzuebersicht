@@ -138,3 +138,130 @@ class DashboardSectionReadModel(BaseModel):
     refresh_in_progress: bool = False
     warnings: list[str] = Field(default_factory=list)
     payload: dict[str, Any]
+
+
+class PortfolioSummaryReadModel(BaseModel):
+    person_id: UUID
+    as_of: date
+    currency: str = "EUR"
+    market_value: float
+    invested_value: float
+    unrealized_pnl: float
+    unrealized_return_pct: float | None = None
+    portfolios_count: int
+    holdings_count: int
+    top_position_weight: float | None = None
+    top3_weight: float | None = None
+    meta: LoadingMeta = Field(default_factory=LoadingMeta)
+
+
+class PortfolioPerformancePoint(BaseModel):
+    date: str
+    value: float
+
+
+class PortfolioPerformanceSummary(BaseModel):
+    start_value: float | None = None
+    end_value: float | None = None
+    absolute_change: float | None = None
+    return_pct: float | None = None
+
+
+class PortfolioPerformanceReadModel(BaseModel):
+    person_id: UUID
+    range: str
+    benchmark_symbol: str | None = None
+    series: list[ChartSeries]
+    summary: PortfolioPerformanceSummary
+    meta: LoadingMeta = Field(default_factory=LoadingMeta)
+
+
+class PortfolioExposureSlice(BaseModel):
+    label: str
+    market_value: float
+    weight: float
+
+
+class PortfolioExposuresReadModel(BaseModel):
+    person_id: UUID
+    by_position: list[PortfolioExposureSlice]
+    by_sector: list[PortfolioExposureSlice]
+    by_country: list[PortfolioExposureSlice]
+    by_currency: list[PortfolioExposureSlice]
+    meta: LoadingMeta = Field(default_factory=LoadingMeta)
+
+
+class PortfolioHoldingItem(BaseModel):
+    portfolio_id: str
+    portfolio_name: str | None = None
+    holding_id: str | None = None
+    symbol: str | None = None
+    display_name: str | None = None
+    quantity: float
+    acquisition_price: float | None = None
+    current_price: float | None = None
+    invested_value: float
+    market_value: float
+    unrealized_pnl: float
+    unrealized_return_pct: float | None = None
+    weight: float
+    sector: str | None = None
+    country: str | None = None
+    currency: str | None = None
+    data_status: str
+    warnings: list[str] = Field(default_factory=list)
+
+
+class PortfolioHoldingsReadModel(BaseModel):
+    person_id: UUID
+    as_of: date
+    currency: str = "EUR"
+    items: list[PortfolioHoldingItem]
+    summary: PortfolioSummaryReadModel
+    meta: LoadingMeta = Field(default_factory=LoadingMeta)
+
+
+class PortfolioRiskReadModel(BaseModel):
+    person_id: UUID
+    as_of: date
+    benchmark_symbol: str | None = None
+    portfolio_volatility: float | None = None
+    max_drawdown: float | None = None
+    correlation: float | None = None
+    beta: float | None = None
+    tracking_error: float | None = None
+    top_position_weight: float | None = None
+    top3_weight: float | None = None
+    concentration_note: str | None = None
+    meta: LoadingMeta = Field(default_factory=LoadingMeta)
+
+
+class PortfolioContributorItem(BaseModel):
+    symbol: str | None = None
+    display_name: str | None = None
+    market_value: float
+    weight: float
+    unrealized_pnl: float
+    contribution_weighted: float
+    direction: str | None = None
+
+
+class PortfolioContributorsReadModel(BaseModel):
+    person_id: UUID
+    top_contributors: list[PortfolioContributorItem]
+    top_detractors: list[PortfolioContributorItem]
+    meta: LoadingMeta = Field(default_factory=LoadingMeta)
+
+
+class PortfolioDataCoverageReadModel(BaseModel):
+    person_id: UUID
+    as_of: date
+    total_holdings: int
+    missing_prices: int
+    missing_sectors: int
+    missing_countries: int
+    missing_currencies: int
+    fallback_acquisition_prices: int = 0
+    holdings_with_marketdata_warnings: int = 0
+    warnings: list[str] = Field(default_factory=list)
+    meta: LoadingMeta = Field(default_factory=LoadingMeta)

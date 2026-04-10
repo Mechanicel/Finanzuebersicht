@@ -784,3 +784,73 @@ async def test_gateway_marketdata_refresh_price_connect_error_is_translated(monk
 
     assert exc.value.status_code == 502
     assert exc.value.detail == "Marketdata-Service ist derzeit nicht erreichbar. Bitte später erneut versuchen."
+
+
+@pytest.mark.anyio
+async def test_gateway_portfolio_analytics_passthrough(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[str, str, dict | None, dict | None]] = []
+    person_id = UUID("00000000-0000-0000-0000-000000000101")
+
+    async def fake_request(
+        self, method: str, url: str, json: dict | None = None, params: dict | None = None
+    ):
+        calls.append((method, url, json, params))
+
+        class Response:
+            status_code = 200
+
+            @staticmethod
+            def json() -> dict:
+                return {
+                    "data": {
+                        "person_id": str(person_id),
+                        "as_of": "2026-04-10",
+                        "currency": "EUR",
+                        "market_value": 360.0,
+                        "invested_value": 350.0,
+                        "unrealized_pnl": 10.0,
+                        "unrealized_return_pct": 2.8571,
+                        "portfolios_count": 1,
+                        "holdings_count": 2,
+                        "top_position_weight": 0.61,
+                        "top3_weight": 1.0,
+                        "meta": {"loading": False, "error": None},
+                    }
+                }
+
+            text = ""
+
+        return Response()
+
+    monkeypatch.setattr("httpx.AsyncClient.request", fake_request)
+    service = GatewayService("http://analytics", "http://person", "http://master", "http://account", "http://portfolio", "http://market", 1.0)
+
+    payload = await service.get_portfolio_summary(person_id)
+    assert payload.market_value == 360.0
+    assert calls[0][0] == "GET"
+    assert calls[0][1].endswith(f"/api/v1/analytics/persons/{person_id}/portfolio-summary")
+
+
+@pytest.mark.anyio
+async def test_gateway_portfolio_analytics_404_is_forwarded(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def fake_request(
+        self, method: str, url: str, json: dict | None = None, params: dict | None = None
+    ):
+        class Response:
+            status_code = 404
+
+            @staticmethod
+            def json() -> dict:
+                return {"detail": {"error": "person_not_found", "message": "Unknown person_id"}}
+
+            text = "person_not_found"
+
+        return Response()
+
+    monkeypatch.setattr("httpx.AsyncClient.request", fake_request)
+    service = GatewayService("http://analytics", "http://person", "http://master", "http://account", "http://portfolio", "http://market", 1.0)
+
+    with pytest.raises(HTTPException) as exc:
+        await service.get_portfolio_summary(UUID("00000000-0000-0000-0000-000000000999"))
+
+    assert exc.value.status_code == 404

@@ -621,3 +621,199 @@ def test_financials_quarterly_empty_yfinance_falls_back_to_fmp() -> None:
     assert client.balance_sheet_calls == [("EMPTY", "quarterly")]
     assert payload["period"] == "quarterly"
     assert payload["meta"]["source"] == "fmp_balance_sheet_v1"
+
+
+def test_timeseries_supports_normalized_close_and_returns() -> None:
+    service, _, _, _, history_repository, _ = build_service()
+    history_repository.upsert_document(
+        PriceHistoryCacheDocument(
+            symbol="CBK.DE",
+            interval="1d",
+            period_seeded="max",
+            history_rows=[
+                PriceHistoryRow(date="2026-04-01", open=100.0, high=101.0, low=99.0, close=100.0, volume=100),
+                PriceHistoryRow(date="2026-04-02", open=109.0, high=111.0, low=108.0, close=110.0, volume=120),
+                PriceHistoryRow(date="2026-04-03", open=104.0, high=106.0, low=103.0, close=105.0, volume=140),
+            ],
+            first_date="2026-04-01",
+            last_date="2026-04-03",
+            updated_at=utcnow(),
+        )
+    )
+
+    normalized = service.get_instrument_timeseries("CBK.DE", "normalized_close", "CBK.DE")
+    normalized_values = [point["value"] for point in normalized["instrument"]["points"]]
+    assert [round(value, 6) for value in normalized_values] == [100.0, 110.0, 105.0]
+
+    returns_payload = service.get_instrument_timeseries("CBK.DE", "returns", "CBK.DE")
+    returns_values = [point["value"] for point in returns_payload["instrument"]["points"]]
+    assert [round(value, 6) for value in returns_values] == [0.1, -0.045455]
+
+
+def test_timeseries_rejects_unsupported_series() -> None:
+    service, _, _, _, _, _ = build_service()
+    try:
+        service.get_instrument_timeseries("CBK.DE", "volume", "SPY")
+        raise AssertionError("expected BadRequestError")
+    except Exception as exc:
+        assert "series must be one of" in str(exc)
+
+
+def test_risk_uses_return_series_and_computes_beta_proxy() -> None:
+    service, _, _, _, history_repository, _ = build_service()
+    history_repository.upsert_document(
+        PriceHistoryCacheDocument(
+            symbol="CBK.DE",
+            interval="1d",
+            period_seeded="max",
+            history_rows=[
+                PriceHistoryRow(date="2026-04-01", open=100.0, high=101.0, low=99.0, close=100.0, volume=100),
+                PriceHistoryRow(date="2026-04-02", open=110.0, high=111.0, low=109.0, close=110.0, volume=120),
+                PriceHistoryRow(date="2026-04-03", open=121.0, high=122.0, low=120.0, close=121.0, volume=140),
+            ],
+            first_date="2026-04-01",
+            last_date="2026-04-03",
+            updated_at=utcnow(),
+        )
+    )
+
+    risk = service.get_instrument_risk("CBK.DE", "CBK.DE")
+
+    assert risk["series"] == "returns"
+    assert risk["aligned_points"] == 2
+    assert risk["beta_proxy"] == 1.0
+
+
+def test_financials_payload_exposes_coverage_metadata() -> None:
+    fake_yf_client = FakeYFinanceClient(FakeYFinance())
+    service, _, _, _, _, _ = build_service(yfinance_client=fake_yf_client)
+
+    payload = service.get_instrument_financials("CBK.DE", "annual")
+
+    assert payload["meta"]["coverage"] == {
+        "income_statement": "not_integrated",
+        "balance_sheet": "integrated",
+        "cash_flow": "not_integrated",
+    }
+
+
+def test_timeseries_supports_price_and_benchmark_price() -> None:
+    service, _, _, _, history_repository, _ = build_service()
+    history_repository.upsert_document(
+        PriceHistoryCacheDocument(
+            symbol="CBK.DE",
+            interval="1d",
+            period_seeded="max",
+            history_rows=[
+                PriceHistoryRow(date="2026-04-01", open=100.0, high=101.0, low=99.0, close=100.0, volume=100),
+                PriceHistoryRow(date="2026-04-02", open=110.0, high=111.0, low=109.0, close=110.0, volume=120),
+            ],
+            first_date="2026-04-01",
+            last_date="2026-04-02",
+            updated_at=utcnow(),
+        )
+    )
+    history_repository.upsert_document(
+        PriceHistoryCacheDocument(
+            symbol="SPY",
+            interval="1d",
+            period_seeded="max",
+            history_rows=[
+                PriceHistoryRow(date="2026-04-01", open=200.0, high=201.0, low=199.0, close=200.0, volume=100),
+                PriceHistoryRow(date="2026-04-02", open=210.0, high=211.0, low=209.0, close=210.0, volume=120),
+            ],
+            first_date="2026-04-01",
+            last_date="2026-04-02",
+            updated_at=utcnow(),
+        )
+    )
+
+    price_payload = service.get_instrument_timeseries("CBK.DE", "price", "SPY")
+    assert [point["value"] for point in price_payload["instrument"]["points"]] == [100.0, 110.0]
+
+    benchmark_price_payload = service.get_instrument_timeseries("CBK.DE", "benchmark_price", "SPY")
+    assert benchmark_price_payload["instrument"]["points"] == []
+    assert [point["value"] for point in benchmark_price_payload["benchmark"]["points"]] == [200.0, 210.0]
+
+
+def test_timeseries_supports_drawdown_and_benchmark_relative() -> None:
+    service, _, _, _, history_repository, _ = build_service()
+    history_repository.upsert_document(
+        PriceHistoryCacheDocument(
+            symbol="CBK.DE",
+            interval="1d",
+            period_seeded="max",
+            history_rows=[
+                PriceHistoryRow(date="2026-04-01", open=100.0, high=101.0, low=99.0, close=100.0, volume=100),
+                PriceHistoryRow(date="2026-04-02", open=120.0, high=121.0, low=119.0, close=120.0, volume=120),
+                PriceHistoryRow(date="2026-04-03", open=90.0, high=91.0, low=89.0, close=90.0, volume=140),
+            ],
+            first_date="2026-04-01",
+            last_date="2026-04-03",
+            updated_at=utcnow(),
+        )
+    )
+    history_repository.upsert_document(
+        PriceHistoryCacheDocument(
+            symbol="SPY",
+            interval="1d",
+            period_seeded="max",
+            history_rows=[
+                PriceHistoryRow(date="2026-04-01", open=200.0, high=201.0, low=199.0, close=200.0, volume=100),
+                PriceHistoryRow(date="2026-04-02", open=220.0, high=221.0, low=219.0, close=220.0, volume=120),
+                PriceHistoryRow(date="2026-04-03", open=210.0, high=211.0, low=209.0, close=210.0, volume=140),
+            ],
+            first_date="2026-04-01",
+            last_date="2026-04-03",
+            updated_at=utcnow(),
+        )
+    )
+
+    drawdown_payload = service.get_instrument_timeseries("CBK.DE", "drawdown", "SPY")
+    drawdown_values = [point["value"] for point in drawdown_payload["instrument"]["points"]]
+    assert [round(value, 6) for value in drawdown_values] == [0.0, 0.0, -0.25]
+
+    benchmark_relative_payload = service.get_instrument_timeseries("CBK.DE", "benchmark_relative", "SPY")
+    relative_values = [point["value"] for point in benchmark_relative_payload["instrument"]["points"]]
+    assert [round(value, 6) for value in relative_values] == [0.0, 0.0, -0.142857]
+
+
+def test_risk_includes_correlation_tracking_error_and_max_drawdown() -> None:
+    service, _, _, _, history_repository, _ = build_service()
+    history_repository.upsert_document(
+        PriceHistoryCacheDocument(
+            symbol="CBK.DE",
+            interval="1d",
+            period_seeded="max",
+            history_rows=[
+                PriceHistoryRow(date="2026-04-01", open=100.0, high=101.0, low=99.0, close=100.0, volume=100),
+                PriceHistoryRow(date="2026-04-02", open=110.0, high=111.0, low=109.0, close=110.0, volume=120),
+                PriceHistoryRow(date="2026-04-03", open=99.0, high=100.0, low=98.0, close=99.0, volume=140),
+            ],
+            first_date="2026-04-01",
+            last_date="2026-04-03",
+            updated_at=utcnow(),
+        )
+    )
+    history_repository.upsert_document(
+        PriceHistoryCacheDocument(
+            symbol="SPY",
+            interval="1d",
+            period_seeded="max",
+            history_rows=[
+                PriceHistoryRow(date="2026-04-01", open=200.0, high=201.0, low=199.0, close=200.0, volume=100),
+                PriceHistoryRow(date="2026-04-02", open=210.0, high=211.0, low=209.0, close=210.0, volume=120),
+                PriceHistoryRow(date="2026-04-03", open=205.0, high=206.0, low=204.0, close=205.0, volume=140),
+            ],
+            first_date="2026-04-01",
+            last_date="2026-04-03",
+            updated_at=utcnow(),
+        )
+    )
+
+    risk = service.get_instrument_risk("CBK.DE", "SPY")
+    assert risk["aligned_points"] == 2
+    assert risk["correlation"] is not None
+    assert risk["beta"] is not None
+    assert risk["tracking_error"] is not None
+    assert round(risk["max_drawdown"], 6) == -0.1

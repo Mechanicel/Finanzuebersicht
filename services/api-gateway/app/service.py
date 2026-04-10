@@ -32,9 +32,16 @@ from app.models import (
     PersonReadModel,
     PersonUpdatePayload,
     PortfolioCreatePayload,
+    PortfolioDataCoverageReadModel,
+    PortfolioContributorsReadModel,
+    PortfolioExposuresReadModel,
+    PortfolioHoldingsReadModel,
+    PortfolioPerformanceReadModel,
+    PortfolioRiskReadModel,
     PortfolioDetailReadModel,
     PortfolioListReadModel,
     PortfolioReadModel,
+    PortfolioSummaryReadModel,
     TaxAllowanceReadModel,
 )
 
@@ -253,6 +260,55 @@ class GatewayService:
 
     async def get_analytics_overview(self, person_id: UUID) -> dict:
         return await self._get_analytics_payload(person_id, "overview")
+
+    async def get_portfolio_summary(self, person_id: UUID) -> PortfolioSummaryReadModel:
+        payload = await self._request_json(
+            f"{self._analytics_base_url}/api/v1/analytics/persons/{person_id}/portfolio-summary",
+            "GET",
+        )
+        return PortfolioSummaryReadModel.model_validate(payload)
+
+    async def get_portfolio_performance(self, person_id: UUID) -> PortfolioPerformanceReadModel:
+        payload = await self._request_json(
+            f"{self._analytics_base_url}/api/v1/analytics/persons/{person_id}/portfolio-performance",
+            "GET",
+        )
+        return PortfolioPerformanceReadModel.model_validate(payload)
+
+    async def get_portfolio_exposures(self, person_id: UUID) -> PortfolioExposuresReadModel:
+        payload = await self._request_json(
+            f"{self._analytics_base_url}/api/v1/analytics/persons/{person_id}/portfolio-exposures",
+            "GET",
+        )
+        return PortfolioExposuresReadModel.model_validate(payload)
+
+    async def get_portfolio_holdings(self, person_id: UUID) -> PortfolioHoldingsReadModel:
+        payload = await self._request_json(
+            f"{self._analytics_base_url}/api/v1/analytics/persons/{person_id}/portfolio-holdings",
+            "GET",
+        )
+        return PortfolioHoldingsReadModel.model_validate(payload)
+
+    async def get_portfolio_risk(self, person_id: UUID) -> PortfolioRiskReadModel:
+        payload = await self._request_json(
+            f"{self._analytics_base_url}/api/v1/analytics/persons/{person_id}/portfolio-risk",
+            "GET",
+        )
+        return PortfolioRiskReadModel.model_validate(payload)
+
+    async def get_portfolio_contributors(self, person_id: UUID) -> PortfolioContributorsReadModel:
+        payload = await self._request_json(
+            f"{self._analytics_base_url}/api/v1/analytics/persons/{person_id}/portfolio-contributors",
+            "GET",
+        )
+        return PortfolioContributorsReadModel.model_validate(payload)
+
+    async def get_portfolio_data_coverage(self, person_id: UUID) -> PortfolioDataCoverageReadModel:
+        payload = await self._request_json(
+            f"{self._analytics_base_url}/api/v1/analytics/persons/{person_id}/portfolio-data-coverage",
+            "GET",
+        )
+        return PortfolioDataCoverageReadModel.model_validate(payload)
 
     async def get_dashboard_section(self, person_id: UUID, section: str) -> dict:
         async with httpx.AsyncClient(timeout=self._timeout) as client:
