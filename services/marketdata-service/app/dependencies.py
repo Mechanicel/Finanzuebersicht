@@ -8,6 +8,7 @@ from pymongo import MongoClient
 from pymongo.errors import PyMongoError
 
 from app.clients.fmp_client import FMPClient
+from app.clients.yfinance_client import YFinanceClient
 from app.config import get_settings
 from app.repositories import (
     CurrentPriceCacheRepository,
@@ -39,6 +40,11 @@ def get_fmp_client() -> FMPClient:
     duration_ms = round((time.perf_counter() - started_at) * 1000, 2)
     LOGGER.info("search_trace dependency_get_fmp_client_end duration_ms=%s", duration_ms)
     return client
+
+
+@lru_cache
+def get_yfinance_client() -> YFinanceClient:
+    return YFinanceClient()
 
 
 @lru_cache
@@ -195,6 +201,7 @@ def get_marketdata_service() -> MarketDataService:
     settings = get_settings()
     service = MarketDataService(
         fmp_client=get_fmp_client(),
+        yfinance_client=get_yfinance_client(),
         profile_repository=get_profile_repository(),
         current_price_repository=get_current_price_repository(),
         price_history_repository=get_price_history_repository(),
