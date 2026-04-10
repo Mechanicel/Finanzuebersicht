@@ -374,7 +374,10 @@ class MarketDataService:
         if period not in {"annual", "quarterly"}:
             raise BadRequestError("period must be annual or quarterly")
         financials_period = cast(FinancialsPeriod, period)
-        warnings: list[dict[str, str]] = []
+        warnings: list[dict[str, str]] = [
+            {"code": "income_statement_not_integrated", "message": "Income statement is not integrated yet."},
+            {"code": "cash_flow_not_integrated", "message": "Cash flow is not integrated yet."},
+        ]
         cached = self._financials_repository.get(normalized, financials_period)
         if cached is not None and self._is_financials_fresh(cached.fetched_at):
             return self._financials_document_to_payload(cached, warnings=warnings)
@@ -800,13 +803,17 @@ class MarketDataService:
         *,
         warnings: list[dict[str, str]] | None = None,
     ) -> dict[str, Any]:
+        normalized_balance_sheet = [
+            self._normalize_balance_sheet_item(item.model_dump(by_alias=True))
+            for item in sorted(document.statements.balance_sheet, key=lambda row: row.date or "", reverse=True)
+        ]
         return {
             "symbol": document.symbol,
             "period": document.period,
             "currency": document.currency,
             "statements": {
                 "income_statement": [],
-                "balance_sheet": [item.model_dump() for item in document.statements.balance_sheet],
+                "balance_sheet": normalized_balance_sheet,
                 "cash_flow": [],
             },
             "derived": {
@@ -819,6 +826,25 @@ class MarketDataService:
                 "fetched_at": document.fetched_at.isoformat(),
             },
         }
+
+    @staticmethod
+    def _normalize_balance_sheet_item(row: dict[str, Any]) -> dict[str, Any]:
+        result = dict(row)
+        result["fiscalYear"] = row.get("calendarYear") or row.get("calendar_year")
+        result["reportedCurrency"] = row.get("reportedCurrency") or row.get("reported_currency")
+        result["totalEquity"] = row.get("totalStockholdersEquity")
+        short_term_debt = row.get("shortTermDebt")
+        long_term_debt = row.get("longTermDebt")
+        if isinstance(short_term_debt, (int, float)) or isinstance(long_term_debt, (int, float)):
+            result["totalDebt"] = (float(short_term_debt or 0.0) + float(long_term_debt or 0.0))
+        else:
+            result["totalDebt"] = None
+        cash_and_equivalents = row.get("cashAndCashEquivalents")
+        if isinstance(result["totalDebt"], (int, float)) and isinstance(cash_and_equivalents, (int, float)):
+            result["netDebt"] = float(result["totalDebt"]) - float(cash_and_equivalents)
+        else:
+            result["netDebt"] = None
+        return result
 
     @staticmethod
     def _map_balance_sheet_rows(symbol: str, rows: list[dict[str, Any]]) -> list[BalanceSheetStatement]:
