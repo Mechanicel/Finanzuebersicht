@@ -412,12 +412,49 @@ export interface DepotInstrumentFinancials {
   period: 'annual' | 'quarterly'
   currency?: string | null
   statements?: {
-    income_statement?: unknown[]
-    balance_sheet?: unknown[]
-    cash_flow?: unknown[]
+    income_statement?: DepotInstrumentFinancialStatementRow[]
+    balance_sheet?: DepotInstrumentBalanceSheetStatementRow[]
+    cash_flow?: DepotInstrumentFinancialStatementRow[]
   }
-  derived?: Record<string, unknown>
-  meta?: { warnings?: Array<{ code: string; message: string }> }
+  derived?: DepotInstrumentFinancialDerivedFields
+  meta?: DepotInstrumentFinancialMeta
+}
+
+export interface DepotInstrumentFinancialStatementRow {
+  date?: string | null
+  fiscalYear?: string | number | null
+  period?: string | null
+  reportedCurrency?: string | null
+  [key: string]: unknown
+}
+
+export interface DepotInstrumentBalanceSheetStatementRow extends DepotInstrumentFinancialStatementRow {
+  totalAssets?: number | null
+  totalCurrentAssets?: number | null
+  totalLiabilities?: number | null
+  totalCurrentLiabilities?: number | null
+  totalEquity?: number | null
+  cashAndCashEquivalents?: number | null
+  cashAndShortTermInvestments?: number | null
+  totalDebt?: number | null
+  netDebt?: number | null
+}
+
+export interface DepotInstrumentFinancialDerivedFields {
+  latest_balance_sheet?: DepotInstrumentBalanceSheetStatementRow | null
+  balance_sheet_periods?: number | null
+  [key: string]: unknown
+}
+
+export interface DepotInstrumentFinancialWarning {
+  code: string
+  message: string
+  symbol?: string
+}
+
+export interface DepotInstrumentFinancialMeta {
+  warnings?: DepotInstrumentFinancialWarning[]
+  [key: string]: unknown
 }
 
 
