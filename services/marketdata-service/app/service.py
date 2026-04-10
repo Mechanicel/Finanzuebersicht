@@ -4,7 +4,7 @@ from datetime import date, timedelta
 import logging
 import threading
 import time
-from typing import Any
+from typing import Any, cast
 
 from app.clients.fmp_client import FMPClient
 from app.models import (
@@ -13,7 +13,11 @@ from app.models import (
     BatchHistoryResponse,
     BatchPriceItem,
     BatchPricesResponse,
+    BalanceSheetStatement,
     CacheStatus,
+    FinancialStatements,
+    FinancialsCacheDocument,
+    FinancialsPeriod,
     FMPInstrumentProfile,
     HistoryRange,
     HoldingsSummaryItem,
@@ -34,7 +38,9 @@ from app.models import (
 )
 from app.repositories import (
     CurrentPriceCacheRepository,
+    FinancialsCacheRepository,
     InMemoryCurrentPriceCacheRepository,
+    InMemoryFinancialsCacheRepository,
     InMemoryInstrumentProfileCacheRepository,
     InMemoryPriceHistoryCacheRepository,
     InstrumentProfileCacheRepository,
@@ -57,20 +63,23 @@ class MarketDataService:
         profile_repository: InstrumentProfileCacheRepository | InMemoryInstrumentProfileCacheRepository,
         current_price_repository: CurrentPriceCacheRepository | InMemoryCurrentPriceCacheRepository,
         price_history_repository: PriceHistoryCacheRepository | InMemoryPriceHistoryCacheRepository,
+        financials_repository: FinancialsCacheRepository | InMemoryFinancialsCacheRepository,
         cache_enabled: bool,
         profile_cache_ttl_seconds: int,
+        financials_cache_ttl_seconds: int,
     ) -> None:
         self._fmp_client = fmp_client
         self._profile_repository = profile_repository
         self._current_price_repository = current_price_repository
         self._price_history_repository = price_history_repository
+        self._financials_repository = financials_repository
         self._cache_enabled = cache_enabled
         self._profile_cache_ttl_seconds = profile_cache_ttl_seconds
+        self._financials_cache_ttl_seconds = financials_cache_ttl_seconds
         self._search_cache: dict[tuple[str, int], InstrumentSearchResponse] = {}
         self._snapshot_cache: dict[str, dict[str, Any]] = {}
         self._metrics_cache: dict[str, dict[str, Any]] = {}
         self._fundamentals_cache: dict[str, dict[str, Any]] = {}
-        self._financials_cache: dict[tuple[str, str], dict[str, Any]] = {}
         self._benchmark_catalog_cache: dict[str, Any] | None = None
         self._inflight_locks: dict[tuple[str, str], threading.Lock] = {}
         self._inflight_guard = threading.Lock()
@@ -364,32 +373,33 @@ class MarketDataService:
         normalized = self._normalize_symbol(symbol)
         if period not in {"annual", "quarterly"}:
             raise BadRequestError("period must be annual or quarterly")
-        cache_key = (normalized, period)
-        if self._cache_enabled and cache_key in self._financials_cache:
-            return self._financials_cache[cache_key]
+        financials_period = cast(FinancialsPeriod, period)
+        warnings: list[dict[str, str]] = []
+        cached = self._financials_repository.get(normalized, financials_period)
+        if cached is not None and self._is_financials_fresh(cached.fetched_at):
+            return self._financials_document_to_payload(cached, warnings=warnings)
 
-        metrics = self.get_instrument_metrics(normalized)
-        fundamentals = self.get_instrument_fundamentals(normalized)
-        payload = {
-            "symbol": normalized,
-            "period": period,
-            "currency": fundamentals.get("currency"),
-            "statements": {
-                "income_statement": [],
-                "balance_sheet": [],
-                "cash_flow": [],
-            },
-            "derived": {
-                "market_cap": metrics.get("market_cap"),
-                "beta": metrics.get("beta"),
-            },
-            "meta": {
-                "warnings": [{"code": "financials_provider_not_connected", "message": "No direct financial statement provider configured."}],
-            },
-        }
-        if self._cache_enabled:
-            self._financials_cache[cache_key] = payload
-        return payload
+        try:
+            rows = self._fmp_client.balance_sheet_statement(symbol=normalized, period=financials_period)
+            balance_sheet_rows = self._map_balance_sheet_rows(normalized, rows)
+            currency = balance_sheet_rows[0].reported_currency if balance_sheet_rows else None
+            if not balance_sheet_rows:
+                warnings.append({"code": "balance_sheet_empty", "message": "No balance sheet statements available from provider."})
+            document = FinancialsCacheDocument(
+                symbol=normalized,
+                period=financials_period,
+                source="fmp_balance_sheet_v1",
+                currency=currency,
+                statements=FinancialStatements(balance_sheet=balance_sheet_rows),
+                fetched_at=utcnow(),
+            )
+            self._financials_repository.upsert_document(document)
+            return self._financials_document_to_payload(document, warnings=warnings)
+        except UpstreamServiceError:
+            if cached is not None:
+                warnings.append({"code": "provider_error_fallback", "message": "Using stale cached financials due to provider error."})
+                return self._financials_document_to_payload(cached, warnings=warnings)
+            raise
 
     def get_instrument_risk(self, symbol: str, benchmark: str | None) -> dict[str, Any]:
         normalized = self._normalize_symbol(symbol)
@@ -780,6 +790,45 @@ class MarketDataService:
 
     def _is_fresh(self, fetched_at) -> bool:
         return utcnow() - fetched_at <= timedelta(seconds=self._profile_cache_ttl_seconds)
+
+    def _is_financials_fresh(self, fetched_at) -> bool:
+        return utcnow() - fetched_at <= timedelta(seconds=self._financials_cache_ttl_seconds)
+
+    def _financials_document_to_payload(
+        self,
+        document: FinancialsCacheDocument,
+        *,
+        warnings: list[dict[str, str]] | None = None,
+    ) -> dict[str, Any]:
+        return {
+            "symbol": document.symbol,
+            "period": document.period,
+            "currency": document.currency,
+            "statements": {
+                "income_statement": [],
+                "balance_sheet": [item.model_dump() for item in document.statements.balance_sheet],
+                "cash_flow": [],
+            },
+            "derived": {
+                "market_cap": self._extract_market_cap(document.symbol),
+                "beta": self._extract_beta(document.symbol),
+            },
+            "meta": {
+                "warnings": warnings or [],
+                "source": document.source,
+                "fetched_at": document.fetched_at.isoformat(),
+            },
+        }
+
+    @staticmethod
+    def _map_balance_sheet_rows(symbol: str, rows: list[dict[str, Any]]) -> list[BalanceSheetStatement]:
+        mapped_rows: list[BalanceSheetStatement] = []
+        for row in rows:
+            try:
+                mapped_rows.append(BalanceSheetStatement.model_validate(row | {"symbol": symbol}))
+            except Exception:
+                continue
+        return mapped_rows
 
     @staticmethod
     def _get_yf_module():

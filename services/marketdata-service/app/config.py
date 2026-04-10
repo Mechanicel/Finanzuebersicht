@@ -18,6 +18,10 @@ class Settings(ServiceSettings):
     fmp_request_backoff_factor: float = 0.3
 
     marketdata_profile_cache_ttl_seconds: int = 300
+    marketdata_financials_cache_ttl_seconds: int = Field(
+        default=3600,
+        alias="MARKETDATA_FINANCIALS_CACHE_TTL_SECONDS",
+    )
     marketdata_mongo_enabled: bool = Field(default=True, alias="MARKETDATA_MONGO_ENABLED")
     marketdata_mongo_server_selection_timeout_ms: int = Field(
         default=1000,
@@ -41,6 +45,10 @@ class Settings(ServiceSettings):
     marketdata_price_history_cache_collection: str = Field(
         default="marketdata_price_history_cache",
         alias="MARKETDATA_PRICE_HISTORY_CACHE_COLLECTION",
+    )
+    marketdata_financials_cache_collection: str = Field(
+        default="marketdata_financials_cache",
+        alias="MARKETDATA_FINANCIALS_CACHE_COLLECTION",
     )
 
     def resolved_mongo_uri(self) -> str:

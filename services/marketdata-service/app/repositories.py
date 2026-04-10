@@ -8,6 +8,9 @@ from pymongo.collection import Collection
 from app.models import (
     CachedInstrumentProfile,
     CurrentPriceCacheDocument,
+    FinancialStatements,
+    FinancialsCacheDocument,
+    FinancialsPeriod,
     InstrumentProfile,
     PersistenceOnlyInstrumentProfile,
     PriceHistoryCacheDocument,
@@ -280,3 +283,54 @@ class InMemoryPriceHistoryCacheRepository:
             existing.last_date = existing.history_rows[-1].date
         existing.updated_at = utcnow()
         return existing
+
+
+class FinancialsCacheRepository:
+    def __init__(self, collection: Collection) -> None:
+        self._collection = collection
+        self._collection.create_index([("symbol", ASCENDING), ("period", ASCENDING)], unique=True)
+
+    def get(self, symbol: str, period: FinancialsPeriod) -> FinancialsCacheDocument | None:
+        document = self._collection.find_one({"symbol": symbol, "period": period})
+        if document is None:
+            return None
+        return self._to_document(document)
+
+    def upsert_document(self, document: FinancialsCacheDocument) -> FinancialsCacheDocument:
+        self._collection.update_one(
+            {"symbol": document.symbol, "period": document.period},
+            {"$set": document.model_dump()},
+            upsert=True,
+        )
+        return document
+
+    @staticmethod
+    def _to_document(document: dict) -> FinancialsCacheDocument | None:
+        fetched_at = document.get("fetched_at")
+        if not isinstance(fetched_at, datetime):
+            return None
+        if fetched_at.tzinfo is None:
+            fetched_at = fetched_at.replace(tzinfo=UTC)
+        try:
+            return FinancialsCacheDocument(
+                symbol=str(document["symbol"]),
+                period=document["period"],
+                source=str(document["source"]),
+                currency=document.get("currency"),
+                statements=FinancialStatements.model_validate(document.get("statements", {})),
+                fetched_at=fetched_at,
+            )
+        except (KeyError, TypeError, ValueError):
+            return None
+
+
+class InMemoryFinancialsCacheRepository:
+    def __init__(self) -> None:
+        self._data: dict[tuple[str, FinancialsPeriod], FinancialsCacheDocument] = {}
+
+    def get(self, symbol: str, period: FinancialsPeriod) -> FinancialsCacheDocument | None:
+        return self._data.get((symbol, period))
+
+    def upsert_document(self, document: FinancialsCacheDocument) -> FinancialsCacheDocument:
+        self._data[(document.symbol, document.period)] = document
+        return document

@@ -22,6 +22,7 @@ import app.dependencies as marketdata_dependencies
 from app.config import get_settings
 from app.dependencies import (
     get_current_price_repository,
+    get_financials_repository,
     get_fmp_client,
     get_marketdata_service,
     get_price_history_repository,
@@ -31,6 +32,7 @@ from app.main import app
 from app.models import BadRequestError, UpstreamServiceError
 from app.repositories import (
     InMemoryCurrentPriceCacheRepository,
+    InMemoryFinancialsCacheRepository,
     InMemoryInstrumentProfileCacheRepository,
     InMemoryPriceHistoryCacheRepository,
 )
@@ -44,6 +46,7 @@ def reset_singletons(monkeypatch: pytest.MonkeyPatch) -> None:
     get_profile_repository.cache_clear()
     get_current_price_repository.cache_clear()
     get_price_history_repository.cache_clear()
+    get_financials_repository.cache_clear()
     get_marketdata_service.cache_clear()
 
 
@@ -63,9 +66,11 @@ def test_repositories_fallback_to_inmemory_when_mongo_disabled(monkeypatch: pyte
     profile_repository = get_profile_repository()
     current_price_repository = get_current_price_repository()
     history_repository = get_price_history_repository()
+    financials_repository = get_financials_repository()
     assert isinstance(profile_repository, InMemoryInstrumentProfileCacheRepository)
     assert isinstance(current_price_repository, InMemoryCurrentPriceCacheRepository)
     assert isinstance(history_repository, InMemoryPriceHistoryCacheRepository)
+    assert isinstance(financials_repository, InMemoryFinancialsCacheRepository)
 
 
 def test_repositories_fallback_to_inmemory_when_mongo_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -82,14 +87,17 @@ def test_repositories_fallback_to_inmemory_when_mongo_unavailable(monkeypatch: p
     get_profile_repository.cache_clear()
     get_current_price_repository.cache_clear()
     get_price_history_repository.cache_clear()
+    get_financials_repository.cache_clear()
 
     profile_repository = get_profile_repository()
     current_price_repository = get_current_price_repository()
     history_repository = get_price_history_repository()
+    financials_repository = get_financials_repository()
 
     assert isinstance(profile_repository, InMemoryInstrumentProfileCacheRepository)
     assert isinstance(current_price_repository, InMemoryCurrentPriceCacheRepository)
     assert isinstance(history_repository, InMemoryPriceHistoryCacheRepository)
+    assert isinstance(financials_repository, InMemoryFinancialsCacheRepository)
 
 
 def test_search_endpoint_success(monkeypatch: pytest.MonkeyPatch) -> None:

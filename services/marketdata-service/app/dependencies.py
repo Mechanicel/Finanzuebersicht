@@ -11,7 +11,9 @@ from app.clients.fmp_client import FMPClient
 from app.config import get_settings
 from app.repositories import (
     CurrentPriceCacheRepository,
+    FinancialsCacheRepository,
     InMemoryCurrentPriceCacheRepository,
+    InMemoryFinancialsCacheRepository,
     InMemoryInstrumentProfileCacheRepository,
     InMemoryPriceHistoryCacheRepository,
     InstrumentProfileCacheRepository,
@@ -151,6 +153,42 @@ def get_price_history_repository() -> PriceHistoryCacheRepository | InMemoryPric
 
 
 @lru_cache
+def get_financials_repository() -> FinancialsCacheRepository | InMemoryFinancialsCacheRepository:
+    started_at = time.perf_counter()
+    LOGGER.info("search_trace dependency_financials_repo_start")
+    settings = get_settings()
+    if not settings.marketdata_mongo_enabled:
+        duration_ms = round((time.perf_counter() - started_at) * 1000, 2)
+        LOGGER.info(
+            "search_trace dependency_financials_repo_end backend=inmemory mongo_enabled=false duration_ms=%s",
+            duration_ms,
+        )
+        return InMemoryFinancialsCacheRepository()
+
+    try:
+        client = MongoClient(
+            settings.resolved_mongo_uri(),
+            serverSelectionTimeoutMS=settings.marketdata_mongo_server_selection_timeout_ms,
+        )
+        ping_started_at = time.perf_counter()
+        LOGGER.info("search_trace dependency_financials_repo_mongo_ping_start")
+        client.admin.command("ping")
+        ping_duration_ms = round((time.perf_counter() - ping_started_at) * 1000, 2)
+        LOGGER.info("search_trace dependency_financials_repo_mongo_ping_done duration_ms=%s", ping_duration_ms)
+        collection = client[settings.mongo_database][settings.marketdata_financials_cache_collection]
+        duration_ms = round((time.perf_counter() - started_at) * 1000, 2)
+        LOGGER.info("search_trace dependency_financials_repo_end backend=mongo duration_ms=%s", duration_ms)
+        return FinancialsCacheRepository(collection=collection)
+    except PyMongoError:
+        duration_ms = round((time.perf_counter() - started_at) * 1000, 2)
+        LOGGER.warning(
+            "search_trace dependency_financials_repo_end backend=inmemory mongo_error=true duration_ms=%s",
+            duration_ms,
+            exc_info=True,
+        )
+        return InMemoryFinancialsCacheRepository()
+
+@lru_cache
 def get_marketdata_service() -> MarketDataService:
     started_at = time.perf_counter()
     LOGGER.info("search_trace dependency_get_marketdata_service_start")
@@ -160,8 +198,10 @@ def get_marketdata_service() -> MarketDataService:
         profile_repository=get_profile_repository(),
         current_price_repository=get_current_price_repository(),
         price_history_repository=get_price_history_repository(),
+        financials_repository=get_financials_repository(),
         cache_enabled=settings.cache_enabled,
         profile_cache_ttl_seconds=settings.marketdata_profile_cache_ttl_seconds,
+        financials_cache_ttl_seconds=settings.marketdata_financials_cache_ttl_seconds,
     )
     duration_ms = round((time.perf_counter() - started_at) * 1000, 2)
     LOGGER.info("search_trace dependency_get_marketdata_service_end duration_ms=%s", duration_ms)

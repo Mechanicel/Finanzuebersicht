@@ -77,3 +77,28 @@ def test_fmp_client_profile_uses_symbol_query_param() -> None:
     assert captured["url"] == "https://financialmodelingprep.com/api/v3/profile"
     assert captured["params"] == {"symbol": "CBK.DE", "apikey": "another-key"}
     assert captured["timeout"] == 9.0
+
+
+def test_fmp_client_balance_sheet_statement_maps_quarterly_period_param() -> None:
+    captured: dict[str, object] = {}
+
+    def fake_get(url: str, *, params: dict[str, object], timeout: float):
+        captured["url"] = url
+        captured["params"] = params
+        captured["timeout"] = timeout
+        return DummyResponse([{"symbol": "CBK.DE", "period": "Q1"}])
+
+    client = FMPClient(
+        base_url="https://financialmodelingprep.com/stable",
+        api_key="test-key",
+        timeout_seconds=7.5,
+        retries=0,
+        backoff_factor=0.0,
+    )
+    client._session = SimpleNamespace(get=fake_get)
+
+    rows = client.balance_sheet_statement(symbol="CBK.DE", period="quarterly")
+
+    assert rows[0]["period"] == "Q1"
+    assert captured["url"] == "https://financialmodelingprep.com/stable/balance-sheet-statement"
+    assert captured["params"] == {"symbol": "CBK.DE", "period": "quarter", "apikey": "test-key"}
