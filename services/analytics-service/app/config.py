@@ -14,6 +14,7 @@ class Settings(ServiceSettings):
     request_timeout_seconds: float = 3.0
     dashboard_cache_ttl_seconds: float = 45.0
     dashboard_section_refresh_workers: int = 8
+    portfolio_snapshot_cache_ttl_seconds: float = 10.0
 
 
 @lru_cache(maxsize=1)
