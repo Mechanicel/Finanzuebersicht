@@ -30,36 +30,38 @@
         <template v-else>
           <PortfolioDashboardContainer :person-id="personId" />
 
-          <LegacyAnalyticsSection>
-            <DashboardOverviewSection
-              :section="overviewSection"
-              :meta-text="sectionMetaText(overviewSection)"
-              :error-message="overviewError"
-              @retry="void loadOverview()"
-            />
+          <LegacyAnalyticsSection v-model:open="isLegacyOpen">
+            <template v-if="isLegacyOpen">
+              <DashboardOverviewSection
+                :section="overviewSection"
+                :meta-text="sectionMetaText(overviewSection)"
+                :error-message="overviewError"
+                @retry="void loadOverview()"
+              />
 
-            <DashboardAllocationSection
-              :section="allocationSection"
-              :meta-text="sectionMetaText(allocationSection)"
-              :error-message="allocationError"
-              @retry="void loadAllocation()"
-            />
+              <DashboardAllocationSection
+                :section="allocationSection"
+                :meta-text="sectionMetaText(allocationSection)"
+                :error-message="allocationError"
+                @retry="void loadAllocation()"
+              />
 
-            <DashboardTimeseriesSection
-              :section="timeseriesSection"
-              :meta-text="sectionMetaText(timeseriesSection)"
-              :error-message="timeseriesError"
-              @retry="void loadTimeseries()"
-            />
+              <DashboardTimeseriesSection
+                :section="timeseriesSection"
+                :meta-text="sectionMetaText(timeseriesSection)"
+                :error-message="timeseriesError"
+                @retry="void loadTimeseries()"
+              />
 
-            <DashboardMetricsSection
-              :section="metricsSection"
-              :meta-text="sectionMetaText(metricsSection)"
-              :error-message="metricsError"
-              @retry="void loadMetrics()"
-            />
+              <DashboardMetricsSection
+                :section="metricsSection"
+                :meta-text="sectionMetaText(metricsSection)"
+                :error-message="metricsError"
+                @retry="void loadMetrics()"
+              />
 
-            <DepotAnalysisWorkspace :person-id="personId" />
+              <DepotAnalysisWorkspace :person-id="personId" />
+            </template>
           </LegacyAnalyticsSection>
         </template>
       </div>
@@ -69,7 +71,7 @@
 
 <script setup lang="ts">
 import axios from 'axios'
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import type {
   DashboardAllocationPayload,
@@ -100,6 +102,7 @@ const personId = computed(() => (typeof route.query.personId === 'string' ? rout
 const hasPersonContext = computed(() => personId.value.length > 0)
 const backTarget = computed(() => (hasPersonContext.value ? `/persons/${personId.value}` : '/persons/select'))
 const backLabel = computed(() => (hasPersonContext.value ? 'Zurück zum Personen-Hub' : 'Zur Personenliste'))
+const isLegacyOpen = ref(false)
 
 const overviewSection = ref<DashboardSectionReadModel<DashboardOverviewPayload>>(buildPendingSection('overview', {}))
 const allocationSection = ref<DashboardSectionReadModel<DashboardAllocationPayload>>(buildPendingSection('allocation', {}))
@@ -240,14 +243,24 @@ function loadAllSections() {
   void Promise.allSettled([loadOverview(), loadAllocation(), loadTimeseries(), loadMetrics()])
 }
 
-onMounted(() => {
-  loadAllSections()
-})
+watch(
+  isLegacyOpen,
+  (open) => {
+    if (open) {
+      loadAllSections()
+    }
+  }
+)
 
 watch(
   () => route.query.personId,
   () => {
-    loadAllSections()
+    if (isLegacyOpen.value) {
+      loadAllSections()
+      return
+    }
+
+    resetSections()
   }
 )
 </script>
