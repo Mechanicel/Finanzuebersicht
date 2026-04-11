@@ -92,6 +92,21 @@ class PortfolioSnapshotCacheEntry:
     stale_at: datetime
 
 
+@dataclass(slots=True)
+class PortfolioHistoryContext:
+    holdings: list[PortfolioHoldingSnapshot]
+    snapshot_warnings: list[str]
+    portfolio_points: list[ChartPoint]
+    history_warnings: list[str]
+    benchmark_points: list[ChartPoint]
+
+
+@dataclass(slots=True)
+class PortfolioHistoryCacheEntry:
+    context: PortfolioHistoryContext
+    stale_at: datetime
+
+
 class AnalyticsService:
     DEFAULT_BENCHMARK_SYMBOL = "SPY"
 
@@ -125,6 +140,9 @@ class AnalyticsService:
             Future[tuple[list[dict], list[PortfolioHoldingSnapshot], list[str]]],
         ] = {}
         self._portfolio_snapshot_lock = Lock()
+        self._portfolio_history_cache: dict[UUID, PortfolioHistoryCacheEntry] = {}
+        self._portfolio_history_inflight: dict[UUID, Future[PortfolioHistoryContext]] = {}
+        self._portfolio_history_lock = Lock()
 
     def _request_json(self, url: str, client: httpx.Client | None = None) -> dict | list[dict]:
         if client is None:
@@ -550,6 +568,56 @@ class AnalyticsService:
         except Exception as exc:
             with self._portfolio_snapshot_lock:
                 self._portfolio_snapshot_inflight.pop(person_id, None)
+                inflight.set_exception(exc)
+            raise
+
+    def _get_portfolio_history_context(self, person_id: UUID) -> PortfolioHistoryContext:
+        now = datetime.now(UTC)
+        with self._portfolio_history_lock:
+            cache_entry = self._portfolio_history_cache.get(person_id)
+            if cache_entry is not None and now < cache_entry.stale_at:
+                return cache_entry.context
+
+            inflight = self._portfolio_history_inflight.get(person_id)
+            should_build = inflight is None
+            if inflight is None:
+                inflight = Future()
+                self._portfolio_history_inflight[person_id] = inflight
+
+        if not should_build:
+            return inflight.result()
+
+        try:
+            _, holdings, snapshot_warnings = self._get_portfolio_holdings_snapshot(person_id)
+            with httpx.Client(timeout=self._timeout) as client:
+                portfolio_points, history_warnings = self._build_portfolio_history_from_snapshots(holdings, client)
+                benchmark_points_raw = self._safe_load_history_points(self.DEFAULT_BENCHMARK_SYMBOL, client)
+
+            benchmark_points = sorted(
+                [
+                    ChartPoint(x=str(point.get("date", "")), y=round(self._as_float(point.get("close")), 2))
+                    for point in benchmark_points_raw
+                    if str(point.get("date", "")).strip()
+                ],
+                key=lambda point: point.x,
+            )
+            context = PortfolioHistoryContext(
+                holdings=holdings,
+                snapshot_warnings=snapshot_warnings,
+                portfolio_points=portfolio_points,
+                history_warnings=history_warnings,
+                benchmark_points=benchmark_points,
+            )
+            stale_at = datetime.now(UTC) + timedelta(seconds=self._portfolio_snapshot_cache_ttl_seconds)
+            with self._portfolio_history_lock:
+                self._portfolio_history_cache[person_id] = PortfolioHistoryCacheEntry(context=context, stale_at=stale_at)
+                self._portfolio_history_inflight.pop(person_id, None)
+                inflight.set_result(context)
+            return context
+        except Exception as exc:
+            with self._portfolio_history_lock:
+                self._portfolio_history_inflight.pop(person_id, None)
+                self._portfolio_history_cache.pop(person_id, None)
                 inflight.set_exception(exc)
             raise
 
@@ -988,17 +1056,11 @@ class AnalyticsService:
         )
 
     def portfolio_performance(self, person_id: UUID, range_value: str = "3m") -> PortfolioPerformanceReadModel:
-        _, holdings, warnings = self._get_portfolio_holdings_snapshot(person_id)
-        with httpx.Client(timeout=self._timeout) as client:
-            portfolio_points, history_warnings = self._build_portfolio_history_from_snapshots(holdings, client)
-            benchmark_points_raw = self._safe_load_history_points(self.DEFAULT_BENCHMARK_SYMBOL, client)
-
-        benchmark_points = [
-            ChartPoint(x=str(point.get("date", "")), y=round(self._as_float(point.get("close")), 2))
-            for point in benchmark_points_raw
-            if str(point.get("date", "")).strip()
-        ]
-        benchmark_points = sorted(benchmark_points, key=lambda point: point.x)
+        history_context = self._get_portfolio_history_context(person_id)
+        warnings = list(history_context.snapshot_warnings)
+        history_warnings = list(history_context.history_warnings)
+        portfolio_points = history_context.portfolio_points
+        benchmark_points = history_context.benchmark_points
 
         series = [ChartSeries(key="portfolio_value", label="Portfolio", points=portfolio_points)]
         if benchmark_points:
@@ -1089,23 +1151,19 @@ class AnalyticsService:
         )
 
     def portfolio_risk(self, person_id: UUID) -> PortfolioRiskReadModel:
-        _, holdings, warnings = self._get_portfolio_holdings_snapshot(person_id)
+        history_context = self._get_portfolio_history_context(person_id)
+        holdings = history_context.holdings
+        warnings = list(history_context.snapshot_warnings)
+        history_warnings = list(history_context.history_warnings)
+        portfolio_points = history_context.portfolio_points
         top_position_weight, top3_weight, concentration_note = self._concentration_metrics(holdings)
-
-        with httpx.Client(timeout=self._timeout) as client:
-            portfolio_points, history_warnings = self._build_portfolio_history_from_snapshots(holdings, client)
-            benchmark_history = self._safe_load_history_points(self.DEFAULT_BENCHMARK_SYMBOL, client)
 
         portfolio_return_points = self._portfolio_return_points(portfolio_points)
         portfolio_returns = [point.y for point in portfolio_return_points]
         portfolio_volatility = self._volatility(portfolio_returns)
         max_drawdown = self._max_drawdown(portfolio_points)
 
-        benchmark_points = [
-            ChartPoint(x=str(point.get("date", "")), y=self._as_float(point.get("close")))
-            for point in benchmark_history
-            if str(point.get("date", "")).strip()
-        ]
+        benchmark_points = history_context.benchmark_points
         benchmark_return_points = self._portfolio_return_points(sorted(benchmark_points, key=lambda point: point.x))
         aligned_portfolio_returns, aligned_benchmark_returns = self._align_return_series(
             portfolio_return_points,

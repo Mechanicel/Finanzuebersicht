@@ -387,6 +387,66 @@ def test_dashboard_falls_back_when_marketdata_for_symbol_fails() -> None:
     assert [point.y for point in dashboard.timeseries_points] == [200.0, 220.0]
 
 
+
+
+def test_portfolio_performance_and_risk_share_history_context() -> None:
+    class HistoryDedupService(FakeAnalyticsService):
+        def __init__(self) -> None:
+            super().__init__()
+            self.history_build_calls = 0
+            self.benchmark_history_calls = 0
+
+        def _build_portfolio_history_from_snapshots(self, holdings, client):
+            self.history_build_calls += 1
+            return super()._build_portfolio_history_from_snapshots(holdings, client)
+
+        def _safe_load_history_points(self, symbol: str, client):
+            if symbol == self.DEFAULT_BENCHMARK_SYMBOL:
+                self.benchmark_history_calls += 1
+            return super()._safe_load_history_points(symbol, client)
+
+    service = HistoryDedupService()
+    app.dependency_overrides[get_analytics_service] = lambda: service
+    client = create_test_client(app)
+
+    perf_response = client.get(f"/api/v1/analytics/persons/{PERSON_ID}/portfolio-performance")
+    risk_response = client.get(f"/api/v1/analytics/persons/{PERSON_ID}/portfolio-risk")
+
+    assert perf_response.status_code == 200
+    assert risk_response.status_code == 200
+    assert service.history_build_calls == 1
+    assert service.benchmark_history_calls == 1
+
+
+def test_portfolio_performance_and_risk_payloads_stay_stable() -> None:
+    client = _client_with_fake_service()
+
+    perf_response = client.get(f"/api/v1/analytics/persons/{PERSON_ID}/portfolio-performance")
+    risk_response = client.get(f"/api/v1/analytics/persons/{PERSON_ID}/portfolio-risk")
+
+    assert perf_response.status_code == 200
+    assert risk_response.status_code == 200
+
+    perf = perf_response.json()["data"]
+    assert perf["summary"] == {
+        "start_value": 340.0,
+        "end_value": 365.0,
+        "absolute_change": 25.0,
+        "return_pct": 7.3529,
+    }
+    assert perf["benchmark_symbol"] == "SPY"
+
+    risk = risk_response.json()["data"]
+    assert risk["portfolio_volatility"] == 0.000163
+    assert risk["max_drawdown"] == 0.0
+    assert risk["correlation"] is None
+    assert risk["beta"] is None
+    assert risk["tracking_error"] is None
+    assert risk["top_position_weight"] == 0.611111
+    assert risk["top3_weight"] == 1.0
+    assert risk["concentration_note"] == "very_high_top3_concentration"
+
+
 def test_portfolio_endpoints_reuse_snapshot_load_for_same_person() -> None:
     class SnapshotCountingService(FakeAnalyticsService):
         def __init__(self) -> None:
