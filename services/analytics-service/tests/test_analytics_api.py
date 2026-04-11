@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import sys
+import time
 from pathlib import Path
 from uuid import UUID
 
@@ -426,3 +427,60 @@ def test_portfolio_holdings_does_not_trigger_second_snapshot_build_via_summary()
 
     assert payload.summary.holdings_count == len(payload.items)
     assert service.snapshot_build_calls == 1
+
+
+def test_load_person_holdings_returns_enriched_holdings_with_stable_order() -> None:
+    class MultiPortfolioService(FakeAnalyticsService):
+        def _load_portfolios(self, person_id: UUID, client=None) -> list[dict]:
+            return [
+                {"portfolio_id": "p-1", "display_name": "Depot Eins"},
+                {"portfolio_id": "p-2", "display_name": "Depot Zwei"},
+            ]
+
+        def _load_holdings(self, portfolio_id: str, client=None) -> list[dict]:
+            if portfolio_id == "p-1":
+                return [
+                    {"symbol": "AAPL", "quantity": 2, "acquisition_price": 100},
+                    {"symbol": "MSFT", "quantity": 1, "acquisition_price": 150},
+                ]
+            if portfolio_id == "p-2":
+                return [{"symbol": "NVDA", "quantity": 3, "acquisition_price": 90}]
+            return []
+
+    service = MultiPortfolioService()
+    with httpx.Client(timeout=1.0) as client:
+        portfolios, holdings = service._load_person_holdings(UUID(PERSON_ID), client=client)
+
+    assert [portfolio["portfolio_id"] for portfolio in portfolios] == ["p-1", "p-2"]
+    assert [
+        (item["portfolio_id"], item["portfolio_name"], item["symbol"], item["quantity"])
+        for item in holdings
+    ] == [
+        ("p-1", "Depot Eins", "AAPL", 2),
+        ("p-1", "Depot Eins", "MSFT", 1),
+        ("p-2", "Depot Zwei", "NVDA", 3),
+    ]
+
+
+def test_load_person_holdings_keeps_portfolio_order_when_holdings_complete_out_of_order() -> None:
+    class OutOfOrderCompletionService(FakeAnalyticsService):
+        def _load_portfolios(self, person_id: UUID, client=None) -> list[dict]:
+            return [
+                {"portfolio_id": "slow", "display_name": "Langsam"},
+                {"portfolio_id": "fast", "display_name": "Schnell"},
+            ]
+
+        def _load_holdings(self, portfolio_id: str, client=None) -> list[dict]:
+            if portfolio_id == "slow":
+                time.sleep(0.03)
+                return [{"symbol": "SLOW", "quantity": 1, "acquisition_price": 10}]
+            if portfolio_id == "fast":
+                return [{"symbol": "FAST", "quantity": 1, "acquisition_price": 20}]
+            return []
+
+    service = OutOfOrderCompletionService()
+    with httpx.Client(timeout=1.0) as client:
+        _, holdings = service._load_person_holdings(UUID(PERSON_ID), client=client)
+
+    assert [item["portfolio_id"] for item in holdings] == ["slow", "fast"]
+    assert [item["symbol"] for item in holdings] == ["SLOW", "FAST"]
