@@ -16,7 +16,14 @@ export const router = createRouter({
   history: createWebHistory(),
   routes: [
     { path: '/', component: HomeView },
-    { path: '/dashboard', component: DashboardView },
+    {
+      path: '/dashboard',
+      component: DashboardView,
+      beforeEnter: (to) => {
+        const personId = typeof to.query.personId === 'string' ? to.query.personId.trim() : ''
+        return personId.length > 0 ? true : { path: '/' }
+      }
+    },
     { path: '/persons', redirect: '/persons/select' },
     { path: '/persons/select', component: PersonsView },
     { path: '/persons/new', component: PersonCreateView },
