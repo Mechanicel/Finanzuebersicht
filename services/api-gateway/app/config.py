@@ -13,7 +13,7 @@ class Settings(ServiceSettings):
     portfolio_service_url: str = "http://localhost:8004"
     account_service_url: str = "http://localhost:8003"
     marketdata_service_url: str = "http://localhost:8005"
-    request_timeout_seconds: float = 3.0
+    request_timeout_seconds: float = 12.0
 
 
 @lru_cache(maxsize=1)
