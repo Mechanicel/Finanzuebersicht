@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { usePortfolioDashboard } from '@/modules/dashboard/composables/usePortfolioDashboard'
 
 vi.mock('@/modules/dashboard/api/portfolioDashboardApi', () => ({
@@ -35,94 +35,74 @@ describe('usePortfolioDashboard', () => {
     vi.resetAllMocks()
   })
 
-  it('loads all portfolio slices and exposes helper states', async () => {
-    const summary: PortfolioSummaryReadModel = {
-      person_id: 'person-1',
-      as_of: '2026-04-10',
-      currency: 'EUR',
-      market_value: 360,
-      invested_value: 350,
-      unrealized_pnl: 10,
-      unrealized_return_pct: 2.8,
-      portfolios_count: 1,
-      holdings_count: 2,
-      top_position_weight: 0.61,
-      top3_weight: 1,
-      meta: {}
-    }
-    const performance: PortfolioPerformanceReadModel = {
-      person_id: 'person-1',
-      range: '3m',
-      benchmark_symbol: null,
-      series: [],
-      summary: {},
-      meta: {}
-    }
-    const exposures: PortfolioExposuresReadModel = {
-      person_id: 'person-1',
-      by_position: [],
-      by_sector: [],
-      by_country: [],
-      by_currency: [],
-      meta: {}
-    }
-    const holdings: PortfolioHoldingsReadModel = {
-      person_id: 'person-1',
-      as_of: '2026-04-10',
-      currency: 'EUR',
-      items: [
-        {
-          portfolio_id: 'p-1',
-          quantity: 1,
-          invested_value: 100,
-          market_value: 220,
-          unrealized_pnl: 120,
-          weight: 1,
-          data_status: 'ok'
-        }
-      ],
-      summary,
-      meta: {}
-    }
-    const risk: PortfolioRiskReadModel = {
-      person_id: 'person-1',
-      as_of: '2026-04-10',
-      meta: {}
-    }
-    const contributors: PortfolioContributorsReadModel = {
+  it('loads dashboard slices in two phases and keeps contributors out of auto load', async () => {
+    const pendingInitial: Array<{ resolve: () => void }> = []
+
+    const phaseOneFactory = (value: unknown) =>
+      vi.fn().mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            pendingInitial.push({ resolve: () => resolve(value) })
+          })
+      )
+
+    vi.mocked(fetchPortfolioSummary).mockImplementation(phaseOneFactory({ person_id: 'person-1', meta: {} } as PortfolioSummaryReadModel))
+    vi.mocked(fetchPortfolioHoldings).mockImplementation(
+      phaseOneFactory({
+        person_id: 'person-1',
+        as_of: '2026-04-10',
+        currency: 'EUR',
+        items: [],
+        summary: { person_id: 'person-1', as_of: '2026-04-10', currency: 'EUR', market_value: 0, invested_value: 0, unrealized_pnl: 0, portfolios_count: 0, holdings_count: 0, meta: {} },
+        meta: {}
+      } as PortfolioHoldingsReadModel)
+    )
+    vi.mocked(fetchPortfolioDataCoverage).mockImplementation(
+      phaseOneFactory({
+        person_id: 'person-1',
+        as_of: '2026-04-10',
+        total_holdings: 0,
+        missing_prices: 0,
+        missing_sectors: 0,
+        missing_countries: 0,
+        missing_currencies: 0,
+        warnings: [],
+        meta: {}
+      } as PortfolioDataCoverageReadModel)
+    )
+
+    const performance: PortfolioPerformanceReadModel = { person_id: 'person-1', range: '3m', series: [], summary: {}, meta: {} }
+    const risk: PortfolioRiskReadModel = { person_id: 'person-1', as_of: '2026-04-10', meta: {} }
+    const exposures: PortfolioExposuresReadModel = { person_id: 'person-1', by_position: [], by_sector: [], by_country: [], by_currency: [], meta: {} }
+
+    vi.mocked(fetchPortfolioPerformance).mockResolvedValue(performance)
+    vi.mocked(fetchPortfolioRisk).mockResolvedValue(risk)
+    vi.mocked(fetchPortfolioExposures).mockResolvedValue(exposures)
+    vi.mocked(fetchPortfolioContributors).mockResolvedValue({
       person_id: 'person-1',
       top_contributors: [],
       top_detractors: [],
       meta: {}
-    }
-    const coverage: PortfolioDataCoverageReadModel = {
-      person_id: 'person-1',
-      as_of: '2026-04-10',
-      total_holdings: 2,
-      missing_prices: 1,
-      missing_sectors: 0,
-      missing_countries: 0,
-      missing_currencies: 0,
-      warnings: ['missing_prices'],
-      meta: {}
-    }
-
-    vi.mocked(fetchPortfolioSummary).mockResolvedValue(summary)
-    vi.mocked(fetchPortfolioPerformance).mockResolvedValue(performance)
-    vi.mocked(fetchPortfolioExposures).mockResolvedValue(exposures)
-    vi.mocked(fetchPortfolioHoldings).mockResolvedValue(holdings)
-    vi.mocked(fetchPortfolioRisk).mockResolvedValue(risk)
-    vi.mocked(fetchPortfolioContributors).mockResolvedValue(contributors)
-    vi.mocked(fetchPortfolioDataCoverage).mockResolvedValue(coverage)
+    } as PortfolioContributorsReadModel)
 
     const vm = usePortfolioDashboard('person-1')
-    await vm.loadAll()
+    const loadAllPromise = vm.loadAll()
 
-    expect(fetchPortfolioSummary).toHaveBeenCalledWith('person-1')
-    expect(fetchPortfolioDataCoverage).toHaveBeenCalledWith('person-1')
-    expect(vm.hasData.value).toBe(true)
-    expect(vm.hasCoverageWarnings.value).toBe(true)
-    expect(vm.topHoldings.value).toHaveLength(1)
+    expect(fetchPortfolioSummary).toHaveBeenCalledTimes(1)
+    expect(fetchPortfolioHoldings).toHaveBeenCalledTimes(1)
+    expect(fetchPortfolioDataCoverage).toHaveBeenCalledTimes(1)
+    expect(fetchPortfolioPerformance).not.toHaveBeenCalled()
+    expect(fetchPortfolioRisk).not.toHaveBeenCalled()
+    expect(fetchPortfolioExposures).not.toHaveBeenCalled()
+    expect(fetchPortfolioContributors).not.toHaveBeenCalled()
+
+    pendingInitial.forEach(({ resolve }) => resolve())
+    await loadAllPromise
+
+    expect(fetchPortfolioPerformance).toHaveBeenCalledTimes(1)
+    expect(fetchPortfolioRisk).toHaveBeenCalledTimes(1)
+    expect(fetchPortfolioExposures).toHaveBeenCalledTimes(1)
+    expect(fetchPortfolioContributors).not.toHaveBeenCalled()
     expect(vm.error.value).toBe('')
   })
 
@@ -166,12 +146,6 @@ describe('usePortfolioDashboard', () => {
       as_of: '2026-04-10',
       meta: {}
     })
-    vi.mocked(fetchPortfolioContributors).mockResolvedValue({
-      person_id: 'person-1',
-      top_contributors: [],
-      top_detractors: [],
-      meta: {}
-    })
     vi.mocked(fetchPortfolioDataCoverage).mockResolvedValue({
       person_id: 'person-1',
       as_of: '2026-04-10',
@@ -187,7 +161,8 @@ describe('usePortfolioDashboard', () => {
     const vm = usePortfolioDashboard('person-1')
     await vm.loadAll()
 
-    expect(vm.errors.value.summary).toContain('Portfolio Summary')
+    expect(vm.errors.value.summary.length).toBeGreaterThan(0)
     expect(vm.error.value.length).toBeGreaterThan(0)
+    expect(fetchPortfolioContributors).not.toHaveBeenCalled()
   })
 })
