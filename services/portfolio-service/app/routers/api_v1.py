@@ -22,7 +22,7 @@ router = APIRouter(tags=["portfolio"])
 
 
 @router.post("/portfolios", response_model=ApiResponse[Portfolio], status_code=status.HTTP_201_CREATED)
-async def create_portfolio(
+def create_portfolio(
     payload: PortfolioCreatePayload,
     service: PortfolioService = Depends(get_portfolio_service),
 ) -> ApiResponse[Portfolio]:
@@ -30,7 +30,7 @@ async def create_portfolio(
 
 
 @router.get("/persons/{person_id}/portfolios", response_model=ApiResponse[PortfolioListResponse])
-async def list_person_portfolios(
+def list_person_portfolios(
     person_id: UUID,
     service: PortfolioService = Depends(get_portfolio_service),
 ) -> ApiResponse[PortfolioListResponse]:
@@ -38,7 +38,7 @@ async def list_person_portfolios(
 
 
 @router.get("/portfolios/{portfolio_id}", response_model=ApiResponse[PortfolioDetailResponse])
-async def get_portfolio(
+def get_portfolio(
     portfolio_id: UUID,
     service: PortfolioService = Depends(get_portfolio_service),
 ) -> ApiResponse[PortfolioDetailResponse]:
@@ -50,7 +50,7 @@ async def get_portfolio(
     response_model=ApiResponse[Holding],
     status_code=status.HTTP_201_CREATED,
 )
-async def create_holding(
+def create_holding(
     portfolio_id: UUID,
     payload: HoldingCreatePayload,
     service: PortfolioService = Depends(get_portfolio_service),
@@ -59,7 +59,7 @@ async def create_holding(
 
 
 @router.patch("/portfolios/{portfolio_id}/holdings/{holding_id}", response_model=ApiResponse[Holding])
-async def update_holding(
+def update_holding(
     portfolio_id: UUID,
     holding_id: UUID,
     payload: HoldingUpdatePayload,
@@ -69,7 +69,7 @@ async def update_holding(
 
 
 @router.delete("/portfolios/{portfolio_id}/holdings/{holding_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_holding(
+def delete_holding(
     portfolio_id: UUID,
     holding_id: UUID,
     service: PortfolioService = Depends(get_portfolio_service),
@@ -82,7 +82,7 @@ async def delete_holding(
     "/portfolios/{portfolio_id}/holdings/refresh-current-prices",
     response_model=ApiResponse[HoldingsRefreshStubResponse],
 )
-async def refresh_holdings_prices(
+def refresh_holdings_prices(
     portfolio_id: UUID,
     service: PortfolioService = Depends(get_portfolio_service),
 ) -> ApiResponse[HoldingsRefreshStubResponse]:
