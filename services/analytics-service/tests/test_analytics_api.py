@@ -255,6 +255,44 @@ def test_unknown_person_returns_404() -> None:
     assert section_response.status_code == 404
 
 
+def test_returns_504_for_upstream_timeout() -> None:
+    class TimeoutService(FakeAnalyticsService):
+        def overview(self, person_id: UUID):
+            raise httpx.ReadTimeout(
+                "timed out",
+                request=httpx.Request("GET", f"http://person-service/api/v1/persons/{person_id}"),
+            )
+
+    app.dependency_overrides[get_analytics_service] = lambda: TimeoutService()
+    client = create_test_client(app)
+    response = client.get(f"/api/v1/analytics/persons/{PERSON_ID}/overview")
+
+    assert response.status_code == 504
+    assert response.json()["detail"] == {
+        "error": "upstream_timeout",
+        "message": "Abhängiger Service hat nicht rechtzeitig geantwortet.",
+    }
+
+
+def test_returns_502_for_upstream_request_error() -> None:
+    class UnavailableService(FakeAnalyticsService):
+        def overview(self, person_id: UUID):
+            raise httpx.ConnectError(
+                "connection failed",
+                request=httpx.Request("GET", f"http://person-service/api/v1/persons/{person_id}"),
+            )
+
+    app.dependency_overrides[get_analytics_service] = lambda: UnavailableService()
+    client = create_test_client(app)
+    response = client.get(f"/api/v1/analytics/persons/{PERSON_ID}/overview")
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == {
+        "error": "upstream_unavailable",
+        "message": "Abhängiger Service ist derzeit nicht erreichbar.",
+    }
+
+
 def test_known_person_with_empty_data_returns_stable_structure() -> None:
     class EmptyDataService(FakeAnalyticsService):
         def _request_json(self, url: str, client=None) -> dict | list[dict]:

@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Annotated
 from uuid import UUID
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from finanzuebersicht_shared.models import ApiResponse
 
@@ -32,6 +33,22 @@ router = APIRouter(tags=["analytics"])
 def _call_or_404(fn):
     try:
         return fn()
+    except httpx.TimeoutException as exc:
+        raise HTTPException(
+            status_code=504,
+            detail={
+                "error": "upstream_timeout",
+                "message": "Abhängiger Service hat nicht rechtzeitig geantwortet.",
+            },
+        ) from exc
+    except httpx.RequestError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "error": "upstream_unavailable",
+                "message": "Abhängiger Service ist derzeit nicht erreichbar.",
+            },
+        ) from exc
     except KeyError as exc:
         raise HTTPException(
             status_code=404, detail={"error": "person_not_found", "message": str(exc)}
@@ -42,7 +59,7 @@ def _call_or_404(fn):
     "/analytics/persons/{person_id}/dashboard/overview",
     response_model=ApiResponse[DashboardSectionReadModel],
 )
-async def dashboard_overview_section(
+def dashboard_overview_section(
     person_id: UUID,
     service: Annotated[AnalyticsService, Depends(get_analytics_service)],
 ) -> ApiResponse[DashboardSectionReadModel]:
@@ -53,7 +70,7 @@ async def dashboard_overview_section(
     "/analytics/persons/{person_id}/dashboard/allocation",
     response_model=ApiResponse[DashboardSectionReadModel],
 )
-async def dashboard_allocation_section(
+def dashboard_allocation_section(
     person_id: UUID,
     service: Annotated[AnalyticsService, Depends(get_analytics_service)],
 ) -> ApiResponse[DashboardSectionReadModel]:
@@ -64,7 +81,7 @@ async def dashboard_allocation_section(
     "/analytics/persons/{person_id}/dashboard/timeseries",
     response_model=ApiResponse[DashboardSectionReadModel],
 )
-async def dashboard_timeseries_section(
+def dashboard_timeseries_section(
     person_id: UUID,
     service: Annotated[AnalyticsService, Depends(get_analytics_service)],
 ) -> ApiResponse[DashboardSectionReadModel]:
@@ -75,7 +92,7 @@ async def dashboard_timeseries_section(
     "/analytics/persons/{person_id}/dashboard/metrics",
     response_model=ApiResponse[DashboardSectionReadModel],
 )
-async def dashboard_metrics_section(
+def dashboard_metrics_section(
     person_id: UUID,
     service: Annotated[AnalyticsService, Depends(get_analytics_service)],
 ) -> ApiResponse[DashboardSectionReadModel]:
@@ -85,7 +102,7 @@ async def dashboard_metrics_section(
 @router.get(
     "/analytics/persons/{person_id}/overview", response_model=ApiResponse[OverviewReadModel]
 )
-async def overview(
+def overview(
     person_id: UUID,
     service: Annotated[AnalyticsService, Depends(get_analytics_service)],
 ) -> ApiResponse[OverviewReadModel]:
@@ -95,7 +112,7 @@ async def overview(
 @router.get(
     "/analytics/persons/{person_id}/allocation", response_model=ApiResponse[AllocationReadModel]
 )
-async def allocation(
+def allocation(
     person_id: UUID,
     service: Annotated[AnalyticsService, Depends(get_analytics_service)],
 ) -> ApiResponse[AllocationReadModel]:
@@ -105,7 +122,7 @@ async def allocation(
 @router.get(
     "/analytics/persons/{person_id}/timeseries", response_model=ApiResponse[TimeseriesReadModel]
 )
-async def timeseries(
+def timeseries(
     person_id: UUID,
     service: Annotated[AnalyticsService, Depends(get_analytics_service)],
 ) -> ApiResponse[TimeseriesReadModel]:
@@ -116,7 +133,7 @@ async def timeseries(
     "/analytics/persons/{person_id}/monthly-comparison",
     response_model=ApiResponse[MonthlyComparisonReadModel],
 )
-async def monthly_comparison(
+def monthly_comparison(
     person_id: UUID,
     service: Annotated[AnalyticsService, Depends(get_analytics_service)],
 ) -> ApiResponse[MonthlyComparisonReadModel]:
@@ -124,7 +141,7 @@ async def monthly_comparison(
 
 
 @router.get("/analytics/persons/{person_id}/metrics", response_model=ApiResponse[MetricsReadModel])
-async def metrics(
+def metrics(
     person_id: UUID,
     service: Annotated[AnalyticsService, Depends(get_analytics_service)],
 ) -> ApiResponse[MetricsReadModel]:
@@ -132,7 +149,7 @@ async def metrics(
 
 
 @router.get("/analytics/persons/{person_id}/heatmap", response_model=ApiResponse[HeatmapReadModel])
-async def heatmap(
+def heatmap(
     person_id: UUID,
     service: Annotated[AnalyticsService, Depends(get_analytics_service)],
 ) -> ApiResponse[HeatmapReadModel]:
@@ -142,7 +159,7 @@ async def heatmap(
 @router.get(
     "/analytics/persons/{person_id}/forecast", response_model=ApiResponse[ForecastReadModel]
 )
-async def forecast(
+def forecast(
     person_id: UUID,
     service: Annotated[AnalyticsService, Depends(get_analytics_service)],
 ) -> ApiResponse[ForecastReadModel]:
@@ -153,7 +170,7 @@ async def forecast(
     "/analytics/persons/{person_id}/portfolio-summary",
     response_model=ApiResponse[PortfolioSummaryReadModel],
 )
-async def portfolio_summary(
+def portfolio_summary(
     person_id: UUID,
     service: Annotated[AnalyticsService, Depends(get_analytics_service)],
 ) -> ApiResponse[PortfolioSummaryReadModel]:
@@ -164,7 +181,7 @@ async def portfolio_summary(
     "/analytics/persons/{person_id}/portfolio-performance",
     response_model=ApiResponse[PortfolioPerformanceReadModel],
 )
-async def portfolio_performance(
+def portfolio_performance(
     person_id: UUID,
     service: Annotated[AnalyticsService, Depends(get_analytics_service)],
 ) -> ApiResponse[PortfolioPerformanceReadModel]:
@@ -175,7 +192,7 @@ async def portfolio_performance(
     "/analytics/persons/{person_id}/portfolio-exposures",
     response_model=ApiResponse[PortfolioExposuresReadModel],
 )
-async def portfolio_exposures(
+def portfolio_exposures(
     person_id: UUID,
     service: Annotated[AnalyticsService, Depends(get_analytics_service)],
 ) -> ApiResponse[PortfolioExposuresReadModel]:
@@ -186,7 +203,7 @@ async def portfolio_exposures(
     "/analytics/persons/{person_id}/portfolio-holdings",
     response_model=ApiResponse[PortfolioHoldingsReadModel],
 )
-async def portfolio_holdings(
+def portfolio_holdings(
     person_id: UUID,
     service: Annotated[AnalyticsService, Depends(get_analytics_service)],
 ) -> ApiResponse[PortfolioHoldingsReadModel]:
@@ -197,7 +214,7 @@ async def portfolio_holdings(
     "/analytics/persons/{person_id}/portfolio-risk",
     response_model=ApiResponse[PortfolioRiskReadModel],
 )
-async def portfolio_risk(
+def portfolio_risk(
     person_id: UUID,
     service: Annotated[AnalyticsService, Depends(get_analytics_service)],
 ) -> ApiResponse[PortfolioRiskReadModel]:
@@ -208,7 +225,7 @@ async def portfolio_risk(
     "/analytics/persons/{person_id}/portfolio-contributors",
     response_model=ApiResponse[PortfolioContributorsReadModel],
 )
-async def portfolio_contributors(
+def portfolio_contributors(
     person_id: UUID,
     service: Annotated[AnalyticsService, Depends(get_analytics_service)],
 ) -> ApiResponse[PortfolioContributorsReadModel]:
@@ -219,7 +236,7 @@ async def portfolio_contributors(
     "/analytics/persons/{person_id}/portfolio-data-coverage",
     response_model=ApiResponse[PortfolioDataCoverageReadModel],
 )
-async def portfolio_data_coverage(
+def portfolio_data_coverage(
     person_id: UUID,
     service: Annotated[AnalyticsService, Depends(get_analytics_service)],
 ) -> ApiResponse[PortfolioDataCoverageReadModel]:
