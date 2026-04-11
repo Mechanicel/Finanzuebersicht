@@ -176,7 +176,7 @@ export function usePortfolioDashboard(personId: MaybeRef<string>) {
   }
 
   async function loadInitial() {
-    return Promise.allSettled([loadSummary(), loadHoldings(), loadCoverage()])
+    return Promise.allSettled([loadHoldings(), loadCoverage()])
   }
 
   async function loadSecondary() {
@@ -203,9 +203,11 @@ export function usePortfolioDashboard(personId: MaybeRef<string>) {
     return results
   }
 
+  const dashboardSummary = computed(() => holdings.value?.summary ?? summary.value)
+
   const hasData = computed(
     () =>
-      !!summary.value ||
+      !!dashboardSummary.value ||
       !!performance.value ||
       !!exposures.value ||
       !!holdings.value ||
@@ -223,12 +225,13 @@ export function usePortfolioDashboard(personId: MaybeRef<string>) {
 
   const isEmpty = computed(() => {
     const holdingsCount = holdings.value?.items?.length ?? 0
-    const marketValue = summary.value?.market_value ?? 0
+    const marketValue = dashboardSummary.value?.market_value ?? 0
     return !loading.value && holdingsCount === 0 && marketValue <= 0
   })
 
   return {
     summary,
+    dashboardSummary,
     performance,
     exposures,
     holdings,

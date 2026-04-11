@@ -19,7 +19,8 @@ describe('PortfolioDashboardContainer', () => {
     loadAllMock.mockResolvedValue([])
 
     vi.mocked(usePortfolioDashboard).mockReturnValue({
-      summary: ref({
+      summary: ref(null),
+      dashboardSummary: ref({
         person_id: 'person-1',
         as_of: '2026-04-10',
         currency: 'EUR',
@@ -45,7 +46,7 @@ describe('PortfolioDashboardContainer', () => {
         meta: {}
       }),
       exposures: ref({ person_id: 'person-1', by_position: [], by_sector: [], by_country: [], by_currency: [], meta: {} }),
-      holdings: ref({ person_id: 'person-1', as_of: '2026-04-10', currency: 'EUR', items: [], summary: {
+      holdings: ref({ person_id: 'person-1', as_of: '2026-04-10', currency: 'EUR', summary: {
         person_id: 'person-1', as_of: '2026-04-10', currency: 'EUR', market_value: 360, invested_value: 350, unrealized_pnl: 10, portfolios_count: 1, holdings_count: 2, meta: {}
       }, items: [{ portfolio_id: 'p-1', symbol: 'AAPL', display_name: 'Apple', quantity: 1, invested_value: 100, market_value: 220, unrealized_pnl: 120, weight: 0.61, data_status: 'ok' }], meta: {} }),
       risk: ref({
@@ -117,7 +118,8 @@ describe('PortfolioDashboardContainer', () => {
 
   it('shows stable empty detail state when no holdings are available', () => {
     vi.mocked(usePortfolioDashboard).mockReturnValue({
-      summary: ref({
+      summary: ref(null),
+      dashboardSummary: ref({
         person_id: 'person-1',
         as_of: '2026-04-10',
         currency: 'EUR',

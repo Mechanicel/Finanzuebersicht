@@ -57,7 +57,7 @@ const props = defineProps<{ personId: string }>()
 const personIdRef = toRef(props, 'personId')
 const portfolioDashboard = usePortfolioDashboard(personIdRef)
 
-const summary = computed(() => portfolioDashboard.summary.value)
+const summary = computed(() => portfolioDashboard.dashboardSummary.value)
 const performance = computed(() => portfolioDashboard.performance.value)
 const exposures = computed(() => portfolioDashboard.exposures.value)
 const holdings = computed(() => portfolioDashboard.holdings.value)
