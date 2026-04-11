@@ -19,7 +19,8 @@ import {
   fetchInstrumentFinancials,
   fetchInstrumentFundamentals,
   fetchInstrumentRisk,
-  fetchInstrumentTimeseries
+  fetchInstrumentTimeseries,
+  searchBenchmarkCatalog
 } from '@/modules/dashboard/api/depotAnalysisApi'
 
 function setupBaseMocks() {
@@ -97,6 +98,7 @@ describe('InstrumentAnalysisTabs', () => {
 
     await flushPromises()
     await wrapper.findAll('button').find((button) => button.text().includes('Finanzberichte'))?.trigger('click')
+    await flushPromises()
 
     expect(wrapper.text()).toContain('Neueste Balance-Sheet-Periode')
     expect(wrapper.text()).toContain('Balance Sheet Verlauf (2 Perioden)')
@@ -104,6 +106,86 @@ describe('InstrumentAnalysisTabs', () => {
     expect(wrapper.find('table.financials-table').exists()).toBe(true)
     expect(wrapper.text()).toContain('Total Assets')
     expect(wrapper.text()).not.toContain('undefined')
+  })
+
+  it('loads only overview data for initially selected symbol', async () => {
+    const wrapper = mount(InstrumentAnalysisTabs, {
+      props: { selectedSymbol: 'AAPL' }
+    })
+
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Überblick')
+    expect(fetchInstrumentTimeseries).toHaveBeenCalledTimes(1)
+    expect(fetchInstrumentTimeseries).toHaveBeenCalledWith('AAPL', 'price', 'SPY')
+    expect(fetchInstrumentRisk).not.toHaveBeenCalled()
+    expect(fetchInstrumentBenchmark).not.toHaveBeenCalled()
+    expect(fetchBenchmarkCatalog).not.toHaveBeenCalled()
+    expect(fetchInstrumentFundamentals).not.toHaveBeenCalled()
+    expect(fetchInstrumentFinancials).not.toHaveBeenCalled()
+  })
+
+  it('loads risk, benchmark and catalog only when switching to risk tab', async () => {
+    const wrapper = mount(InstrumentAnalysisTabs, {
+      props: { selectedSymbol: 'AAPL' }
+    })
+
+    await flushPromises()
+    await wrapper.findAll('button').find((button) => button.text().includes('Risiko & Benchmark'))?.trigger('click')
+    await flushPromises()
+
+    expect(fetchInstrumentTimeseries).toHaveBeenCalledTimes(1)
+    expect(fetchInstrumentRisk).toHaveBeenCalledTimes(1)
+    expect(fetchInstrumentBenchmark).toHaveBeenCalledTimes(1)
+    expect(fetchBenchmarkCatalog).toHaveBeenCalledTimes(1)
+    expect(fetchInstrumentFundamentals).not.toHaveBeenCalled()
+    expect(fetchInstrumentFinancials).not.toHaveBeenCalled()
+  })
+
+  it('loads financials only when switching to financials tab', async () => {
+    vi.mocked(fetchInstrumentFinancials).mockResolvedValue({
+      symbol: 'AAPL',
+      period: 'annual',
+      statements: { balance_sheet: [] }
+    })
+
+    const wrapper = mount(InstrumentAnalysisTabs, {
+      props: { selectedSymbol: 'AAPL' }
+    })
+
+    await flushPromises()
+    expect(fetchInstrumentFinancials).not.toHaveBeenCalled()
+    await wrapper.findAll('button').find((button) => button.text().includes('Finanzberichte'))?.trigger('click')
+    await flushPromises()
+
+    expect(fetchInstrumentFinancials).toHaveBeenCalledTimes(1)
+    expect(fetchInstrumentFinancials).toHaveBeenCalledWith('AAPL', 'annual')
+  })
+
+  it('triggers benchmark search only on user action', async () => {
+    vi.mocked(searchBenchmarkCatalog).mockResolvedValue({
+      query: 'spy',
+      total: 1,
+      items: [{ symbol: 'SPY', name: 'S&P 500' }]
+    })
+
+    const wrapper = mount(InstrumentAnalysisTabs, {
+      props: { selectedSymbol: 'AAPL' }
+    })
+
+    await flushPromises()
+    expect(searchBenchmarkCatalog).not.toHaveBeenCalled()
+
+    await wrapper.findAll('button').find((button) => button.text().includes('Risiko & Benchmark'))?.trigger('click')
+    await flushPromises()
+    expect(searchBenchmarkCatalog).not.toHaveBeenCalled()
+
+    await wrapper.find('input[placeholder="Name oder Symbol"]').setValue('spy')
+    await wrapper.findAll('button').find((button) => button.text() === 'Suchen')?.trigger('click')
+    await flushPromises()
+
+    expect(searchBenchmarkCatalog).toHaveBeenCalledTimes(1)
+    expect(searchBenchmarkCatalog).toHaveBeenCalledWith('spy')
   })
 
   it('shows empty state for missing balance sheet data', async () => {
@@ -124,6 +206,7 @@ describe('InstrumentAnalysisTabs', () => {
 
     await flushPromises()
     await wrapper.findAll('button').find((button) => button.text().includes('Finanzberichte'))?.trigger('click')
+    await flushPromises()
 
     expect(wrapper.text()).toContain('keine Balance-Sheet-Daten')
     expect(wrapper.find('table.financials-table').exists()).toBe(false)

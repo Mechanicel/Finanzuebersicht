@@ -202,9 +202,11 @@ const activeTab = ref<(typeof tabs)[number]['key']>('overview')
 const loading = ref(false)
 const nonFinancialWarnings = ref<string[]>([])
 const financialWarnings = ref<string[]>([])
+const benchmarkAutoWarning = ref<string | null>(null)
 const benchmarkInput = ref('SPY')
 const searchTerm = ref('')
 const financialPeriod = ref<'annual' | 'quarterly'>('annual')
+const selectedSeries = ref(timeseriesSeries[0])
 
 const timeseries = ref<DepotInstrumentTimeseries | null>(null)
 const risk = ref<DepotInstrumentRisk | null>(null)
@@ -281,41 +283,43 @@ const fundamentalsEntries = computed(() =>
 watch(
   () => props.selectedSymbol,
   (symbol) => {
+    resetTabData()
     if (!symbol) return
-    void loadAll(symbol)
+    void loadActiveTabData()
   },
   { immediate: true }
 )
 
-async function loadAll(symbol: string) {
-  loading.value = true
+watch(activeTab, () => {
+  if (!props.selectedSymbol) return
+  void loadActiveTabData()
+})
+
+function resetTabData() {
   nonFinancialWarnings.value = []
   financialWarnings.value = []
+  benchmarkAutoWarning.value = null
+  timeseries.value = null
+  risk.value = null
+  fundamentals.value = null
+  financials.value = null
+  benchmarkCatalog.value = { items: [] }
+  benchmarkSearch.value = { query: '', items: [], total: 0 }
+  selectedSeries.value = timeseriesSeries[0]
+}
+
+function recomputeNonFinancialWarnings() {
+  nonFinancialWarnings.value = [
+    ...(timeseries.value?.meta?.warnings ?? []).map((entry) => entry.message),
+    ...(risk.value?.meta?.warnings ?? []).map((entry) => entry.message),
+    ...(benchmarkAutoWarning.value ? [benchmarkAutoWarning.value] : [])
+  ]
+}
+
+async function withLoading(task: () => Promise<void>) {
+  loading.value = true
   try {
-    const [seriesPayload, riskPayload, benchmarkPayload, catalogPayload, fundamentalsPayload, financialPayload] = await Promise.all([
-      fetchInstrumentTimeseries(symbol, timeseriesSeries[0], benchmarkInput.value),
-      fetchInstrumentRisk(symbol, benchmarkInput.value),
-      fetchInstrumentBenchmark(symbol, benchmarkInput.value),
-      fetchBenchmarkCatalog(),
-      fetchInstrumentFundamentals(symbol),
-      fetchInstrumentFinancials(symbol, financialPeriod.value)
-    ])
-
-    timeseries.value = seriesPayload
-    risk.value = riskPayload
-    benchmarkCatalog.value = catalogPayload
-    fundamentals.value = fundamentalsPayload
-    financials.value = financialPayload
-
-    const collectedWarnings = [
-      ...(seriesPayload.meta?.warnings ?? []).map((entry) => entry.message),
-      ...(riskPayload.meta?.warnings ?? []).map((entry) => entry.message)
-    ]
-    financialWarnings.value = (financialPayload.meta?.warnings ?? []).map((entry) => entry.message)
-    if (benchmarkPayload?.benchmark && benchmarkPayload.benchmark !== benchmarkInput.value) {
-      collectedWarnings.push(`Benchmark automatisch auf ${benchmarkPayload.benchmark} gesetzt.`)
-    }
-    nonFinancialWarnings.value = collectedWarnings
+    await task()
   } catch {
     nonFinancialWarnings.value = ['Einige Instrumentdaten konnten nicht geladen werden.']
     financialWarnings.value = []
@@ -324,14 +328,94 @@ async function loadAll(symbol: string) {
   }
 }
 
-async function loadTimeseries(series: string) {
+async function loadActiveTabData() {
   if (!props.selectedSymbol) return
-  timeseries.value = await fetchInstrumentTimeseries(props.selectedSymbol, series, benchmarkInput.value)
+  const symbol = props.selectedSymbol
+  if (activeTab.value === 'overview') {
+    await withLoading(async () => {
+      await loadTimeseries(timeseriesSeries[0], false, symbol)
+    })
+    return
+  }
+  if (activeTab.value === 'returns') {
+    await withLoading(async () => {
+      await loadTimeseries(selectedSeries.value, false, symbol)
+    })
+    return
+  }
+  if (activeTab.value === 'risk') {
+    await withLoading(async () => {
+      await loadRiskTabData(symbol)
+    })
+    return
+  }
+  if (activeTab.value === 'fundamentals') {
+    await withLoading(async () => {
+      if (!fundamentals.value || fundamentals.value.symbol !== symbol) {
+        fundamentals.value = await fetchInstrumentFundamentals(symbol)
+      }
+    })
+    return
+  }
+  if (activeTab.value === 'financials') {
+    await withLoading(async () => {
+      await loadFinancials(symbol)
+    })
+    return
+  }
+  await withLoading(async () => {
+    await Promise.all([loadTimeseries(timeseriesSeries[0], false, symbol), loadRisk(symbol)])
+  })
+}
+
+async function loadRiskTabData(symbol: string, force = false) {
+  const shouldLoadCatalog = benchmarkCatalog.value.items.length === 0 || force
+  const shouldLoadRisk = force || !risk.value || risk.value.symbol !== symbol || risk.value.benchmark !== benchmarkInput.value
+  if (!shouldLoadCatalog && !shouldLoadRisk) return
+
+  const [riskPayload, benchmarkPayload, catalogPayload] = await Promise.all([
+    shouldLoadRisk ? fetchInstrumentRisk(symbol, benchmarkInput.value) : Promise.resolve(risk.value),
+    shouldLoadRisk ? fetchInstrumentBenchmark(symbol, benchmarkInput.value) : Promise.resolve(null),
+    shouldLoadCatalog ? fetchBenchmarkCatalog() : Promise.resolve(benchmarkCatalog.value)
+  ])
+
+  if (riskPayload) risk.value = riskPayload
+  if (catalogPayload) benchmarkCatalog.value = catalogPayload
+  if (benchmarkPayload?.benchmark && benchmarkPayload.benchmark !== benchmarkInput.value) {
+    benchmarkAutoWarning.value = `Benchmark automatisch auf ${benchmarkPayload.benchmark} gesetzt.`
+  } else {
+    benchmarkAutoWarning.value = null
+  }
+  recomputeNonFinancialWarnings()
+}
+
+async function loadRisk(symbol: string, force = false) {
+  const shouldLoad = force || !risk.value || risk.value.symbol !== symbol || risk.value.benchmark !== benchmarkInput.value
+  if (!shouldLoad) return
+  risk.value = await fetchInstrumentRisk(symbol, benchmarkInput.value)
+  recomputeNonFinancialWarnings()
+}
+
+async function loadTimeseries(series: string, force = false, explicitSymbol?: string) {
+  const symbol = explicitSymbol ?? props.selectedSymbol
+  if (!symbol) return
+  selectedSeries.value = series
+  const shouldLoad =
+    force ||
+    !timeseries.value ||
+    timeseries.value.symbol !== symbol ||
+    timeseries.value.series !== series ||
+    timeseries.value.benchmark_symbol !== benchmarkInput.value
+  if (!shouldLoad) return
+  timeseries.value = await fetchInstrumentTimeseries(symbol, series, benchmarkInput.value)
+  recomputeNonFinancialWarnings()
 }
 
 async function reloadRisk() {
   if (!props.selectedSymbol) return
-  risk.value = await fetchInstrumentRisk(props.selectedSymbol, benchmarkInput.value)
+  await withLoading(async () => {
+    await loadRiskTabData(props.selectedSymbol, true)
+  })
 }
 
 function selectBenchmark(symbol: string) {
@@ -341,7 +425,23 @@ function selectBenchmark(symbol: string) {
 
 async function applyBenchmark() {
   if (!props.selectedSymbol) return
-  await Promise.all([loadTimeseries(timeseries.value?.series ?? timeseriesSeries[0]), reloadRisk()])
+  if (activeTab.value === 'returns') {
+    await withLoading(async () => {
+      await loadTimeseries(selectedSeries.value, true)
+    })
+    return
+  }
+  if (activeTab.value === 'risk') {
+    await withLoading(async () => {
+      await loadRiskTabData(props.selectedSymbol as string, true)
+    })
+    return
+  }
+  if (activeTab.value === 'raw') {
+    await withLoading(async () => {
+      await Promise.all([loadTimeseries(timeseriesSeries[0], true), loadRisk(props.selectedSymbol as string, true)])
+    })
+  }
 }
 
 async function searchBenchmark() {
@@ -353,9 +453,10 @@ async function searchBenchmark() {
   benchmarkSearch.value = await searchBenchmarkCatalog(query)
 }
 
-async function loadFinancials() {
-  if (!props.selectedSymbol) return
-  financials.value = await fetchInstrumentFinancials(props.selectedSymbol, financialPeriod.value)
+async function loadFinancials(symbol = props.selectedSymbol ?? '') {
+  if (activeTab.value !== 'financials' || !symbol) return
+  if (financials.value?.symbol === symbol && financials.value.period === financialPeriod.value) return
+  financials.value = await fetchInstrumentFinancials(symbol, financialPeriod.value)
   financialWarnings.value = (financials.value.meta?.warnings ?? []).map((entry) => `${entry.code}: ${entry.message}`)
 }
 
