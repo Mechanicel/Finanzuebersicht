@@ -397,7 +397,7 @@ class AnalyticsService:
 
     def _load_person_holdings(self, person_id: UUID, client: httpx.Client) -> tuple[list[dict], list[dict]]:
         portfolios = self._load_portfolios(person_id, client=client)
-        holdings_with_context: list[dict] = []
+        valid_portfolios: list[tuple[str, str | None]] = []
         for portfolio in portfolios:
             portfolio_id = str(portfolio.get("portfolio_id", "")).strip()
             if not portfolio_id:
@@ -407,7 +407,23 @@ class AnalyticsService:
                 or str(portfolio.get("name", "")).strip()
                 or None
             )
-            for holding in self._load_holdings(portfolio_id, client=client):
+            valid_portfolios.append((portfolio_id, portfolio_name))
+
+        if not valid_portfolios:
+            return portfolios, []
+
+        holdings_by_portfolio: dict[str, list[dict]] = {}
+        with ThreadPoolExecutor(max_workers=min(8, len(valid_portfolios))) as executor:
+            for (portfolio_id, _), portfolio_holdings in zip(
+                valid_portfolios,
+                executor.map(lambda p: self._load_holdings(p[0], client=client), valid_portfolios),
+                strict=True,
+            ):
+                holdings_by_portfolio[portfolio_id] = portfolio_holdings
+
+        holdings_with_context: list[dict] = []
+        for portfolio_id, portfolio_name in valid_portfolios:
+            for holding in holdings_by_portfolio.get(portfolio_id, []):
                 enriched = dict(holding)
                 enriched["portfolio_id"] = portfolio_id
                 enriched["portfolio_name"] = portfolio_name
