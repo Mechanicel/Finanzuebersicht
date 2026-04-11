@@ -175,19 +175,21 @@ export function usePortfolioDashboard(personId: MaybeRef<string>) {
     }
   }
 
+  async function loadInitial() {
+    return Promise.allSettled([loadSummary(), loadHoldings(), loadCoverage()])
+  }
+
+  async function loadSecondary() {
+    return Promise.allSettled([loadPerformance(), loadRisk(), loadExposures()])
+  }
+
   async function loadAll() {
     loading.value = true
     clearErrors()
 
-    const results = await Promise.allSettled([
-      loadSummary(),
-      loadPerformance(),
-      loadExposures(),
-      loadHoldings(),
-      loadRisk(),
-      loadContributors(),
-      loadCoverage()
-    ])
+    const initialResults = await loadInitial()
+    const secondaryResults = await loadSecondary()
+    const results = [...initialResults, ...secondaryResults]
 
     const firstError = results.find((result) => result.status === 'rejected')
     if (firstError) {
@@ -237,6 +239,8 @@ export function usePortfolioDashboard(personId: MaybeRef<string>) {
     loadingStates,
     error,
     errors,
+    loadInitial,
+    loadSecondary,
     loadAll,
     loadSummary,
     loadPerformance,
