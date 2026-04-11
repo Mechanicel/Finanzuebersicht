@@ -17,7 +17,10 @@ from app.service import PortfolioService
 @lru_cache(maxsize=1)
 def get_mongo_client() -> MongoClient:
     settings = get_settings()
-    return MongoClient(settings.resolved_mongo_uri())
+    return MongoClient(
+        settings.resolved_mongo_uri(),
+        serverSelectionTimeoutMS=settings.portfolio_mongo_server_selection_timeout_ms,
+    )
 
 
 @lru_cache(maxsize=1)
@@ -32,8 +35,10 @@ def get_repository() -> PortfolioRepository:
     if settings.portfolio_repository_backend == "inmemory":
         return InMemoryPortfolioRepository()
     if settings.portfolio_repository_backend == "mongo":
+        database = get_mongo_database()
+        database.command("ping")
         return MongoPortfolioRepository(
-            database=get_mongo_database(),
+            database=database,
             portfolio_collection=settings.mongo_portfolios_collection,
             holding_collection=settings.mongo_holdings_collection,
         )
