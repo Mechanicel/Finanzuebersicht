@@ -2,16 +2,21 @@
   <article class="panel">
     <h3>Exposures / Allocation</h3>
 
-    <div class="sections-grid">
-      <section v-for="section in sections" :key="section.key" class="exposure-section">
+    <div class="sections-layout">
+      <section class="exposure-section exposure-section--primary">
         <header class="section-header">
-          <h4>{{ section.title }}</h4>
-          <button v-if="section.items.length > 8" type="button" class="toggle" @click="toggleSection(section.key)">
-            {{ expandedSections[section.key] ? 'Weniger anzeigen' : 'Mehr anzeigen' }}
+          <h4>{{ positionSection.title }}</h4>
+          <button
+            v-if="positionSection.items.length > 8"
+            type="button"
+            class="toggle"
+            @click="toggleSection(positionSection.key)"
+          >
+            {{ expandedSections[positionSection.key] ? 'Weniger anzeigen' : 'Mehr anzeigen' }}
           </button>
         </header>
-        <ul v-if="section.items.length > 0">
-          <li v-for="item in visibleItems(section)" :key="`${section.key}-${item.label}`">
+        <ul v-if="positionSection.items.length > 0">
+          <li v-for="item in visibleItems(positionSection)" :key="`${positionSection.key}-${item.label}`">
             <span>{{ item.label }}</span>
             <span class="market-value">{{ formatMoney(item.market_value, currency) }}</span>
             <strong class="weight">{{ formatPercent(item.weight) }}</strong>
@@ -19,6 +24,25 @@
         </ul>
         <p v-else class="hint">Keine Daten</p>
       </section>
+
+      <div class="sections-sidebar">
+        <section v-for="section in secondarySections" :key="section.key" class="exposure-section exposure-section--compact">
+          <header class="section-header">
+            <h4>{{ section.title }}</h4>
+            <button v-if="section.items.length > 8" type="button" class="toggle" @click="toggleSection(section.key)">
+              {{ expandedSections[section.key] ? 'Weniger anzeigen' : 'Mehr anzeigen' }}
+            </button>
+          </header>
+          <ul v-if="section.items.length > 0">
+            <li v-for="item in visibleItems(section)" :key="`${section.key}-${item.label}`">
+              <span>{{ item.label }}</span>
+              <span class="market-value">{{ formatMoney(item.market_value, currency) }}</span>
+              <strong class="weight">{{ formatPercent(item.weight) }}</strong>
+            </li>
+          </ul>
+          <p v-else class="hint">Keine Daten</p>
+        </section>
+      </div>
     </div>
   </article>
 </template>
@@ -45,6 +69,9 @@ const sections = computed(() => [
   { key: 'country', title: 'Länder', items: sortByWeight(props.exposures.by_country) },
   { key: 'currency', title: 'Währungen', items: sortByWeight(props.exposures.by_currency) }
 ])
+
+const positionSection = computed(() => sections.value[0])
+const secondarySections = computed(() => sections.value.slice(1))
 
 const expandedSections = reactive<Record<string, boolean>>({
   position: false,
@@ -74,9 +101,16 @@ h3 {
   margin: 0 0 0.5rem;
 }
 
-.sections-grid {
+.sections-layout {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+  gap: 0.6rem;
+  align-items: start;
+}
+
+.sections-sidebar {
+  display: grid;
+  grid-template-columns: 1fr;
   gap: 0.6rem;
   align-items: start;
 }
@@ -85,6 +119,10 @@ h3 {
   border: 1px solid #e2e8f0;
   border-radius: 8px;
   padding: 0.45rem 0.5rem;
+}
+
+.exposure-section--compact {
+  padding: 0.35rem 0.42rem;
 }
 
 .section-header {
@@ -142,13 +180,17 @@ li {
 }
 
 @media (max-width: 1100px) {
-  .sections-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .sections-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .sections-sidebar {
+    grid-template-columns: 1fr;
   }
 }
 
 @media (max-width: 700px) {
-  .sections-grid {
+  .sections-layout {
     grid-template-columns: 1fr;
   }
 }
