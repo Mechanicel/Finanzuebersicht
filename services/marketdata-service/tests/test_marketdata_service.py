@@ -465,6 +465,53 @@ def test_get_instrument_history_cache_miss_seeds_synchronously() -> None:
     assert history_repository.get("CBK.DE") is not None
 
 
+def test_price_refresh_negative_cache_skips_immediate_retry_after_failure() -> None:
+    class FailingYFinanceClient(FakeYFinanceClient):
+        def __init__(self, backend: FakeYFinance) -> None:
+            super().__init__(backend)
+            self.price_attempts = 0
+
+        def fetch_current_price(self, symbol: str) -> float:
+            self.price_attempts += 1
+            raise UpstreamServiceError("price unavailable")
+
+    failing_client = FailingYFinanceClient(FakeYFinance())
+    service, _, _, _, _, _ = build_service(yfinance_client=failing_client)
+
+    first = service._refresh_price_now("CBK.DE")
+    second = service._refresh_price_now("CBK.DE")
+
+    assert first is None
+    assert second is None
+    assert failing_client.price_attempts == 1
+
+
+def test_history_seed_negative_cache_skips_immediate_retry_after_failure() -> None:
+    class FailingHistoryYFinanceClient(FakeYFinanceClient):
+        def __init__(self, backend: FakeYFinance) -> None:
+            super().__init__(backend)
+            self.history_attempts = 0
+
+        def fetch_history(self, symbol: str, *, period: str, interval: str = "1d"):
+            if period == "max" and interval == "1d":
+                self.history_attempts += 1
+                raise UpstreamServiceError("history unavailable")
+            return super().fetch_history(symbol, period=period, interval=interval)
+
+    failing_client = FailingHistoryYFinanceClient(FakeYFinance())
+    service, _, _, _, history_repository, _ = build_service(yfinance_client=failing_client)
+
+    first = service.get_instrument_history("CBK.DE", "3m")
+    second = service.get_instrument_history("CBK.DE", "3m")
+
+    assert first.cache_present is False
+    assert first.points == []
+    assert second.cache_present is False
+    assert second.points == []
+    assert history_repository.get("CBK.DE") is None
+    assert failing_client.history_attempts == 1
+
+
 def test_get_instrument_history_range_filtering() -> None:
     service, _, _, _, history_repository, _ = build_service()
     today = date.today()

@@ -102,6 +102,7 @@ class PortfolioHistoryContext:
     portfolio_points: list[ChartPoint]
     history_warnings: list[str]
     benchmark_points: list[ChartPoint]
+    history_by_symbol: dict[str, list[ChartPoint]]
 
 
 @dataclass(slots=True)
@@ -659,7 +660,7 @@ class AnalyticsService:
                 symbols = [item.symbol for item in holdings if item.symbol]
                 batch_symbols = list(dict.fromkeys(symbols + [self.DEFAULT_BENCHMARK_SYMBOL]))
                 batch_history_items = self._load_batch_history(batch_symbols, client=client, range_value=range_value)
-                history_by_symbol: dict[str, list[dict]] = {}
+                raw_history_by_symbol: dict[str, list[dict]] = {}
                 history_warnings: list[str] = []
                 for item in batch_history_items:
                     symbol = str(item.get("symbol", "")).upper().strip()
@@ -669,12 +670,12 @@ class AnalyticsService:
                     points = points_raw if isinstance(points_raw, list) else []
                     points, filtered_warnings = self._sanitize_history_points(symbol, points)
                     history_warnings.extend(filtered_warnings)
-                    history_by_symbol[symbol] = points
+                    raw_history_by_symbol[symbol] = points
                     if not points:
                         history_warnings.append(f"missing_history:{symbol}")
-                portfolio_points, series_warnings = self._build_portfolio_history_from_snapshots(holdings, history_by_symbol)
+                portfolio_points, series_warnings = self._build_portfolio_history_from_snapshots(holdings, raw_history_by_symbol)
                 history_warnings.extend(series_warnings)
-                benchmark_points_raw = history_by_symbol.get(self.DEFAULT_BENCHMARK_SYMBOL, [])
+                benchmark_points_raw = raw_history_by_symbol.get(self.DEFAULT_BENCHMARK_SYMBOL, [])
 
             benchmark_points = sorted(
                 [
@@ -684,12 +685,23 @@ class AnalyticsService:
                 ],
                 key=lambda point: point.x,
             )
+            history_by_symbol: dict[str, list[ChartPoint]] = {}
+            for symbol, points in raw_history_by_symbol.items():
+                history_by_symbol[symbol] = sorted(
+                    [
+                        ChartPoint(x=str(point.get("date", "")).strip(), y=round(self._as_float(point.get("close")), 8))
+                        for point in points
+                        if str(point.get("date", "")).strip()
+                    ],
+                    key=lambda point: point.x,
+                )
             context = PortfolioHistoryContext(
                 holdings=holdings,
                 snapshot_warnings=snapshot_warnings,
                 portfolio_points=portfolio_points,
                 history_warnings=history_warnings,
                 benchmark_points=benchmark_points,
+                history_by_symbol=history_by_symbol,
             )
             stale_at = datetime.now(UTC) + timedelta(seconds=self._portfolio_snapshot_cache_ttl_seconds)
             with self._portfolio_history_lock:
@@ -1140,6 +1152,19 @@ class AnalyticsService:
 
     def portfolio_performance(self, person_id: UUID, range_value: str = "3m") -> PortfolioPerformanceReadModel:
         history_context = self._get_portfolio_history_context(person_id, range_value=range_value)
+        return self._build_portfolio_performance_from_history_context(
+            person_id=person_id,
+            range_value=range_value,
+            history_context=history_context,
+        )
+
+    def _build_portfolio_performance_from_history_context(
+        self,
+        *,
+        person_id: UUID,
+        range_value: str,
+        history_context: PortfolioHistoryContext,
+    ) -> PortfolioPerformanceReadModel:
         warnings = list(history_context.snapshot_warnings)
         history_warnings = list(history_context.history_warnings)
         portfolio_points = history_context.portfolio_points
@@ -1235,6 +1260,19 @@ class AnalyticsService:
 
     def portfolio_risk(self, person_id: UUID, range_value: str = "3m") -> PortfolioRiskReadModel:
         history_context = self._get_portfolio_history_context(person_id, range_value=range_value)
+        return self._build_portfolio_risk_from_history_context(
+            person_id=person_id,
+            range_value=range_value,
+            history_context=history_context,
+        )
+
+    def _build_portfolio_risk_from_history_context(
+        self,
+        *,
+        person_id: UUID,
+        range_value: str,
+        history_context: PortfolioHistoryContext,
+    ) -> PortfolioRiskReadModel:
         holdings = history_context.holdings
         warnings = list(history_context.snapshot_warnings)
         history_warnings = list(history_context.history_warnings)
@@ -1321,26 +1359,23 @@ class AnalyticsService:
         )
 
     def portfolio_contributors(self, person_id: UUID, range_value: str = "3m") -> PortfolioContributorsReadModel:
-        _, holdings, _ = self._get_portfolio_holdings_snapshot(person_id)
-        history_by_symbol: dict[str, list[ChartPoint]] = defaultdict(list)
-        history_warnings: list[str] = []
-        with httpx.Client(timeout=self._timeout) as client:
-            symbols = [item.symbol for item in holdings if item.symbol]
-            unique_symbols = list(dict.fromkeys(symbols))
-            batch_history_items = self._load_batch_history(unique_symbols, client=client, range_value=range_value)
-        for item in batch_history_items:
-            symbol = str(item.get("symbol", "")).upper().strip()
-            if not symbol:
-                continue
-            points_raw = item.get("points", [])
-            points = points_raw if isinstance(points_raw, list) else []
-            sanitized, filtered_warnings = self._sanitize_history_points(symbol, points)
-            history_warnings.extend(filtered_warnings)
-            history_by_symbol[symbol] = [
-                ChartPoint(x=str(point.get("date", "")).strip(), y=self._as_float(point.get("close")))
-                for point in sanitized
-                if str(point.get("date", "")).strip()
-            ]
+        history_context = self._get_portfolio_history_context(person_id, range_value=range_value)
+        return self._build_portfolio_contributors_from_history_context(
+            person_id=person_id,
+            range_value=range_value,
+            history_context=history_context,
+        )
+
+    def _build_portfolio_contributors_from_history_context(
+        self,
+        *,
+        person_id: UUID,
+        range_value: str,
+        history_context: PortfolioHistoryContext,
+    ) -> PortfolioContributorsReadModel:
+        holdings = history_context.holdings
+        history_by_symbol = dict(history_context.history_by_symbol)
+        history_warnings: list[str] = list(history_context.history_warnings)
 
         points_by_date: dict[str, dict[str, float]] = defaultdict(dict)
         symbols_with_history: set[str] = set()
@@ -1535,7 +1570,11 @@ class AnalyticsService:
         history_context = self._get_portfolio_history_context(person_id, range_value=range_value)
 
         summary = self._build_portfolio_summary_from_snapshot(person_id, portfolios, holdings, snapshot_warnings)
-        performance = self.portfolio_performance(person_id, range_value=range_value)
+        performance = self._build_portfolio_performance_from_history_context(
+            person_id=person_id,
+            range_value=range_value,
+            history_context=history_context,
+        )
 
         by_position = self._aggregate_exposure(holdings, lambda item: item.display_name or item.symbol or "UNKNOWN")
         by_sector = self._aggregate_exposure(holdings, lambda item: item.sector or "UNKNOWN")
@@ -1584,12 +1623,20 @@ class AnalyticsService:
         )
 
         top_position_weight, top3_weight, concentration_note = self._concentration_metrics(holdings)
-        risk = self.portfolio_risk(person_id, range_value=range_value)
+        risk = self._build_portfolio_risk_from_history_context(
+            person_id=person_id,
+            range_value=range_value,
+            history_context=history_context,
+        )
         risk.top_position_weight = round(top_position_weight, 6) if top_position_weight is not None else None
         risk.top3_weight = round(top3_weight, 6) if top3_weight is not None else None
         risk.concentration_note = concentration_note
 
-        contributors = self.portfolio_contributors(person_id, range_value=range_value)
+        contributors = self._build_portfolio_contributors_from_history_context(
+            person_id=person_id,
+            range_value=range_value,
+            history_context=history_context,
+        )
 
         counters, coverage_warnings = self._coverage_summary(holdings, snapshot_warnings)
         coverage = PortfolioDataCoverageReadModel(
