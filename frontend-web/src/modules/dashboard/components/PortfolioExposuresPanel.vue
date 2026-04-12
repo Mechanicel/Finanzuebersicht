@@ -3,12 +3,17 @@
     <h3>Exposures / Allocation</h3>
 
     <section v-for="section in sections" :key="section.key" class="exposure-section">
-      <h4>{{ section.title }}</h4>
+      <header class="section-header">
+        <h4>{{ section.title }}</h4>
+        <button v-if="section.items.length > 8" type="button" class="toggle" @click="toggleSection(section.key)">
+          {{ expandedSections[section.key] ? 'Weniger anzeigen' : 'Mehr anzeigen' }}
+        </button>
+      </header>
       <ul v-if="section.items.length > 0">
-        <li v-for="item in section.items" :key="`${section.key}-${item.label}`">
+        <li v-for="item in visibleItems(section)" :key="`${section.key}-${item.label}`">
           <span>{{ item.label }}</span>
-          <span>{{ formatMoney(item.market_value, currency) }}</span>
-          <strong>{{ formatPercent(item.weight) }}</strong>
+          <span class="market-value">{{ formatMoney(item.market_value, currency) }}</span>
+          <strong class="weight">{{ formatPercent(item.weight) }}</strong>
         </li>
       </ul>
       <p v-else class="hint">Keine Daten</p>
@@ -17,7 +22,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, reactive } from 'vue'
 import type { PortfolioExposuresReadModel } from '@/shared/model/types'
 import { formatMoney, formatPercent } from '@/modules/dashboard/model/portfolioFormatting'
 
@@ -38,6 +43,21 @@ const sections = computed(() => [
   { key: 'country', title: 'Länder', items: sortByWeight(props.exposures.by_country) },
   { key: 'currency', title: 'Währungen', items: sortByWeight(props.exposures.by_currency) }
 ])
+
+const expandedSections = reactive<Record<string, boolean>>({
+  position: false,
+  sector: false,
+  country: false,
+  currency: false
+})
+
+function visibleItems<T extends { label: string; weight: number; market_value: number }>(section: { key: string; items: T[] }) {
+  return expandedSections[section.key] ? section.items : section.items.slice(0, 8)
+}
+
+function toggleSection(key: string) {
+  expandedSections[key] = !expandedSections[key]
+}
 </script>
 
 <style scoped>
@@ -53,13 +73,31 @@ h3 {
 }
 
 .exposure-section + .exposure-section {
-  margin-top: 0.7rem;
+  margin-top: 0.56rem;
+}
+
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
 }
 
 h4 {
-  margin: 0 0 0.35rem;
+  margin: 0 0 0.28rem;
   font-size: 0.9rem;
   color: #334155;
+}
+
+.toggle {
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  background: #fff;
+  color: #475569;
+  font-size: 0.72rem;
+  line-height: 1;
+  padding: 0.2rem 0.45rem;
+  cursor: pointer;
 }
 
 ul {
@@ -67,14 +105,23 @@ ul {
   padding: 0;
   list-style: none;
   display: grid;
-  gap: 0.35rem;
+  gap: 0.25rem;
 }
 
 li {
   display: grid;
   grid-template-columns: 1fr auto auto;
-  gap: 0.6rem;
-  font-size: 0.86rem;
+  gap: 0.45rem;
+  font-size: 0.82rem;
+  align-items: baseline;
+}
+
+.market-value {
+  color: #475569;
+}
+
+.weight {
+  font-weight: 700;
 }
 
 .hint {

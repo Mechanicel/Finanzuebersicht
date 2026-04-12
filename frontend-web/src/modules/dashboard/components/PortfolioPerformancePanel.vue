@@ -15,20 +15,18 @@
     </header>
 
     <div class="chart-wrap">
-      <SimpleLineChart v-if="portfolioLinePoints.length > 0" :points="portfolioLinePoints" />
+      <SimpleLineChart v-if="portfolioLinePoints.length > 0" :points="portfolioLinePoints" :datasets="lineDatasets" />
       <p v-else class="hint">Keine Portfolio-Serie verfügbar.</p>
     </div>
 
-    <div class="chart-wrap benchmark-wrap">
-      <SimpleLineChart v-if="benchmarkLinePoints.length > 0" :points="benchmarkLinePoints" />
-      <p v-else class="hint">Keine Benchmark-Serie verfügbar.</p>
-    </div>
-
     <div class="stats">
-      <p><strong>Start:</strong> {{ formatMoney(performance.summary.start_value, currency) }}</p>
-      <p><strong>Ende:</strong> {{ formatMoney(performance.summary.end_value, currency) }}</p>
-      <p><strong>Veränderung:</strong> <span :class="changeClass">{{ formatSignedMoney(performance.summary.absolute_change, currency) }}</span></p>
-      <p><strong>Rendite:</strong> {{ formatPercentPoints(performance.summary.return_pct) }}</p>
+      <p><strong>Start</strong><span>{{ formatMoney(performance.summary.start_value, currency) }}</span></p>
+      <p><strong>Ende</strong><span>{{ formatMoney(performance.summary.end_value, currency) }}</span></p>
+      <p>
+        <strong>Veränderung</strong>
+        <span :class="changeClass">{{ formatSignedMoney(performance.summary.absolute_change, currency) }}</span>
+      </p>
+      <p><strong>Rendite</strong><span>{{ formatPercentPoints(performance.summary.return_pct) }}</span></p>
     </div>
   </article>
 </template>
@@ -64,6 +62,14 @@ const benchmarkLinePoints = computed(() => {
   return benchmarkSeries.points.map((point) => ({ date: point.x, value: point.y }))
 })
 
+const lineDatasets = computed(() => {
+  const datasets = [{ label: 'Portfolio', points: portfolioLinePoints.value, borderColor: '#2563eb' }]
+  if (benchmarkLinePoints.value.length > 0) {
+    datasets.push({ label: 'Benchmark', points: benchmarkLinePoints.value, borderColor: '#67a4a5' })
+  }
+  return datasets
+})
+
 const changeClass = computed(() => {
   const change = props.performance.summary.absolute_change
   if (change == null) return 'neutral'
@@ -77,7 +83,7 @@ const changeClass = computed(() => {
 .panel {
   border: 1px solid #e2e8f0;
   border-radius: 10px;
-  padding: 0.9rem;
+  padding: 0.75rem;
   background: #fff;
 }
 
@@ -99,12 +105,8 @@ const changeClass = computed(() => {
 }
 
 .chart-wrap {
-  height: 160px;
-  margin-top: 0.75rem;
-}
-
-.benchmark-wrap {
-  opacity: 0.85;
+  height: 132px;
+  margin-top: 0.55rem;
 }
 
 .hint {
@@ -113,15 +115,30 @@ const changeClass = computed(() => {
 }
 
 .stats {
-  margin-top: 0.75rem;
+  margin-top: 0.55rem;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 0.4rem;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.35rem;
 }
 
 .stats p {
   margin: 0;
-  font-size: 0.9rem;
+  font-size: 0.82rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 0.35rem 0.45rem;
+  display: grid;
+  gap: 0.12rem;
+}
+
+.stats strong {
+  color: #64748b;
+  font-size: 0.74rem;
+}
+
+.stats span {
+  color: #0f172a;
+  font-weight: 600;
 }
 
 .legend {
@@ -143,8 +160,8 @@ const changeClass = computed(() => {
 }
 
 .legend-item.benchmark {
-  background: #ecfeff;
-  color: #0e7490;
+  background: #f1f5f9;
+  color: #475569;
 }
 
 .positive {
@@ -157,5 +174,11 @@ const changeClass = computed(() => {
 
 .neutral {
   color: #334155;
+}
+
+@media (max-width: 900px) {
+  .stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 </style>

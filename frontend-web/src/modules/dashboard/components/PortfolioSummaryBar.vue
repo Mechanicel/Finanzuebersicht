@@ -33,26 +33,26 @@ const kpis = computed(() => {
 <style scoped>
 .summary-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.55rem;
 }
 
 .summary-card {
   border: 1px solid #e2e8f0;
   border-radius: 10px;
-  padding: 0.75rem;
+  padding: 0.5rem 0.6rem;
   background: #fff;
 }
 
 .label {
   margin: 0;
-  font-size: 0.8rem;
+  font-size: 0.74rem;
   color: #64748b;
 }
 
 .value {
-  margin: 0.35rem 0 0;
-  font-size: 1rem;
+  margin: 0.22rem 0 0;
+  font-size: 1.02rem;
   font-weight: 700;
   color: #0f172a;
 }
