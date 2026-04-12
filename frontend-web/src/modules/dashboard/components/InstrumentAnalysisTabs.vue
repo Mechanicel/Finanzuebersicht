@@ -108,40 +108,63 @@
           </div>
           <p v-if="financialsSummaryText" class="financials-summary">{{ financialsSummaryText }}</p>
 
-          <template v-if="latestBalanceSheet">
-            <h6>Neueste Balance-Sheet-Periode</h6>
-            <dl class="kv-grid latest-financials">
-              <template v-for="entry in latestBalanceSheetHighlights" :key="entry.key">
-                <dt>{{ entry.key }}</dt>
-                <dd>{{ entry.value }}</dd>
-              </template>
-            </dl>
-          </template>
-          <EmptyState v-else>Für dieses Instrument liegen aktuell keine Balance-Sheet-Daten vor.</EmptyState>
+          <template v-if="balanceSheetRows.length">
+            <section class="period-chip-row">
+              <button
+                v-for="row in balanceSheetRows"
+                :key="balanceSheetColumnTitle(row)"
+                type="button"
+                class="period-chip"
+                :class="{ active: selectedBalanceSheetPeriodKey === balanceSheetColumnTitle(row) }"
+                @click="selectedBalanceSheetPeriodKey = balanceSheetColumnTitle(row)"
+              >
+                {{ balanceSheetColumnTitle(row) }}
+              </button>
+            </section>
 
-          <section v-if="balanceSheetRows.length" class="balance-sheet-table-wrap">
-            <h6>Balance Sheet Verlauf ({{ balanceSheetRows.length }} Perioden)</h6>
-            <div class="table-scroll">
-              <table class="financials-table">
+            <section v-if="selectedBalanceSheetRow" class="financials-detail-card">
+              <h6>Detailansicht Periode</h6>
+              <dl class="kv-grid">
+                <template v-for="metric in balanceSheetTableRows" :key="metric.label">
+                  <dt>{{ metric.label }}</dt>
+                  <dd>
+                    {{
+                      formatStatementValue(
+                        selectedBalanceSheetRow[metric.key],
+                        metric.monetary,
+                        selectedBalanceSheetRow.reportedCurrency
+                      )
+                    }}
+                  </dd>
+                </template>
+              </dl>
+            </section>
+
+            <section class="history-compact">
+              <h6>Historische Kompaktübersicht</h6>
+              <table class="financials-compact-table">
                 <thead>
                   <tr>
-                    <th scope="col">Kennzahl</th>
-                    <th v-for="row in balanceSheetRows" :key="balanceSheetColumnTitle(row)" scope="col">
-                      {{ balanceSheetColumnTitle(row) }}
-                    </th>
+                    <th scope="col">Date</th>
+                    <th scope="col">Total Assets</th>
+                    <th scope="col">Total Equity</th>
+                    <th scope="col">Cash & Cash Equivalents</th>
+                    <th scope="col">Net Debt</th>
                   </tr>
                 </thead>
                 <tbody>
-                  <tr v-for="metric in balanceSheetTableRows" :key="metric.label">
-                    <th scope="row">{{ metric.label }}</th>
-                    <td v-for="row in balanceSheetRows" :key="`${metric.key}-${balanceSheetColumnTitle(row)}`">
-                      {{ formatStatementValue(row[metric.key], metric.monetary, row.reportedCurrency) }}
-                    </td>
+                  <tr v-for="row in balanceSheetRows" :key="`history-${balanceSheetColumnTitle(row)}`">
+                    <td>{{ row.date ?? '—' }}</td>
+                    <td>{{ formatStatementValue(row.totalAssets, true, row.reportedCurrency) }}</td>
+                    <td>{{ formatStatementValue(row.totalEquity, true, row.reportedCurrency) }}</td>
+                    <td>{{ formatStatementValue(row.cashAndCashEquivalents, true, row.reportedCurrency) }}</td>
+                    <td>{{ formatStatementValue(row.netDebt, true, row.reportedCurrency) }}</td>
                   </tr>
                 </tbody>
               </table>
-            </div>
-          </section>
+            </section>
+          </template>
+          <EmptyState v-else>Für dieses Instrument liegen aktuell keine Balance-Sheet-Daten vor.</EmptyState>
         </article>
 
         <article v-else class="card content-card">
@@ -206,6 +229,7 @@ const benchmarkAutoWarning = ref<string | null>(null)
 const benchmarkInput = ref('SPY')
 const searchTerm = ref('')
 const financialPeriod = ref<'annual' | 'quarterly'>('annual')
+const selectedBalanceSheetPeriodKey = ref('')
 const selectedSeries = ref(timeseriesSeries[0])
 
 const timeseries = ref<DepotInstrumentTimeseries | null>(null)
@@ -230,21 +254,6 @@ const balanceSheetRows = computed<DepotInstrumentBalanceSheetStatementRow[]>(() 
     })
     .slice(0, 6)
 })
-const latestBalanceSheet = computed(() => balanceSheetRows.value[0] ?? null)
-const latestBalanceSheetHighlights = computed(() => {
-  const row = latestBalanceSheet.value
-  if (!row) return []
-  return [
-    { key: 'Stichtag', value: row.date ?? '—' },
-    { key: 'Geschäftsjahr', value: row.fiscalYear != null ? String(row.fiscalYear) : '—' },
-    { key: 'Periode', value: row.period ?? '—' },
-    { key: 'Währung', value: row.reportedCurrency ?? financials.value?.currency ?? '—' },
-    { key: 'Gesamtvermögen', value: formatStatementValue(row.totalAssets, true, row.reportedCurrency) },
-    { key: 'Gesamtverbindlichkeiten', value: formatStatementValue(row.totalLiabilities, true, row.reportedCurrency) },
-    { key: 'Eigenkapital', value: formatStatementValue(row.totalEquity, true, row.reportedCurrency) },
-    { key: 'Nettoverschuldung', value: formatStatementValue(row.netDebt, true, row.reportedCurrency) }
-  ]
-})
 const financialsSummaryText = computed(() => {
   if (!financials.value) return ''
   const incomeCount = financials.value.statements?.income_statement?.length ?? 0
@@ -267,6 +276,13 @@ const balanceSheetTableRows: Array<{ label: string; key: keyof DepotInstrumentBa
   { label: 'Total Debt', key: 'totalDebt', monetary: true },
   { label: 'Net Debt', key: 'netDebt', monetary: true }
 ]
+const selectedBalanceSheetRow = computed(() => {
+  if (!balanceSheetRows.value.length) return null
+  return (
+    balanceSheetRows.value.find((row) => balanceSheetColumnTitle(row) === selectedBalanceSheetPeriodKey.value) ??
+    balanceSheetRows.value[0]
+  )
+})
 const overviewPairs = computed(() => [
   { key: 'Symbol', value: props.selectedSymbol ?? 'n/a' },
   { key: 'Benchmark', value: risk.value?.benchmark ?? benchmarkInput.value },
@@ -294,6 +310,27 @@ watch(activeTab, () => {
   if (!props.selectedSymbol) return
   void loadActiveTabData()
 })
+
+watch(
+  [() => props.selectedSymbol, financialPeriod],
+  () => {
+    selectedBalanceSheetPeriodKey.value = balanceSheetRows.value[0] ? balanceSheetColumnTitle(balanceSheetRows.value[0]) : ''
+  }
+)
+
+watch(
+  balanceSheetRows,
+  (rows) => {
+    if (!rows.length) {
+      selectedBalanceSheetPeriodKey.value = ''
+      return
+    }
+    if (!rows.some((row) => balanceSheetColumnTitle(row) === selectedBalanceSheetPeriodKey.value)) {
+      selectedBalanceSheetPeriodKey.value = balanceSheetColumnTitle(rows[0])
+    }
+  },
+  { immediate: true }
+)
 
 function resetTabData() {
   nonFinancialWarnings.value = []
@@ -509,23 +546,43 @@ function formatStatementValue(value: unknown, monetary: boolean, currency?: stri
 .link-btn { border: none; padding: 0; background: none; color: #2563eb; text-decoration: underline; cursor: pointer; }
 .small { padding: 0.25rem 0.45rem; font-size: 0.8rem; }
 .financials-summary { margin: 0.35rem 0 0.65rem; color: #475569; font-size: 0.9rem; }
-.latest-financials { margin-bottom: 0.85rem; }
-.balance-sheet-table-wrap { display: grid; gap: 0.5rem; }
-.table-scroll { overflow-x: auto; border: 1px solid #e2e8f0; border-radius: 8px; }
-.financials-table { width: 100%; border-collapse: collapse; min-width: 860px; }
-.financials-table th,
-.financials-table td {
+.period-chip-row { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0 0 0.7rem; }
+.period-chip {
+  border: 1px solid #cbd5e1;
+  background: #f8fafc;
+  color: #334155;
+  border-radius: 999px;
+  padding: 0.28rem 0.62rem;
+  font-size: 0.8rem;
+}
+.period-chip.active {
+  background: #dbeafe;
+  border-color: #60a5fa;
+  color: #1e40af;
+}
+.financials-detail-card {
+  border: 1px solid #dbeafe;
+  background: #f8fbff;
+  border-radius: 10px;
+  padding: 0.65rem;
+  margin-bottom: 0.8rem;
+}
+.financials-detail-card h6,
+.history-compact h6 { margin: 0 0 0.45rem; }
+.history-compact {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 0.55rem;
+  background: #ffffff;
+}
+.financials-compact-table { width: 100%; border-collapse: collapse; font-size: 0.84rem; table-layout: fixed; }
+.financials-compact-table th,
+.financials-compact-table td {
   border-bottom: 1px solid #e2e8f0;
   text-align: left;
-  padding: 0.45rem 0.55rem;
-  white-space: nowrap;
+  padding: 0.38rem 0.45rem;
+  white-space: normal;
+  word-break: break-word;
 }
-.financials-table thead th {
-  position: sticky;
-  top: 0;
-  background: #f8fafc;
-  z-index: 1;
-}
-.financials-table tbody tr:last-child th,
-.financials-table tbody tr:last-child td { border-bottom: none; }
+.financials-compact-table tbody tr:last-child td { border-bottom: none; }
 </style>
