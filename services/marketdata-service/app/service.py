@@ -299,7 +299,7 @@ class MarketDataService:
         errors: list[MetaWarning] = []
         for symbol in symbols:
             try:
-                payload = self._get_history_with_swr(symbol, range_value)
+                payload = self._get_history_with_swr(symbol, range_value, allow_sync_seed=False)
                 items.append(
                     BatchHistoryItem(
                         symbol=symbol,
@@ -844,12 +844,15 @@ class MarketDataService:
             return {"current_price": None, "as_of": trade_date, "provider": "yfinance", "price_source": "yfinance_1d_1m", "fetched_at": None, "cache_status": "cache_miss_pending"}
         return refreshed | {"cache_status": "cache_miss_seeded"}
 
-    def _get_history_with_swr(self, symbol: str, range_value: str) -> dict[str, Any]:
+    def _get_history_with_swr(self, symbol: str, range_value: str, *, allow_sync_seed: bool = True) -> dict[str, Any]:
         normalized = self._normalize_symbol(symbol)
         if range_value not in self.VALID_HISTORY_RANGES:
             raise BadRequestError("range must be one of: 1m, 3m, 6m, ytd, 1y, max")
         cache_document = self._price_history_repository.get(normalized)
         if cache_document is None:
+            if not allow_sync_seed:
+                self._trigger_background_refresh("history", normalized, self._refresh_history_seed_now)
+                return {"points": [], "cache_present": False, "updated_at": None, "cache_status": "cache_miss_pending"}
             seeded = self._refresh_history_seed_now(normalized)
             if not seeded:
                 return {"points": [], "cache_present": False, "updated_at": None, "cache_status": "cache_miss_pending"}

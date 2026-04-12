@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import threading
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
@@ -584,14 +585,41 @@ def test_batch_prices_returns_cache_status() -> None:
     assert result.items[0].current_price == 31.48
 
 
-def test_batch_history_cache_miss_seeded() -> None:
+def test_batch_history_cache_miss_returns_pending_without_blocking_seed() -> None:
     fake_yf = FakeYFinance()
     service, _, _, _, _, _ = build_service(yfinance_client=FakeYFinanceClient(fake_yf))
 
     result = service.get_batch_history("CBK.DE", "3m")
 
-    assert result.items[0].cache_status == "cache_miss_seeded"
-    assert len(result.items[0].points) == 2
+    assert result.items[0].cache_status == "cache_miss_pending"
+    assert result.items[0].cache_present is False
+    assert result.items[0].points == []
+
+
+def test_batch_history_cache_miss_triggers_single_background_seed_per_symbol() -> None:
+    service, _, _, _, _, _ = build_service()
+    attempts = 0
+    start_event = threading.Event()
+
+    def fake_seed(symbol: str) -> bool:
+        nonlocal attempts
+        attempts += 1
+        start_event.set()
+        time.sleep(0.05)
+        return False
+
+    service._refresh_history_seed_now = fake_seed  # type: ignore[method-assign]
+
+    first = service.get_batch_history("CBK.DE", "3m")
+    assert first.items[0].cache_status == "cache_miss_pending"
+    assert start_event.wait(0.2)
+
+    second = service.get_batch_history("CBK.DE", "3m")
+    assert second.items[0].cache_status == "cache_miss_pending"
+
+    time.sleep(0.12)
+
+    assert attempts == 1
 
 
 def test_ttl_lru_cache_expires_entries() -> None:
