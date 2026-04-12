@@ -84,7 +84,12 @@ describe('PortfolioHoldingsTable', () => {
       'col-country',
       'col-status'
     ])
-    expect(wrapper.findAll('thead .cell-number')).toHaveLength(4)
+    expect(wrapper.findAll('thead .cell-number').map((cell) => cell.text())).toEqual([
+      'Gewicht',
+      'Marktwert',
+      'P&L',
+      'Rendite'
+    ])
 
     const rows = wrapper.findAll('tbody tr')
     expect(rows[0].classes()).toContain('active')
@@ -99,15 +104,17 @@ describe('PortfolioHoldingsTable', () => {
     expect(wrapper.text()).toContain('Aktueller Preis fehlt')
   })
 
-  it('truncates long instrument names and sectors with full title text', () => {
+  it('truncates long instrument names, sectors and countries with full title text', () => {
     const longName = 'Vanguard FTSE All-World UCITS ETF Accumulating mit sehr langem Anzeigenamen'
     const longSector = 'Information Technology Services and Semiconductor Infrastructure'
+    const longCountry = 'United States of America'
     const wrapper = mount(PortfolioHoldingsTable, {
       props: {
         items: [
           holding({
             display_name: longName,
-            sector: longSector
+            sector: longSector,
+            country: longCountry
           })
         ]
       }
@@ -122,6 +129,11 @@ describe('PortfolioHoldingsTable', () => {
     expect(sectorCell.classes()).toContain('text-truncate')
     expect(sectorCell.attributes('title')).toBe(longSector)
     expect(sectorCell.text()).toBe(longSector)
+
+    const countryCell = wrapper.get('td.cell-country')
+    expect(countryCell.classes()).toContain('text-truncate')
+    expect(countryCell.attributes('title')).toBe(longCountry)
+    expect(countryCell.text()).toBe(longCountry)
   })
 
   it('summarizes multiple warnings and keeps the full warning text in the title', () => {
@@ -137,6 +149,10 @@ describe('PortfolioHoldingsTable', () => {
 
     const warningSummary = wrapper.get('.warning-summary')
 
+    expect(wrapper.get('[data-test="status-badge"]').text()).toBe('OK')
+    expect(wrapper.get('td.cell-status').attributes('title')).toBe(
+      'OK: Aktueller Preis fehlt, Preis fehlt, Fallback auf Einstandspreis aktiv'
+    )
     expect(warningSummary.attributes('title')).toBe(
       'Aktueller Preis fehlt, Preis fehlt, Fallback auf Einstandspreis aktiv'
     )
@@ -175,16 +191,20 @@ describe('PortfolioHoldingsTable', () => {
     expect(wrapper.find('.warning-summary').exists()).toBe(false)
   })
 
-  it('uses the readable small-table layout for a 1-holding portfolio', () => {
+  it('uses the readable small-table layout for portfolios with up to 3 holdings', () => {
     const wrapper = mount(PortfolioHoldingsTable, {
       props: {
-        items: [holding()]
+        items: [
+          holding(),
+          holding({ holding_id: 'h-2', symbol: 'MSFT', weight: 0.3 }),
+          holding({ holding_id: 'h-3', symbol: 'SAP', weight: 0.1 })
+        ]
       }
     })
 
     expect(wrapper.get('[data-test="holdings-table-wrap"]').classes()).toContain('table-wrap--small')
     expect(wrapper.get('table').classes()).toContain('holdings-table--small')
-    expect(wrapper.findAll('tbody tr')).toHaveLength(1)
+    expect(wrapper.findAll('tbody tr')).toHaveLength(3)
     expect(wrapper.get('td.cell-name').text()).toBe('Apple')
   })
 

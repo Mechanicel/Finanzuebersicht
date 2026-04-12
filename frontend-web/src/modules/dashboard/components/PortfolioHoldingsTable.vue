@@ -60,13 +60,23 @@
             <td class="cell-country text-truncate" :title="row.countryLabel">
               {{ row.countryLabel }}
             </td>
-            <td class="cell-status">
-              <div class="status-stack">
-                <span class="status-badge" :class="statusClass(row.item.data_status)" :title="row.statusLabel">
+            <td class="cell-status" :title="row.statusTitle">
+              <div class="status-stack" :aria-label="row.statusTitle">
+                <span
+                  class="status-badge"
+                  :class="statusClass(row.item.data_status)"
+                  :title="row.statusLabel"
+                  data-test="status-badge"
+                >
                   {{ row.statusLabel }}
                 </span>
-                <div v-if="row.warningLabels.length > 0" class="warning-summary" :title="row.warningTitle">
-                  <span class="warning-text">{{ row.warningLabels[0] }}</span>
+                <div
+                  v-if="row.warningLabels.length > 0"
+                  class="warning-summary"
+                  :title="row.warningTitle"
+                  data-test="warning-summary"
+                >
+                  <span class="warning-text">{{ row.primaryWarningLabel }}</span>
                   <span
                     v-if="row.hiddenWarningCount > 0"
                     class="warning-count"
@@ -112,12 +122,14 @@ const currency = computed(() => props.currency ?? 'EUR')
 const asOfLabel = computed(() => formatDate(props.asOf))
 
 const sortedItems = computed(() => [...props.items].sort((left, right) => right.weight - left.weight))
-const useSmallTableState = computed(() => sortedItems.value.length <= 2)
+const useSmallTableState = computed(() => sortedItems.value.length <= 3)
 
 const rows = computed(() =>
   sortedItems.value.map((item) => {
     const warningLabels = warningDisplayLabels(item.warnings)
     const hiddenWarnings = warningLabels.slice(1)
+    const statusLabel = mapHoldingDataStatus(item.data_status)
+    const warningTitle = warningLabels.join(', ')
 
     return {
       item,
@@ -130,9 +142,11 @@ const rows = computed(() =>
       returnLabel: formatPercentValue(item.unrealized_return_pct),
       sectorLabel: formatNullableText(item.sector),
       countryLabel: formatNullableText(item.country),
-      statusLabel: mapHoldingDataStatus(item.data_status),
+      statusLabel,
       warningLabels,
-      warningTitle: warningLabels.join(', '),
+      primaryWarningLabel: warningLabels[0] ?? '',
+      warningTitle,
+      statusTitle: warningTitle ? `${statusLabel}: ${warningTitle}` : statusLabel,
       hiddenWarningCount: hiddenWarnings.length,
       hiddenWarningsLabel: hiddenWarnings.join(', ')
     }
@@ -202,13 +216,13 @@ h3 {
 
 .holdings-table {
   width: 100%;
-  min-width: 76rem;
+  min-width: 82rem;
   border-collapse: collapse;
   table-layout: fixed;
 }
 
 .col-symbol {
-  width: 6.25rem;
+  width: 7rem;
 }
 
 .col-name {
@@ -216,28 +230,31 @@ h3 {
 }
 
 .col-weight {
-  width: 6.5rem;
-}
-
-.col-market-value,
-.col-pnl {
-  width: 8.75rem;
-}
-
-.col-return {
   width: 7.25rem;
 }
 
+.col-market-value {
+  width: 9.75rem;
+}
+
+.col-pnl {
+  width: 9.25rem;
+}
+
+.col-return {
+  width: 8rem;
+}
+
 .col-sector {
-  width: 9rem;
+  width: 10rem;
 }
 
 .col-country {
-  width: 5.5rem;
+  width: 6.5rem;
 }
 
 .col-status {
-  width: 12rem;
+  width: 14rem;
 }
 
 .holdings-table--small {
@@ -245,15 +262,19 @@ h3 {
 }
 
 .holdings-table--small .col-symbol {
-  width: 9%;
+  width: 8.5%;
+}
+
+.holdings-table--small .col-name {
+  width: auto;
 }
 
 .holdings-table--small .col-weight {
-  width: 8%;
+  width: 8.5%;
 }
 
 .holdings-table--small .col-market-value {
-  width: 11%;
+  width: 11.5%;
 }
 
 .holdings-table--small .col-pnl {
@@ -265,7 +286,7 @@ h3 {
 }
 
 .holdings-table--small .col-sector {
-  width: 11%;
+  width: 10.5%;
 }
 
 .holdings-table--small .col-country {
@@ -273,14 +294,14 @@ h3 {
 }
 
 .holdings-table--small .col-status {
-  width: 14%;
+  width: 15.5%;
 }
 
 th,
 td {
   text-align: left;
   font-size: 0.8rem;
-  padding: 0.48rem 0.55rem;
+  padding: 0.52rem 0.65rem;
   border-bottom: 1px solid #e2e8f0;
   vertical-align: middle;
 }
@@ -309,6 +330,7 @@ th {
   font-weight: 700;
   line-height: 1.15;
   white-space: normal;
+  word-break: normal;
   overflow: visible;
   text-overflow: clip;
   position: sticky;
@@ -320,11 +342,13 @@ th {
 .cell-number {
   text-align: right;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .cell-symbol {
   color: #0f172a;
   font-weight: 700;
+  letter-spacing: 0;
 }
 
 .cell-status {
@@ -356,10 +380,10 @@ th {
   align-items: center;
   justify-content: center;
   max-width: 100%;
-  border-radius: 999px;
-  padding: 0.12rem 0.48rem;
+  border-radius: 8px;
+  padding: 0.16rem 0.52rem;
   border: 1px solid #cbd5e1;
-  font-size: 0.72rem;
+  font-size: 0.74rem;
   line-height: 1.2;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -388,7 +412,7 @@ th {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 0.2rem;
+  gap: 0.24rem;
   min-width: 0;
   max-width: 100%;
 }
@@ -404,7 +428,7 @@ th {
 .warning-text {
   min-width: 0;
   color: #92400e;
-  font-size: 0.72rem;
+  font-size: 0.73rem;
   line-height: 1.2;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -414,7 +438,7 @@ th {
 .warning-count {
   flex: 0 0 auto;
   border: 1px solid #fcd34d;
-  border-radius: 999px;
+  border-radius: 8px;
   padding: 0 0.32rem;
   background: #fef3c7;
   color: #92400e;

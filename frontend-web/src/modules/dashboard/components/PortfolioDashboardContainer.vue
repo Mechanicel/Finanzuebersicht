@@ -33,6 +33,7 @@
     </EmptyState>
 
     <template v-else>
+      <div class="dashboard-top-zone" data-testid="dashboard-top-zone">
       <PortfolioSummaryBar v-if="summary" :summary="summary" />
       <div v-else-if="isSectionLoading.summary" class="section-state">Summary wird geladen…</div>
       <div v-else-if="sectionErrors.summary" class="section-state section-state--error">
@@ -48,11 +49,14 @@
         :contributors="contributors"
       />
 
+      </div>
+
       <div
         class="dashboard-composition"
-        :class="{ 'dashboard-composition--no-holdings': !hasHoldingsArea }"
         data-testid="portfolio-dashboard-composition"
       >
+        <div class="dashboard-main-grid" data-testid="portfolio-dashboard-main-grid">
+          <div class="dashboard-main-left" data-testid="dashboard-main-left">
         <div
           v-if="hasPerformanceArea"
           class="dashboard-area dashboard-area--performance"
@@ -65,19 +69,6 @@
             <button class="btn flow-btn btn-small" type="button" @click="void reloadDashboard()">Erneut laden</button>
           </div>
         </div>
-        <div
-          v-if="hasRiskArea"
-          class="dashboard-area dashboard-area--risk"
-          data-testid="dashboard-area-risk"
-        >
-          <PortfolioRiskPanel v-if="risk" :risk="risk" />
-          <div v-else-if="isSectionLoading.risk" class="section-state">Risiko wird geladen…</div>
-          <div v-else-if="sectionErrors.risk" class="section-state section-state--error">
-            <span>{{ sectionErrors.risk }}</span>
-            <button class="btn flow-btn btn-small" type="button" @click="void reloadDashboard()">Erneut laden</button>
-          </div>
-        </div>
-
         <div
           v-if="hasHoldingsArea"
           class="dashboard-area dashboard-area--holdings"
@@ -99,10 +90,46 @@
         </div>
 
         <div
-          class="dashboard-area dashboard-area--workspace"
-          data-testid="dashboard-area-workspace"
+          v-if="hasExposuresArea"
+          class="dashboard-area dashboard-area--exposures"
+          data-testid="dashboard-area-exposures"
+        >
+          <PortfolioExposuresPanel v-if="exposures" :exposures="exposures" :currency="summary?.currency" />
+          <div v-else-if="isSectionLoading.exposures" class="section-state">Exposures werden geladen…</div>
+          <div v-else-if="sectionErrors.exposures" class="section-state section-state--error">
+            <span>{{ sectionErrors.exposures }}</span>
+            <button class="btn flow-btn btn-small" type="button" @click="void reloadDashboard()">Erneut laden</button>
+          </div>
+        </div>
+
+          </div>
+
+          <div class="dashboard-main-right" data-testid="dashboard-main-right">
+            <div
+              v-if="hasRiskArea"
+              class="dashboard-area dashboard-area--risk"
+              data-testid="dashboard-area-risk"
+            >
+              <PortfolioRiskPanel v-if="risk" :risk="risk" />
+              <div v-else-if="isSectionLoading.risk" class="section-state">Risiko wird geladen…</div>
+              <div v-else-if="sectionErrors.risk" class="section-state section-state--error">
+                <span>{{ sectionErrors.risk }}</span>
+                <button class="btn flow-btn btn-small" type="button" @click="void reloadDashboard()">Erneut laden</button>
+              </div>
+            </div>
+
+        <div
+          class="dashboard-area dashboard-area--instrument-detail"
+          data-testid="dashboard-area-instrument-detail"
         >
           <PortfolioInstrumentDetailPanel :selected-holding="selectedHolding" :as-of="holdings?.as_of ?? summary?.as_of" />
+        </div>
+
+        <div
+          v-if="hasContributorsArea"
+          class="dashboard-area dashboard-area--contributors"
+          data-testid="dashboard-area-contributors"
+        >
           <section v-if="contributors" class="section-state section-state--compact">
             <div class="contributors-header">
               <div>
@@ -149,6 +176,13 @@
             <button class="btn flow-btn btn-small" type="button" @click="void reloadDashboard()">Erneut laden</button>
           </div>
 
+        </div>
+
+        <div
+          v-if="hasCoverageArea"
+          class="dashboard-area dashboard-area--coverage"
+          data-testid="dashboard-area-coverage"
+        >
           <PortfolioCoverageBanner v-if="coverage" :coverage="coverage" />
           <div v-else-if="isSectionLoading.coverage" class="section-state">Datenabdeckung wird geladen…</div>
           <div v-else-if="sectionErrors.coverage" class="section-state section-state--error">
@@ -156,19 +190,9 @@
             <button class="btn flow-btn btn-small" type="button" @click="void reloadDashboard()">Erneut laden</button>
           </div>
         </div>
-
-        <div
-          v-if="hasExposuresArea"
-          class="dashboard-area dashboard-area--exposures"
-          data-testid="dashboard-area-exposures"
-        >
-          <PortfolioExposuresPanel v-if="exposures" :exposures="exposures" :currency="summary?.currency" />
-          <div v-else-if="isSectionLoading.exposures" class="section-state">Exposures werden geladen…</div>
-          <div v-else-if="sectionErrors.exposures" class="section-state section-state--error">
-            <span>{{ sectionErrors.exposures }}</span>
-            <button class="btn flow-btn btn-small" type="button" @click="void reloadDashboard()">Erneut laden</button>
           </div>
         </div>
+
       </div>
 
     </template>
@@ -221,6 +245,8 @@ const hasPerformanceArea = computed(() => Boolean(performance.value || isSection
 const hasRiskArea = computed(() => Boolean(risk.value || isSectionLoading.value.risk || sectionErrors.value.risk))
 const hasHoldingsArea = computed(() => Boolean(holdings.value || isSectionLoading.value.holdings || sectionErrors.value.holdings))
 const hasExposuresArea = computed(() => Boolean(exposures.value || isSectionLoading.value.exposures || sectionErrors.value.exposures))
+const hasContributorsArea = computed(() => Boolean(contributors.value || isSectionLoading.value.contributors || sectionErrors.value.contributors))
+const hasCoverageArea = computed(() => Boolean(coverage.value || isSectionLoading.value.coverage || sectionErrors.value.coverage))
 
 const loadBootstrap = portfolioDashboard.loadBootstrap
 
@@ -401,51 +427,30 @@ h2 {
   font-size: 1.25rem;
 }
 
+.dashboard-top-zone,
 .dashboard-composition {
   display: grid;
-  grid-template-columns: minmax(0, 1.35fr) minmax(18rem, 0.85fr);
-  grid-template-areas:
-    "performance risk"
-    "holdings workspace"
-    "exposures exposures";
   gap: 0.75rem;
-  align-items: start;
-  grid-auto-rows: min-content;
 }
 
-.dashboard-composition--no-holdings {
-  grid-template-areas:
-    "performance risk"
-    "workspace workspace"
-    "exposures exposures";
+.dashboard-main-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(18rem, 0.85fr);
+  gap: 0.75rem;
+  align-items: start;
+}
+
+.dashboard-main-left,
+.dashboard-main-right {
+  min-width: 0;
+  display: grid;
+  gap: 0.75rem;
+  align-content: start;
 }
 
 .dashboard-area {
   min-width: 0;
   align-self: start;
-}
-
-.dashboard-area--performance {
-  grid-area: performance;
-}
-
-.dashboard-area--risk {
-  grid-area: risk;
-}
-
-.dashboard-area--holdings {
-  grid-area: holdings;
-}
-
-.dashboard-area--workspace {
-  grid-area: workspace;
-  display: grid;
-  gap: 0.5rem;
-  align-items: start;
-}
-
-.dashboard-area--exposures {
-  grid-area: exposures;
 }
 
 .section-state {
@@ -572,23 +577,8 @@ h2 {
     justify-content: flex-start;
   }
 
-  .dashboard-composition,
-  .dashboard-composition--no-holdings {
+  .dashboard-main-grid {
     grid-template-columns: 1fr;
-    grid-template-areas:
-      "performance"
-      "risk"
-      "holdings"
-      "workspace"
-      "exposures";
-  }
-
-  .dashboard-composition--no-holdings {
-    grid-template-areas:
-      "performance"
-      "risk"
-      "workspace"
-      "exposures";
   }
 
   .contributors-grid {

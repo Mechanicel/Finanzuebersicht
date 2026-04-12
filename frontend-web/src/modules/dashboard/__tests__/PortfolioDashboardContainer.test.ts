@@ -101,11 +101,22 @@ function buildDashboardState(overrides: Record<string, unknown> = {}) {
   }
 }
 
-function dashboardAreaOrder(wrapper: VueWrapper) {
-  const composition = wrapper.find('[data-testid="portfolio-dashboard-composition"]')
-  return Array.from(composition.element.children)
+function childTestIds(wrapper: VueWrapper, selector: string) {
+  const element = wrapper.find(selector)
+  return Array.from(element.element.children)
     .map((element) => element.getAttribute('data-testid'))
-    .filter((testId): testId is string => Boolean(testId?.startsWith('dashboard-area-')))
+    .filter((testId): testId is string => Boolean(testId))
+}
+
+function stackAreaOrder(wrapper: VueWrapper, stackTestId: 'dashboard-main-left' | 'dashboard-main-right') {
+  return childTestIds(wrapper, `[data-testid="${stackTestId}"]`).filter((testId) => testId.startsWith('dashboard-area-'))
+}
+
+function responsivePanelOrder(wrapper: VueWrapper) {
+  return [
+    ...stackAreaOrder(wrapper, 'dashboard-main-left'),
+    ...stackAreaOrder(wrapper, 'dashboard-main-right')
+  ]
 }
 
 describe('PortfolioDashboardContainer', () => {
@@ -137,44 +148,60 @@ describe('PortfolioDashboardContainer', () => {
     expect(loadAllMock).not.toHaveBeenCalled()
   })
 
-  it('renders desktop dashboard areas as one explicit composition', () => {
+  it('renders desktop dashboard areas as explicit independent stacks', () => {
     const wrapper = mount(PortfolioDashboardContainer, {
       props: { personId: 'person-1' }
     })
 
+    const topZone = wrapper.find('[data-testid="dashboard-top-zone"]')
     const composition = wrapper.find('[data-testid="portfolio-dashboard-composition"]')
+    const mainGrid = wrapper.find('[data-testid="portfolio-dashboard-main-grid"]')
 
+    expect(topZone.exists()).toBe(true)
+    expect(topZone.find('[data-test="summary-grid"]').exists()).toBe(true)
+    expect(topZone.find('[data-test="portfolio-alerts-panel"]').exists()).toBe(true)
     expect(composition.exists()).toBe(true)
     expect(composition.classes()).toContain('dashboard-composition')
-    expect(composition.classes()).not.toContain('dashboard-composition--no-holdings')
-    expect(dashboardAreaOrder(wrapper)).toEqual([
+    expect(mainGrid.classes()).toContain('dashboard-main-grid')
+    expect(childTestIds(wrapper, '[data-testid="portfolio-dashboard-main-grid"]')).toEqual(['dashboard-main-left', 'dashboard-main-right'])
+    expect(stackAreaOrder(wrapper, 'dashboard-main-left')).toEqual([
       'dashboard-area-performance',
-      'dashboard-area-risk',
       'dashboard-area-holdings',
-      'dashboard-area-workspace',
       'dashboard-area-exposures'
     ])
+    expect(stackAreaOrder(wrapper, 'dashboard-main-right')).toEqual([
+      'dashboard-area-risk',
+      'dashboard-area-instrument-detail',
+      'dashboard-area-contributors',
+      'dashboard-area-coverage'
+    ])
+    expect(childTestIds(wrapper, '[data-testid="portfolio-dashboard-composition"]')).toEqual(['portfolio-dashboard-main-grid'])
     expect(wrapper.find('[data-testid="dashboard-area-performance"]').classes()).toContain('dashboard-area--performance')
-    expect(wrapper.find('[data-testid="dashboard-area-risk"]').classes()).toContain('dashboard-area--risk')
     expect(wrapper.find('[data-testid="dashboard-area-holdings"]').classes()).toContain('dashboard-area--holdings')
-    expect(wrapper.find('[data-testid="dashboard-area-workspace"]').classes()).toContain('dashboard-area--workspace')
+    expect(wrapper.find('[data-testid="dashboard-area-risk"]').classes()).toContain('dashboard-area--risk')
+    expect(wrapper.find('[data-testid="dashboard-area-instrument-detail"]').classes()).toContain('dashboard-area--instrument-detail')
+    expect(wrapper.find('[data-testid="dashboard-area-contributors"]').classes()).toContain('dashboard-area--contributors')
+    expect(wrapper.find('[data-testid="dashboard-area-coverage"]').classes()).toContain('dashboard-area--coverage')
     expect(wrapper.find('[data-testid="dashboard-area-exposures"]').classes()).toContain('dashboard-area--exposures')
   })
 
-  it('keeps the responsive stacking order in direct grid children', () => {
+  it('keeps the responsive stacking order without duplicated panels', () => {
     const wrapper = mount(PortfolioDashboardContainer, {
       props: { personId: 'person-1' }
     })
 
-    expect(dashboardAreaOrder(wrapper)).toEqual([
+    expect(responsivePanelOrder(wrapper)).toEqual([
       'dashboard-area-performance',
-      'dashboard-area-risk',
       'dashboard-area-holdings',
-      'dashboard-area-workspace',
-      'dashboard-area-exposures'
+      'dashboard-area-exposures',
+      'dashboard-area-risk',
+      'dashboard-area-instrument-detail',
+      'dashboard-area-contributors',
+      'dashboard-area-coverage'
     ])
-    expect(wrapper.find('[data-testid="dashboard-area-workspace"] [data-test="coverage-banner"]').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="dashboard-area-risk"] [data-test="coverage-banner"]').exists()).toBe(false)
+    expect(new Set(responsivePanelOrder(wrapper)).size).toBe(responsivePanelOrder(wrapper).length)
+    expect(wrapper.find('[data-testid="dashboard-main-right"] [data-test="coverage-banner"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="dashboard-main-left"] [data-test="coverage-banner"]').exists()).toBe(false)
   })
 
   it('uses an existing performance range as defensive default', () => {
@@ -289,7 +316,7 @@ describe('PortfolioDashboardContainer', () => {
     expect(wrapper.text()).toContain('Alles fehlgeschlagen')
   })
 
-  it('spans the workspace when holdings are missing without a local state', () => {
+  it('keeps the right workspace grouped when holdings and optional right sections are missing', () => {
     vi.mocked(usePortfolioDashboard).mockReturnValue(
       buildDashboardState({
         holdings: ref(null),
@@ -302,15 +329,13 @@ describe('PortfolioDashboardContainer', () => {
       props: { personId: 'person-1' }
     })
 
-    const composition = wrapper.find('[data-testid="portfolio-dashboard-composition"]')
-
-    expect(composition.classes()).toContain('dashboard-composition--no-holdings')
     expect(wrapper.find('[data-testid="dashboard-area-holdings"]').exists()).toBe(false)
-    expect(wrapper.find('[data-testid="dashboard-area-workspace"]').exists()).toBe(true)
-    expect(dashboardAreaOrder(wrapper)).toEqual([
-      'dashboard-area-performance',
-      'dashboard-area-risk',
-      'dashboard-area-workspace',
+    expect(stackAreaOrder(wrapper, 'main-left-stack')).toEqual(['dashboard-area-performance'])
+    expect(stackAreaOrder(wrapper, 'main-right-stack')).toEqual(['dashboard-area-risk', 'dashboard-area-instrument-detail'])
+    expect(wrapper.find('[data-testid="dashboard-area-contributors"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="dashboard-area-coverage"]').exists()).toBe(false)
+    expect(childTestIds(wrapper, '[data-testid="portfolio-dashboard-composition"]')).toEqual([
+      'portfolio-main-grid',
       'dashboard-area-exposures'
     ])
     expect(wrapper.text()).toContain('Bitte eine Holding ausw')
@@ -333,10 +358,11 @@ describe('PortfolioDashboardContainer', () => {
       props: { personId: 'person-1' }
     })
 
-    expect(dashboardAreaOrder(wrapper)).toEqual([
-      'dashboard-area-performance',
-      'dashboard-area-holdings',
-      'dashboard-area-workspace'
+    expect(stackAreaOrder(wrapper, 'main-left-stack')).toEqual(['dashboard-area-performance', 'dashboard-area-holdings'])
+    expect(stackAreaOrder(wrapper, 'main-right-stack')).toEqual([
+      'dashboard-area-instrument-detail',
+      'dashboard-area-contributors',
+      'dashboard-area-coverage'
     ])
     expect(wrapper.text()).toContain('Holdings')
     expect(wrapper.text()).toContain('Performance wird geladen')
@@ -347,7 +373,7 @@ describe('PortfolioDashboardContainer', () => {
     expect(wrapper.text()).not.toContain('Portfolio-Dashboard-Daten konnten nicht geladen werden.')
   })
 
-  it('shows stable empty detail state when no holdings are available', () => {
+  it('keeps the small-portfolio case stable when no holdings rows are available', () => {
     vi.mocked(usePortfolioDashboard).mockReturnValue(
       buildDashboardState({
         dashboardSummary: computed(() => ({
@@ -390,6 +416,15 @@ describe('PortfolioDashboardContainer', () => {
     })
 
     expect(wrapper.text()).toContain('Bitte eine Holding auswählen.')
+    expect(stackAreaOrder(wrapper, 'main-left-stack')).toEqual(['dashboard-area-performance', 'dashboard-area-holdings'])
+    expect(stackAreaOrder(wrapper, 'main-right-stack')).toEqual([
+      'dashboard-area-risk',
+      'dashboard-area-instrument-detail',
+      'dashboard-area-contributors',
+      'dashboard-area-coverage'
+    ])
+    expect(wrapper.find('[data-test="holdings-table-wrap"]').classes()).toContain('table-wrap--small')
+    expect(wrapper.text()).toContain('Keine Holdings vorhanden.')
   })
 })
 

@@ -74,6 +74,14 @@ function modeButton(wrapper: ReturnType<typeof mountPanel>, text: string) {
   return button
 }
 
+function lineToggle(wrapper: ReturnType<typeof mountPanel>, text: string) {
+  const button = wrapper.findAll('.series-toggle').find((candidate) => candidate.text() === text)
+  if (!button) {
+    throw new Error(`Line toggle "${text}" not found`)
+  }
+  return button
+}
+
 function roundedValues(dataset: Dataset): number[] {
   return dataset.points.map((point) => Number(point.value.toFixed(2)))
 }
@@ -143,6 +151,29 @@ describe('PortfolioPerformancePanel', () => {
     expect(datasets[0].label).toBe('Portfolio')
     expect(modeButton(wrapper, 'Relativ vs Benchmark').attributes('disabled')).toBeDefined()
     expect(wrapper.text()).toContain('Benchmark-Serie nicht verfügbar.')
+  })
+
+  it('toggles portfolio and benchmark lines without changing the active mode', async () => {
+    const wrapper = mountPanel(buildPerformance())
+
+    await lineToggle(wrapper, 'Benchmark').trigger('click')
+
+    let datasets = chartDatasets(wrapper)
+    expect(datasets).toHaveLength(1)
+    expect(datasets[0].label).toBe('Portfolio')
+    expect(wrapper.find('.mode-button.active').text()).toBe('Absolut')
+
+    await lineToggle(wrapper, 'Portfolio').trigger('click')
+
+    expect(wrapper.find('[data-testid="chart"]').exists()).toBe(false)
+    expect(wrapper.text()).toContain('Keine sichtbare Linie ausgewählt.')
+
+    await lineToggle(wrapper, 'Benchmark').trigger('click')
+
+    datasets = chartDatasets(wrapper)
+    expect(datasets).toHaveLength(1)
+    expect(datasets[0].label).toBe('Benchmark')
+    expect(datasets[0].points.map((point) => point.value)).toEqual([50, 75, 60])
   })
 
   it('calculates portfolio and benchmark drawdown curves from existing series', async () => {
