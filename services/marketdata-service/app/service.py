@@ -67,6 +67,8 @@ class MarketDataService:
     FUNDAMENTALS_CACHE_TTL_SECONDS = 3600
     BENCHMARK_CATALOG_CACHE_MAX_SIZE = 8
     BENCHMARK_CATALOG_CACHE_TTL_SECONDS = 86400
+    NEGATIVE_REFRESH_CACHE_MAX_SIZE = 2048
+    NEGATIVE_REFRESH_CACHE_TTL_SECONDS = 30
 
     def __init__(
         self,
@@ -97,6 +99,10 @@ class MarketDataService:
         self._benchmark_catalog_cache = TtlLruCache(
             max_size=self.BENCHMARK_CATALOG_CACHE_MAX_SIZE,
             ttl_seconds=self.BENCHMARK_CATALOG_CACHE_TTL_SECONDS,
+        )
+        self._negative_refresh_cache = TtlLruCache(
+            max_size=self.NEGATIVE_REFRESH_CACHE_MAX_SIZE,
+            ttl_seconds=self.NEGATIVE_REFRESH_CACHE_TTL_SECONDS,
         )
         self._inflight_locks: dict[tuple[str, str], threading.Lock] = {}
         self._inflight_guard = threading.Lock()
@@ -1031,27 +1037,43 @@ class MarketDataService:
             return {"name": visible_profile.company_name, "sector": visible_profile.sector, "country": visible_profile.country, "currency": visible_profile.currency, "provider": "fmp_profile_v2"}
 
     def _refresh_price_now(self, symbol: str) -> dict[str, Any] | None:
+        if self._is_negative_cached("price", symbol):
+            return None
         lock = self._lock_for("price", symbol)
         with lock:
+            if self._is_negative_cached("price", symbol):
+                return None
             try:
                 current_price = self._yfinance_client.fetch_current_price(symbol)
                 trade_date = date.today().isoformat()
                 stored = self._current_price_repository.upsert(symbol, trade_date, current_price, source="yfinance_1d_1m")
                 return {"current_price": current_price, "as_of": trade_date, "provider": "yfinance", "price_source": "yfinance_1d_1m", "fetched_at": stored.fetched_at}
             except Exception:
+                self._set_negative_cache("price", symbol)
                 LOGGER.warning("price refresh failed for %s", symbol, exc_info=True)
                 return None
 
     def _refresh_history_seed_now(self, symbol: str) -> bool:
+        if self._is_negative_cached("history_seed", symbol):
+            return False
         lock = self._lock_for("history", symbol)
         with lock:
+            if self._is_negative_cached("history_seed", symbol):
+                return False
             try:
                 if self._price_history_repository.get(symbol) is None:
                     self.seed_history_max(symbol)
                 return self._price_history_repository.get(symbol) is not None
             except Exception:
+                self._set_negative_cache("history_seed", symbol)
                 LOGGER.warning("history seed failed for %s", symbol, exc_info=True)
                 return False
+
+    def _set_negative_cache(self, datatype: str, symbol: str) -> None:
+        self._negative_refresh_cache.set((datatype, symbol), True)
+
+    def _is_negative_cached(self, datatype: str, symbol: str) -> bool:
+        return bool(self._negative_refresh_cache.get((datatype, symbol)))
 
     def _refresh_history_enrich_now(self, symbol: str) -> None:
         lock = self._lock_for("history", symbol)

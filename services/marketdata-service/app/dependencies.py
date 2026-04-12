@@ -26,6 +26,19 @@ LOGGER = logging.getLogger(__name__)
 
 
 @lru_cache
+def _get_mongo_database():
+    settings = get_settings()
+    if not settings.marketdata_mongo_enabled:
+        return None
+    client = MongoClient(
+        settings.resolved_mongo_uri(),
+        serverSelectionTimeoutMS=settings.marketdata_mongo_server_selection_timeout_ms,
+    )
+    client.admin.command("ping")
+    return client[settings.mongo_database]
+
+
+@lru_cache
 def get_fmp_client() -> FMPClient:
     started_at = time.perf_counter()
     LOGGER.info("search_trace dependency_get_fmp_client_start")
@@ -61,16 +74,14 @@ def get_profile_repository() -> InstrumentProfileCacheRepository | InMemoryInstr
         return InMemoryInstrumentProfileCacheRepository()
 
     try:
-        client = MongoClient(
-            settings.resolved_mongo_uri(),
-            serverSelectionTimeoutMS=settings.marketdata_mongo_server_selection_timeout_ms,
-        )
         ping_started_at = time.perf_counter()
         LOGGER.info("search_trace dependency_profile_repo_mongo_ping_start")
-        client.admin.command("ping")
+        database = _get_mongo_database()
         ping_duration_ms = round((time.perf_counter() - ping_started_at) * 1000, 2)
         LOGGER.info("search_trace dependency_profile_repo_mongo_ping_done duration_ms=%s", ping_duration_ms)
-        collection = client[settings.mongo_database][settings.marketdata_profile_cache_collection]
+        if database is None:
+            return InMemoryInstrumentProfileCacheRepository()
+        collection = database[settings.marketdata_profile_cache_collection]
         duration_ms = round((time.perf_counter() - started_at) * 1000, 2)
         LOGGER.info("search_trace dependency_profile_repo_end backend=mongo duration_ms=%s", duration_ms)
         return InstrumentProfileCacheRepository(collection=collection)
@@ -98,16 +109,14 @@ def get_current_price_repository() -> CurrentPriceCacheRepository | InMemoryCurr
         return InMemoryCurrentPriceCacheRepository()
 
     try:
-        client = MongoClient(
-            settings.resolved_mongo_uri(),
-            serverSelectionTimeoutMS=settings.marketdata_mongo_server_selection_timeout_ms,
-        )
         ping_started_at = time.perf_counter()
         LOGGER.info("search_trace dependency_current_price_repo_mongo_ping_start")
-        client.admin.command("ping")
+        database = _get_mongo_database()
         ping_duration_ms = round((time.perf_counter() - ping_started_at) * 1000, 2)
         LOGGER.info("search_trace dependency_current_price_repo_mongo_ping_done duration_ms=%s", ping_duration_ms)
-        collection = client[settings.mongo_database][settings.marketdata_current_price_cache_collection]
+        if database is None:
+            return InMemoryCurrentPriceCacheRepository()
+        collection = database[settings.marketdata_current_price_cache_collection]
         duration_ms = round((time.perf_counter() - started_at) * 1000, 2)
         LOGGER.info("search_trace dependency_current_price_repo_end backend=mongo duration_ms=%s", duration_ms)
         return CurrentPriceCacheRepository(collection=collection)
@@ -135,16 +144,14 @@ def get_price_history_repository() -> PriceHistoryCacheRepository | InMemoryPric
         return InMemoryPriceHistoryCacheRepository()
 
     try:
-        client = MongoClient(
-            settings.resolved_mongo_uri(),
-            serverSelectionTimeoutMS=settings.marketdata_mongo_server_selection_timeout_ms,
-        )
         ping_started_at = time.perf_counter()
         LOGGER.info("search_trace dependency_price_history_repo_mongo_ping_start")
-        client.admin.command("ping")
+        database = _get_mongo_database()
         ping_duration_ms = round((time.perf_counter() - ping_started_at) * 1000, 2)
         LOGGER.info("search_trace dependency_price_history_repo_mongo_ping_done duration_ms=%s", ping_duration_ms)
-        collection = client[settings.mongo_database][settings.marketdata_price_history_cache_collection]
+        if database is None:
+            return InMemoryPriceHistoryCacheRepository()
+        collection = database[settings.marketdata_price_history_cache_collection]
         duration_ms = round((time.perf_counter() - started_at) * 1000, 2)
         LOGGER.info("search_trace dependency_price_history_repo_end backend=mongo duration_ms=%s", duration_ms)
         return PriceHistoryCacheRepository(collection=collection)
@@ -172,16 +179,14 @@ def get_financials_repository() -> FinancialsCacheRepository | InMemoryFinancial
         return InMemoryFinancialsCacheRepository()
 
     try:
-        client = MongoClient(
-            settings.resolved_mongo_uri(),
-            serverSelectionTimeoutMS=settings.marketdata_mongo_server_selection_timeout_ms,
-        )
         ping_started_at = time.perf_counter()
         LOGGER.info("search_trace dependency_financials_repo_mongo_ping_start")
-        client.admin.command("ping")
+        database = _get_mongo_database()
         ping_duration_ms = round((time.perf_counter() - ping_started_at) * 1000, 2)
         LOGGER.info("search_trace dependency_financials_repo_mongo_ping_done duration_ms=%s", ping_duration_ms)
-        collection = client[settings.mongo_database][settings.marketdata_financials_cache_collection]
+        if database is None:
+            return InMemoryFinancialsCacheRepository()
+        collection = database[settings.marketdata_financials_cache_collection]
         duration_ms = round((time.perf_counter() - started_at) * 1000, 2)
         LOGGER.info("search_trace dependency_financials_repo_end backend=mongo duration_ms=%s", duration_ms)
         return FinancialsCacheRepository(collection=collection)

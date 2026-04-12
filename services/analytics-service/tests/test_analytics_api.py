@@ -727,6 +727,7 @@ def test_portfolio_dashboard_builds_snapshot_and_history_only_once_per_request()
             super().__init__()
             self.snapshot_build_calls = 0
             self.history_build_calls = 0
+            self.batch_history_calls = 0
 
         def _build_portfolio_holdings_snapshot(self, person_id: UUID):
             self.snapshot_build_calls += 1
@@ -736,12 +737,17 @@ def test_portfolio_dashboard_builds_snapshot_and_history_only_once_per_request()
             self.history_build_calls += 1
             return super()._build_portfolio_history_from_snapshots(holdings, histories)
 
+        def _load_batch_history(self, symbols: list[str], client, range_value: str = "3m") -> list[dict]:
+            self.batch_history_calls += 1
+            return super()._load_batch_history(symbols, client=client, range_value=range_value)
+
     service = BootstrapCountingService()
     payload = service.portfolio_dashboard(UUID(PERSON_ID))
 
     assert payload.summary.holdings_count == len(payload.holdings.items)
     assert service.snapshot_build_calls == 1
     assert service.history_build_calls == 1
+    assert service.batch_history_calls == 1
 
 
 def test_portfolio_dashboard_materializes_payload_for_same_person_and_range() -> None:
