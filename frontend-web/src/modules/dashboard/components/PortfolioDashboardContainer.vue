@@ -22,12 +22,31 @@
         <button class="btn flow-btn btn-small" type="button" @click="void loadSummary()">Erneut laden</button>
       </div>
 
-      <PortfolioPerformancePanel v-if="performance" :performance="performance" :currency="summary?.currency" />
-      <div v-else-if="isSectionLoading.performance" class="section-state">Performance wird geladen…</div>
-      <div v-else-if="sectionErrors.performance" class="section-state section-state--error">
-        <span>{{ sectionErrors.performance }}</span>
-        <button class="btn flow-btn btn-small" type="button" @click="void loadPerformance()">Erneut laden</button>
-      </div>
+      <section class="primary-grid">
+        <div>
+          <PortfolioPerformancePanel v-if="performance" :performance="performance" :currency="summary?.currency" />
+          <div v-else-if="isSectionLoading.performance" class="section-state">Performance wird geladen…</div>
+          <div v-else-if="sectionErrors.performance" class="section-state section-state--error">
+            <span>{{ sectionErrors.performance }}</span>
+            <button class="btn flow-btn btn-small" type="button" @click="void loadPerformance()">Erneut laden</button>
+          </div>
+        </div>
+        <div class="right-stack">
+          <PortfolioRiskPanel v-if="risk" :risk="risk" />
+          <div v-else-if="isSectionLoading.risk" class="section-state">Risk wird geladen…</div>
+          <div v-else-if="sectionErrors.risk" class="section-state section-state--error">
+            <span>{{ sectionErrors.risk }}</span>
+            <button class="btn flow-btn btn-small" type="button" @click="void loadRisk()">Erneut laden</button>
+          </div>
+
+          <PortfolioCoverageBanner v-if="coverage" :coverage="coverage" />
+          <div v-else-if="isSectionLoading.coverage" class="section-state">Data Coverage wird geladen…</div>
+          <div v-else-if="sectionErrors.coverage" class="section-state section-state--error">
+            <span>{{ sectionErrors.coverage }}</span>
+            <button class="btn flow-btn btn-small" type="button" @click="void loadCoverage()">Erneut laden</button>
+          </div>
+        </div>
+      </section>
 
       <div class="workspace-grid" :class="{ 'workspace-grid--single': !holdings }">
         <PortfolioHoldingsTable
@@ -43,20 +62,6 @@
           <button class="btn flow-btn btn-small" type="button" @click="void loadHoldings()">Erneut laden</button>
         </div>
         <PortfolioInstrumentDetailPanel :selected-holding="selectedHolding" />
-      </div>
-
-      <PortfolioRiskPanel v-if="risk" :risk="risk" />
-      <div v-else-if="isSectionLoading.risk" class="section-state">Risk wird geladen…</div>
-      <div v-else-if="sectionErrors.risk" class="section-state section-state--error">
-        <span>{{ sectionErrors.risk }}</span>
-        <button class="btn flow-btn btn-small" type="button" @click="void loadRisk()">Erneut laden</button>
-      </div>
-
-      <PortfolioCoverageBanner v-if="coverage" :coverage="coverage" />
-      <div v-else-if="isSectionLoading.coverage" class="section-state">Data Coverage wird geladen…</div>
-      <div v-else-if="sectionErrors.coverage" class="section-state section-state--error">
-        <span>{{ sectionErrors.coverage }}</span>
-        <button class="btn flow-btn btn-small" type="button" @click="void loadCoverage()">Erneut laden</button>
       </div>
 
       <PortfolioExposuresPanel v-if="exposures" :exposures="exposures" :currency="summary?.currency" />
@@ -208,12 +213,23 @@ h2 {
 
 .workspace-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
   gap: 0.75rem;
 }
 
 .workspace-grid--single {
   grid-template-columns: minmax(0, 1fr);
+}
+
+.primary-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: 0.75rem;
+}
+
+.right-stack {
+  display: grid;
+  gap: 0.55rem;
 }
 
 .section-state {
@@ -245,6 +261,7 @@ h2 {
 }
 
 @media (max-width: 900px) {
+  .primary-grid,
   .workspace-grid {
     grid-template-columns: 1fr;
   }
