@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, timedelta
 import logging
 import threading
@@ -104,8 +105,10 @@ class MarketDataService:
             max_size=self.NEGATIVE_REFRESH_CACHE_MAX_SIZE,
             ttl_seconds=self.NEGATIVE_REFRESH_CACHE_TTL_SECONDS,
         )
-        self._inflight_locks: dict[tuple[str, str], threading.Lock] = {}
+        self._inflight_jobs: set[tuple[str, str]] = set()
         self._inflight_guard = threading.Lock()
+        self._per_symbol_locks: dict[tuple[str, str], threading.Lock] = {}
+        self._locks_guard = threading.Lock()
 
     def search_instruments(self, query: str, limit: int) -> InstrumentSearchResponse:
         method_started_at = time.perf_counter()
@@ -228,38 +231,46 @@ class MarketDataService:
 
     def get_holdings_summary(self, symbols_csv: str) -> HoldingsSummaryResponse:
         symbols = self._parse_symbols_csv(symbols_csv)
-        items: list[HoldingsSummaryItem] = []
-        warnings: list[MetaWarning] = []
-        errors: list[MetaWarning] = []
 
-        for symbol in symbols:
+        def _build_single_holding_summary(symbol: str) -> tuple[HoldingsSummaryItem, MetaWarning | None]:
             try:
                 profile_payload = self._get_profile_with_swr(symbol)
                 price_payload = self._get_price_with_swr(symbol)
                 cache_status = self._combine_cache_status(profile_payload["cache_status"], price_payload["cache_status"])
-                items.append(
-                    HoldingsSummaryItem(
-                        symbol=symbol,
-                        name=profile_payload.get("name"),
-                        sector=profile_payload.get("sector"),
-                        country=profile_payload.get("country"),
-                        currency=profile_payload.get("currency"),
-                        current_price=price_payload.get("current_price"),
-                        provider=price_payload.get("provider") or profile_payload.get("provider"),
-                        as_of=price_payload.get("as_of"),
-                        coverage="profile+price",
-                        cache_status=cache_status,
-                    )
+                item = HoldingsSummaryItem(
+                    symbol=symbol,
+                    name=profile_payload.get("name"),
+                    sector=profile_payload.get("sector"),
+                    country=profile_payload.get("country"),
+                    currency=profile_payload.get("currency"),
+                    current_price=price_payload.get("current_price"),
+                    provider=price_payload.get("provider") or profile_payload.get("provider"),
+                    as_of=price_payload.get("as_of"),
+                    coverage="profile+price",
+                    cache_status=cache_status,
                 )
+                return item, None
             except Exception as exc:
-                errors.append(MetaWarning(symbol=symbol, code="symbol_unavailable", message=str(exc)))
-                items.append(HoldingsSummaryItem(symbol=symbol, coverage="none", cache_status="cache_miss_pending"))
+                error = MetaWarning(symbol=symbol, code="symbol_unavailable", message=str(exc))
+                item = HoldingsSummaryItem(symbol=symbol, coverage="none", cache_status="cache_miss_pending")
+                return item, error
+
+        items: list[HoldingsSummaryItem] = []
+        errors: list[MetaWarning] = []
+
+        with ThreadPoolExecutor(max_workers=min(8, len(symbols) or 1)) as executor:
+            results = list(executor.map(_build_single_holding_summary, symbols))
+
+        for item, error in results:
+            items.append(item)
+            if error:
+                errors.append(error)
 
         return HoldingsSummaryResponse(
             items=items,
             requested_symbols=symbols,
             total=len(items),
-            meta={"warnings": [warning.model_dump() for warning in warnings], "errors": [error.model_dump() for error in errors]},
+            meta={"warnings": [], "errors": [error.model_dump() for error in errors]},
         )
 
     def get_batch_prices(self, symbols_csv: str) -> BatchPricesResponse:
@@ -1001,17 +1012,12 @@ class MarketDataService:
             return None
         return ", ".join(prefix_parts)
 
-    def _lock_for(self, datatype: str, symbol: str) -> threading.Lock:
+    def _trigger_background_refresh(self, datatype: str, symbol: str, func) -> None:
         key = (datatype, symbol)
         with self._inflight_guard:
-            if key not in self._inflight_locks:
-                self._inflight_locks[key] = threading.Lock()
-            return self._inflight_locks[key]
-
-    def _trigger_background_refresh(self, datatype: str, symbol: str, func) -> None:
-        lock = self._lock_for(datatype, symbol)
-        if not lock.acquire(blocking=False):
-            return
+            if key in self._inflight_jobs:
+                return
+            self._inflight_jobs.add(key)
 
         def _run() -> None:
             try:
@@ -1019,9 +1025,17 @@ class MarketDataService:
             except Exception:
                 LOGGER.warning("background refresh failed for %s/%s", datatype, symbol, exc_info=True)
             finally:
-                lock.release()
+                with self._inflight_guard:
+                    self._inflight_jobs.discard(key)
 
         threading.Thread(target=_run, daemon=True).start()
+
+    def _lock_for(self, datatype: str, symbol: str) -> threading.Lock:
+        key = (datatype, symbol)
+        with self._locks_guard:
+            if key not in self._per_symbol_locks:
+                self._per_symbol_locks[key] = threading.Lock()
+            return self._per_symbol_locks[key]
 
     def _refresh_profile_now(self, symbol: str) -> dict[str, Any] | None:
         lock = self._lock_for("profile", symbol)
