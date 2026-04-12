@@ -181,6 +181,18 @@ class AnalyticsService:
         response.raise_for_status()
         return response.json()["data"]
 
+    @staticmethod
+    def _range_label(range_value: str) -> str:
+        labels = {
+            "1m": "1 month",
+            "3m": "3 months",
+            "6m": "6 months",
+            "ytd": "year to date",
+            "1y": "1 year",
+            "max": "max",
+        }
+        return labels.get(range_value, range_value)
+
     def _person_exists(self, person_id: UUID, client: httpx.Client | None = None) -> None:
         if self._known_persons.get(person_id):
             return
@@ -1138,6 +1150,8 @@ class AnalyticsService:
         return PortfolioSummaryReadModel(
             person_id=person_id,
             as_of=datetime.now(UTC).date(),
+            summary_kind="snapshot",
+            return_basis="since_cost_basis",
             currency="EUR",
             market_value=round(total_market_value, 2),
             invested_value=round(total_invested_value, 2),
@@ -1193,9 +1207,12 @@ class AnalyticsService:
         return PortfolioPerformanceReadModel(
             person_id=person_id,
             range=range_value,
+            range_label=self._range_label(range_value),
             benchmark_symbol=self.DEFAULT_BENCHMARK_SYMBOL if benchmark_points else None,
             series=series,
             summary=PortfolioPerformanceSummary(
+                summary_kind="range",
+                return_basis="range_start_value",
                 start_value=round(start_value, 2) if start_value is not None else None,
                 end_value=round(end_value, 2) if end_value is not None else None,
                 absolute_change=round(absolute_change, 2) if absolute_change is not None else None,
@@ -1337,6 +1354,10 @@ class AnalyticsService:
         return PortfolioRiskReadModel(
             person_id=person_id,
             as_of=datetime.now(UTC).date(),
+            range=range_value,
+            range_label=self._range_label(range_value),
+            methodology="daily_returns_on_range",
+            benchmark_relation="relative_to_benchmark",
             benchmark_symbol=self.DEFAULT_BENCHMARK_SYMBOL if aligned_benchmark_returns else None,
             portfolio_volatility=round(portfolio_volatility, 6) if portfolio_volatility is not None else None,
             max_drawdown=round(max_drawdown, 6) if max_drawdown is not None else None,
@@ -1456,6 +1477,9 @@ class AnalyticsService:
             person_id=person_id,
             as_of=datetime.now(UTC).date(),
             range=range_value,
+            range_label=self._range_label(range_value),
+            summary_kind="range",
+            return_basis="range_contribution",
             methodology="static_quantity_return_contribution",
             total_contribution_return=round(total_contribution_return, 10),
             total_contribution_pct_points=round(total_contribution_return * 100, 6),

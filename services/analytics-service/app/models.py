@@ -145,6 +145,8 @@ class DashboardSectionReadModel(BaseModel):
 class PortfolioSummaryReadModel(BaseModel):
     person_id: UUID
     as_of: date
+    summary_kind: Literal["snapshot"] = "snapshot"
+    return_basis: Literal["since_cost_basis"] = "since_cost_basis"
     currency: str = "EUR"
     market_value: float
     invested_value: float
@@ -163,6 +165,8 @@ class PortfolioPerformancePoint(BaseModel):
 
 
 class PortfolioPerformanceSummary(BaseModel):
+    summary_kind: Literal["range"] = "range"
+    return_basis: Literal["range_start_value"] = "range_start_value"
     start_value: float | None = None
     end_value: float | None = None
     absolute_change: float | None = None
@@ -172,6 +176,7 @@ class PortfolioPerformanceSummary(BaseModel):
 class PortfolioPerformanceReadModel(BaseModel):
     person_id: UUID
     range: str
+    range_label: str | None = None
     benchmark_symbol: str | None = None
     series: list[ChartSeries]
     summary: PortfolioPerformanceSummary
@@ -226,6 +231,10 @@ class PortfolioHoldingsReadModel(BaseModel):
 class PortfolioRiskReadModel(BaseModel):
     person_id: UUID
     as_of: date
+    range: str = "3m"
+    range_label: str | None = None
+    methodology: str = "daily_returns_on_range"
+    benchmark_relation: Literal["relative_to_benchmark"] = "relative_to_benchmark"
     benchmark_symbol: str | None = None
     portfolio_volatility: float | None = None
     max_drawdown: float | None = None
@@ -265,6 +274,9 @@ class PortfolioContributorsReadModel(BaseModel):
     person_id: UUID
     as_of: date
     range: str = "3m"
+    range_label: str | None = None
+    summary_kind: Literal["range"] = "range"
+    return_basis: Literal["range_contribution"] = "range_contribution"
     methodology: str = "static_quantity_return_contribution"
     total_contribution_return: float | None = None
     total_contribution_pct_points: float | None = None
