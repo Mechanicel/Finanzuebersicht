@@ -1,6 +1,7 @@
 import { computed, ref, unref, type Ref } from 'vue'
 import { extractApiErrorMessage } from '@/shared/api/extractApiErrorMessage'
 import {
+  fetchPortfolioDashboard,
   fetchPortfolioContributors,
   fetchPortfolioDataCoverage,
   fetchPortfolioExposures,
@@ -11,6 +12,7 @@ import {
 } from '@/modules/dashboard/api/portfolioDashboardApi'
 import type {
   PortfolioContributorsReadModel,
+  PortfolioDashboardReadModel,
   PortfolioDataCoverageReadModel,
   PortfolioExposuresReadModel,
   PortfolioHoldingsReadModel,
@@ -176,31 +178,62 @@ export function usePortfolioDashboard(personId: MaybeRef<string>) {
   }
 
   async function loadInitial() {
-    return Promise.allSettled([loadHoldings(), loadCoverage()])
+    return Promise.allSettled([loadBootstrap()])
   }
 
   async function loadSecondary() {
-    return Promise.allSettled([loadPerformance(), loadRisk(), loadExposures()])
+    return Promise.allSettled([])
+  }
+
+  async function loadBootstrap(range = '3m'): Promise<PortfolioDashboardReadModel> {
+    const keys: Array<keyof typeof loadingStates.value> = [
+      'summary',
+      'performance',
+      'exposures',
+      'holdings',
+      'risk',
+      'contributors',
+      'coverage'
+    ]
+    keys.forEach((key) => {
+      loadingStates.value[key] = true
+      errors.value[key] = ''
+    })
+    try {
+      const payload = await fetchPortfolioDashboard(currentPersonId(), range)
+      summary.value = payload.summary
+      performance.value = payload.performance
+      exposures.value = payload.exposures
+      holdings.value = payload.holdings
+      risk.value = payload.risk
+      contributors.value = payload.contributors
+      coverage.value = payload.coverage
+      return payload
+    } catch (rawError) {
+      const message = normalizeError(rawError, 'Portfolio-Dashboard-Daten konnten nicht geladen werden.')
+      keys.forEach((key) => {
+        errors.value[key] = message
+      })
+      throw rawError
+    } finally {
+      keys.forEach((key) => {
+        loadingStates.value[key] = false
+      })
+    }
   }
 
   async function loadAll() {
     loading.value = true
     clearErrors()
-
-    const initialResults = await loadInitial()
-    const secondaryResults = await loadSecondary()
-    const results = [...initialResults, ...secondaryResults]
-
-    const firstError = results.find((result) => result.status === 'rejected')
-    if (firstError) {
-      error.value = normalizeError(
-        firstError.reason,
-        'Portfolio-Dashboard-Daten konnten nicht vollständig geladen werden.'
-      )
+    try {
+      await loadBootstrap()
+      return [{ status: 'fulfilled', value: null } as const]
+    } catch (rawError) {
+      error.value = normalizeError(rawError, 'Portfolio-Dashboard-Daten konnten nicht vollständig geladen werden.')
+      return [{ status: 'rejected', reason: rawError } as const]
+    } finally {
+      loading.value = false
     }
-
-    loading.value = false
-    return results
   }
 
   const dashboardSummary = computed(() => holdings.value?.summary ?? summary.value)
@@ -245,6 +278,7 @@ export function usePortfolioDashboard(personId: MaybeRef<string>) {
     loadInitial,
     loadSecondary,
     loadAll,
+    loadBootstrap,
     loadSummary,
     loadPerformance,
     loadExposures,

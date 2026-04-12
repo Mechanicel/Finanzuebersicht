@@ -4,12 +4,14 @@ from collections import defaultdict
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
+from math import sqrt
 from statistics import mean
 from threading import Lock
 from uuid import UUID
 
 import httpx
 
+from app.ttl_lru_cache import TtlLruCache
 from app.models import (
     AllocationReadModel,
     AllocationSlice,
@@ -27,6 +29,7 @@ from app.models import (
     MonthlyComparisonReadModel,
     PortfolioContributorItem,
     PortfolioContributorsReadModel,
+    PortfolioDashboardReadModel,
     PortfolioDataCoverageReadModel,
     PortfolioExposureSlice,
     PortfolioExposuresReadModel,
@@ -107,8 +110,21 @@ class PortfolioHistoryCacheEntry:
     stale_at: datetime
 
 
+@dataclass(slots=True)
+class PortfolioDashboardCacheEntry:
+    payload: PortfolioDashboardReadModel
+    generated_at: datetime
+    stale_at: datetime
+
+
 class AnalyticsService:
     DEFAULT_BENCHMARK_SYMBOL = "SPY"
+    KNOWN_PERSONS_CACHE_MAX_SIZE = 2048
+    KNOWN_PERSONS_CACHE_TTL_SECONDS = 3600
+    UNKNOWN_PERSONS_CACHE_MAX_SIZE = 2048
+    UNKNOWN_PERSONS_CACHE_TTL_SECONDS = 900
+    PORTFOLIO_DASHBOARD_CACHE_TTL_SECONDS = 15.0
+    PORTFOLIO_DASHBOARD_CACHE_MAX_SIZE = 256
 
     def __init__(
         self,
@@ -121,6 +137,7 @@ class AnalyticsService:
         dashboard_cache_ttl_seconds: float = 45.0,
         section_refresh_workers: int = 8,
         portfolio_snapshot_cache_ttl_seconds: float = 10.0,
+        portfolio_dashboard_cache_ttl_seconds: float = PORTFOLIO_DASHBOARD_CACHE_TTL_SECONDS,
     ) -> None:
         self._person_base_url = person_base_url.rstrip("/")
         self._account_base_url = account_base_url.rstrip("/")
@@ -131,8 +148,14 @@ class AnalyticsService:
         self._section_cache: dict[tuple[UUID, DashboardSectionName], SectionCacheEntry] = {}
         self._cache_lock = Lock()
         self._refresh_executor = ThreadPoolExecutor(max_workers=max(1, section_refresh_workers))
-        self._known_persons: set[UUID] = set()
-        self._unknown_persons: set[UUID] = set()
+        self._known_persons = TtlLruCache(
+            max_size=self.KNOWN_PERSONS_CACHE_MAX_SIZE,
+            ttl_seconds=self.KNOWN_PERSONS_CACHE_TTL_SECONDS,
+        )
+        self._unknown_persons = TtlLruCache(
+            max_size=self.UNKNOWN_PERSONS_CACHE_MAX_SIZE,
+            ttl_seconds=self.UNKNOWN_PERSONS_CACHE_TTL_SECONDS,
+        )
         self._portfolio_snapshot_cache_ttl_seconds = portfolio_snapshot_cache_ttl_seconds
         self._portfolio_snapshot_cache: dict[UUID, PortfolioSnapshotCacheEntry] = {}
         self._portfolio_snapshot_inflight: dict[
@@ -140,9 +163,13 @@ class AnalyticsService:
             Future[tuple[list[dict], list[PortfolioHoldingSnapshot], list[str]]],
         ] = {}
         self._portfolio_snapshot_lock = Lock()
-        self._portfolio_history_cache: dict[UUID, PortfolioHistoryCacheEntry] = {}
-        self._portfolio_history_inflight: dict[UUID, Future[PortfolioHistoryContext]] = {}
+        self._portfolio_history_cache: dict[tuple[UUID, str], PortfolioHistoryCacheEntry] = {}
+        self._portfolio_history_inflight: dict[tuple[UUID, str], Future[PortfolioHistoryContext]] = {}
         self._portfolio_history_lock = Lock()
+        self._portfolio_dashboard_cache_ttl_seconds = portfolio_dashboard_cache_ttl_seconds
+        self._portfolio_dashboard_cache: dict[tuple[UUID, str], PortfolioDashboardCacheEntry] = {}
+        self._portfolio_dashboard_inflight: dict[tuple[UUID, str], Future[PortfolioDashboardCacheEntry]] = {}
+        self._portfolio_dashboard_lock = Lock()
 
     def _request_json(self, url: str, client: httpx.Client | None = None) -> dict | list[dict]:
         if client is None:
@@ -154,17 +181,17 @@ class AnalyticsService:
         return response.json()["data"]
 
     def _person_exists(self, person_id: UUID, client: httpx.Client | None = None) -> None:
-        if person_id in self._known_persons:
+        if self._known_persons.get(person_id):
             return
-        if person_id in self._unknown_persons:
+        if self._unknown_persons.get(person_id):
             raise KeyError(f"Unknown person_id: {person_id}")
         try:
             self._request_json(f"{self._person_base_url}/api/v1/persons/{person_id}", client=client)
-            self._known_persons.add(person_id)
-            self._unknown_persons.discard(person_id)
+            self._known_persons.set(person_id, True)
+            self._unknown_persons.delete(person_id)
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code == 404:
-                self._unknown_persons.add(person_id)
+                self._unknown_persons.set(person_id, True)
                 raise KeyError(f"Unknown person_id: {person_id}") from exc
             raise
 
@@ -216,6 +243,30 @@ class AnalyticsService:
             return self._load_history_points(symbol, client=client)
         except httpx.HTTPError:
             return []
+
+    def _load_holdings_summary_batch(self, symbols: list[str], client: httpx.Client) -> list[dict]:
+        if not symbols:
+            return []
+        payload = self._request_json(
+            f"{self._marketdata_base_url}/api/v1/marketdata/depot/holdings-summary?symbols={','.join(symbols)}",
+            client=client,
+        )
+        if not isinstance(payload, dict):
+            return []
+        items = payload.get("items", [])
+        return items if isinstance(items, list) else []
+
+    def _load_batch_history(self, symbols: list[str], client: httpx.Client, range_value: str = "3m") -> list[dict]:
+        if not symbols:
+            return []
+        payload = self._request_json(
+            f"{self._marketdata_base_url}/api/v1/marketdata/batch/history?symbols={','.join(symbols)}&range={range_value}",
+            client=client,
+        )
+        if not isinstance(payload, dict):
+            return []
+        items = payload.get("items", [])
+        return items if isinstance(items, list) else []
 
     def _load_instrument_profile(self, symbol: str, client: httpx.Client | None = None) -> dict:
         payload = self._request_json(
@@ -278,7 +329,7 @@ class AnalyticsService:
             prev = points[idx - 1].y
             curr = points[idx].y
             if prev > 0:
-                return_points.append(ChartPoint(x=points[idx].x, y=(curr - prev) / prev))
+                return_points.append(ChartPoint(x=points[idx - 1].x, y=(curr - prev) / prev))
         return return_points
 
     @staticmethod
@@ -347,28 +398,16 @@ class AnalyticsService:
     def _build_portfolio_history_from_snapshots(
         self,
         holdings: list[PortfolioHoldingSnapshot],
-        client: httpx.Client,
+        histories: dict[str, list[dict]],
     ) -> tuple[list[ChartPoint], list[str]]:
         warnings: list[str] = []
-        symbols = [item.symbol for item in holdings if item.symbol]
-        unique_symbols = list(dict.fromkeys(symbols))
-        histories: dict[str, list[dict]] = {}
-        if unique_symbols:
-            with ThreadPoolExecutor(max_workers=min(16, len(unique_symbols))) as executor:
-                for symbol, history in zip(
-                    unique_symbols,
-                    executor.map(lambda s: self._safe_load_history_points(s, client=client), unique_symbols),
-                    strict=True,
-                ):
-                    histories[symbol] = history
-                    if not history:
-                        warnings.append(f"missing_history:{symbol}")
-
         totals_by_day: dict[str, float] = defaultdict(float)
         for item in holdings:
             if not item.symbol:
                 continue
             symbol_history = histories.get(item.symbol, [])
+            if not symbol_history:
+                warnings.append(f"missing_history:{item.symbol}")
             if symbol_history:
                 for point in symbol_history:
                     day = str(point.get("date", "")).strip()
@@ -381,6 +420,25 @@ class AnalyticsService:
         ordered_days = sorted(totals_by_day)
         points = [ChartPoint(x=day, y=round(totals_by_day[day], 2)) for day in ordered_days]
         return points, list(dict.fromkeys(warnings))
+
+    def _sanitize_history_points(self, symbol: str, points: list[dict]) -> tuple[list[dict], list[str]]:
+        warnings: list[str] = []
+        sanitized: list[dict] = []
+        previous_close: float | None = None
+        for point in points:
+            day = str(point.get("date", "")).strip()
+            close = self._as_float(point.get("close"))
+            if not day or close <= 0:
+                warnings.append(f"history_invalid_price_filtered:{symbol}")
+                continue
+            if previous_close is not None and previous_close > 0:
+                ratio = close / previous_close
+                if ratio > 5.0 or ratio < 0.2:
+                    warnings.append(f"history_outlier_filtered:{symbol}")
+                    continue
+            sanitized.append({"date": day, "close": close})
+            previous_close = close
+        return sanitized, list(dict.fromkeys(warnings))
 
     @staticmethod
     def _coverage_summary(holdings: list[PortfolioHoldingSnapshot], base_warnings: list[str]) -> tuple[dict[str, int], list[str]]:
@@ -460,16 +518,12 @@ class AnalyticsService:
                 if str(holding.get("symbol", "")).upper().strip()
             ]
             unique_symbols = list(dict.fromkeys(symbol_sequence))
-
-            symbol_profiles: dict[str, dict] = {}
-            if unique_symbols:
-                with ThreadPoolExecutor(max_workers=min(16, len(unique_symbols))) as executor:
-                    for symbol, profile in zip(
-                        unique_symbols,
-                        executor.map(lambda s: self._safe_load_instrument_profile(s, client=client), unique_symbols),
-                        strict=True,
-                    ):
-                        symbol_profiles[symbol] = profile
+            profile_items = self._load_holdings_summary_batch(unique_symbols, client=client)
+            symbol_profiles: dict[str, dict] = {
+                str(item.get("symbol", "")).upper().strip(): item
+                for item in profile_items
+                if str(item.get("symbol", "")).upper().strip()
+            }
 
             snapshots: list[PortfolioHoldingSnapshot] = []
             for holding in holdings:
@@ -478,6 +532,8 @@ class AnalyticsService:
                 symbol = str(holding.get("symbol", "")).upper().strip() or None
                 profile = symbol_profiles.get(symbol or "", {})
                 current_price_raw = profile.get("price")
+                if current_price_raw is None:
+                    current_price_raw = profile.get("current_price")
                 current_price = self._as_float(current_price_raw) if current_price_raw is not None else None
 
                 effective_price = current_price if current_price is not None else acquisition_price
@@ -491,9 +547,18 @@ class AnalyticsService:
                 if current_price is None:
                     data_status = "fallback_acquisition_price"
                     item_warnings.append("missing_current_price")
+                coverage = str(profile.get("coverage", "")).strip().lower()
+                if coverage and coverage not in {"full", "ok"}:
+                    data_status = coverage
+                    item_warnings.append(f"marketdata_coverage:{coverage}")
+                cache_status = str(profile.get("cache_status", "")).strip().lower()
+                if cache_status and cache_status not in {"fresh_cache", "stale_cache"}:
+                    item_warnings.append(f"marketdata_cache_status:{cache_status}")
                 if not symbol:
                     data_status = "missing_symbol"
                     item_warnings.append("missing_symbol")
+                if symbol and not profile:
+                    item_warnings.append("missing_marketdata_summary")
 
                 display_name = (
                     str(profile.get("name", "")).strip()
@@ -571,18 +636,19 @@ class AnalyticsService:
                 inflight.set_exception(exc)
             raise
 
-    def _get_portfolio_history_context(self, person_id: UUID) -> PortfolioHistoryContext:
+    def _get_portfolio_history_context(self, person_id: UUID, range_value: str = "3m") -> PortfolioHistoryContext:
         now = datetime.now(UTC)
+        cache_key = (person_id, range_value)
         with self._portfolio_history_lock:
-            cache_entry = self._portfolio_history_cache.get(person_id)
+            cache_entry = self._portfolio_history_cache.get(cache_key)
             if cache_entry is not None and now < cache_entry.stale_at:
                 return cache_entry.context
 
-            inflight = self._portfolio_history_inflight.get(person_id)
+            inflight = self._portfolio_history_inflight.get(cache_key)
             should_build = inflight is None
             if inflight is None:
                 inflight = Future()
-                self._portfolio_history_inflight[person_id] = inflight
+                self._portfolio_history_inflight[cache_key] = inflight
 
         if not should_build:
             return inflight.result()
@@ -590,8 +656,25 @@ class AnalyticsService:
         try:
             _, holdings, snapshot_warnings = self._get_portfolio_holdings_snapshot(person_id)
             with httpx.Client(timeout=self._timeout) as client:
-                portfolio_points, history_warnings = self._build_portfolio_history_from_snapshots(holdings, client)
-                benchmark_points_raw = self._safe_load_history_points(self.DEFAULT_BENCHMARK_SYMBOL, client)
+                symbols = [item.symbol for item in holdings if item.symbol]
+                batch_symbols = list(dict.fromkeys(symbols + [self.DEFAULT_BENCHMARK_SYMBOL]))
+                batch_history_items = self._load_batch_history(batch_symbols, client=client, range_value=range_value)
+                history_by_symbol: dict[str, list[dict]] = {}
+                history_warnings: list[str] = []
+                for item in batch_history_items:
+                    symbol = str(item.get("symbol", "")).upper().strip()
+                    if not symbol:
+                        continue
+                    points_raw = item.get("points", [])
+                    points = points_raw if isinstance(points_raw, list) else []
+                    points, filtered_warnings = self._sanitize_history_points(symbol, points)
+                    history_warnings.extend(filtered_warnings)
+                    history_by_symbol[symbol] = points
+                    if not points:
+                        history_warnings.append(f"missing_history:{symbol}")
+                portfolio_points, series_warnings = self._build_portfolio_history_from_snapshots(holdings, history_by_symbol)
+                history_warnings.extend(series_warnings)
+                benchmark_points_raw = history_by_symbol.get(self.DEFAULT_BENCHMARK_SYMBOL, [])
 
             benchmark_points = sorted(
                 [
@@ -610,14 +693,14 @@ class AnalyticsService:
             )
             stale_at = datetime.now(UTC) + timedelta(seconds=self._portfolio_snapshot_cache_ttl_seconds)
             with self._portfolio_history_lock:
-                self._portfolio_history_cache[person_id] = PortfolioHistoryCacheEntry(context=context, stale_at=stale_at)
-                self._portfolio_history_inflight.pop(person_id, None)
+                self._portfolio_history_cache[cache_key] = PortfolioHistoryCacheEntry(context=context, stale_at=stale_at)
+                self._portfolio_history_inflight.pop(cache_key, None)
                 inflight.set_result(context)
             return context
         except Exception as exc:
             with self._portfolio_history_lock:
-                self._portfolio_history_inflight.pop(person_id, None)
-                self._portfolio_history_cache.pop(person_id, None)
+                self._portfolio_history_inflight.pop(cache_key, None)
+                self._portfolio_history_cache.pop(cache_key, None)
                 inflight.set_exception(exc)
             raise
 
@@ -864,7 +947,7 @@ class AnalyticsService:
         except KeyError:
             with self._cache_lock:
                 self._section_cache.pop(key, None)
-            self._unknown_persons.add(person_id)
+            self._unknown_persons.set(person_id, True)
         except Exception:
             with self._cache_lock:
                 existing = self._section_cache.get(key)
@@ -1056,7 +1139,7 @@ class AnalyticsService:
         )
 
     def portfolio_performance(self, person_id: UUID, range_value: str = "3m") -> PortfolioPerformanceReadModel:
-        history_context = self._get_portfolio_history_context(person_id)
+        history_context = self._get_portfolio_history_context(person_id, range_value=range_value)
         warnings = list(history_context.snapshot_warnings)
         history_warnings = list(history_context.history_warnings)
         portfolio_points = history_context.portfolio_points
@@ -1150,8 +1233,8 @@ class AnalyticsService:
             meta={"loading": False, "error": ", ".join(warnings) if warnings else None},
         )
 
-    def portfolio_risk(self, person_id: UUID) -> PortfolioRiskReadModel:
-        history_context = self._get_portfolio_history_context(person_id)
+    def portfolio_risk(self, person_id: UUID, range_value: str = "3m") -> PortfolioRiskReadModel:
+        history_context = self._get_portfolio_history_context(person_id, range_value=range_value)
         holdings = history_context.holdings
         warnings = list(history_context.snapshot_warnings)
         history_warnings = list(history_context.history_warnings)
@@ -1161,7 +1244,11 @@ class AnalyticsService:
         portfolio_return_points = self._portfolio_return_points(portfolio_points)
         portfolio_returns = [point.y for point in portfolio_return_points]
         portfolio_volatility = self._volatility(portfolio_returns)
+        annualized_volatility = (portfolio_volatility * sqrt(252)) if portfolio_volatility is not None else None
         max_drawdown = self._max_drawdown(portfolio_points)
+        best_day_return = max(portfolio_returns) if portfolio_returns else None
+        worst_day_return = min(portfolio_returns) if portfolio_returns else None
+        mean_portfolio_return = (sum(portfolio_returns) / len(portfolio_returns)) if portfolio_returns else None
 
         benchmark_points = history_context.benchmark_points
         benchmark_return_points = self._portfolio_return_points(sorted(benchmark_points, key=lambda point: point.x))
@@ -1169,8 +1256,12 @@ class AnalyticsService:
             portfolio_return_points,
             benchmark_return_points,
         )
+        aligned_points = min(len(aligned_portfolio_returns), len(aligned_benchmark_returns))
         beta, correlation = self._compute_beta_and_correlation(aligned_portfolio_returns, aligned_benchmark_returns)
         tracking_error = None
+        annualized_tracking_error = None
+        information_ratio = None
+        active_return = None
         if aligned_portfolio_returns and aligned_benchmark_returns:
             size = min(len(aligned_portfolio_returns), len(aligned_benchmark_returns))
             active = [
@@ -1178,6 +1269,32 @@ class AnalyticsService:
                 for idx in range(size)
             ]
             tracking_error = self._volatility(active)
+            annualized_tracking_error = (tracking_error * sqrt(252)) if tracking_error is not None else None
+            if annualized_tracking_error is not None and annualized_tracking_error > 0:
+                mean_active = sum(active) / len(active)
+                information_ratio = (mean_active * 252) / annualized_tracking_error
+                mean_benchmark = sum(aligned_benchmark_returns) / len(aligned_benchmark_returns)
+                if mean_portfolio_return is not None:
+                    active_return = (mean_portfolio_return - mean_benchmark) * 252
+
+        downside_returns = [value for value in portfolio_returns if value < 0]
+        downside_vol = self._volatility(downside_returns)
+        annualized_downside_vol = (downside_vol * sqrt(252)) if downside_vol is not None else None
+        sharpe_ratio = None
+        sortino_ratio = None
+        if mean_portfolio_return is not None and annualized_volatility is not None and annualized_volatility > 0:
+            sharpe_ratio = (mean_portfolio_return * 252) / annualized_volatility
+        if mean_portfolio_return is not None and annualized_downside_vol is not None and annualized_downside_vol > 0:
+            sortino_ratio = (mean_portfolio_return * 252) / annualized_downside_vol
+
+        if aligned_points < 2:
+            beta = None
+            correlation = None
+            tracking_error = None
+            annualized_tracking_error = None
+            information_ratio = None
+            active_return = None
+            history_warnings.append("insufficient_benchmark_overlap")
 
         return PortfolioRiskReadModel(
             person_id=person_id,
@@ -1188,21 +1305,98 @@ class AnalyticsService:
             correlation=round(correlation, 6) if correlation is not None else None,
             beta=round(beta, 6) if beta is not None else None,
             tracking_error=round(tracking_error, 6) if tracking_error is not None else None,
+            annualized_volatility=round(annualized_volatility, 6) if annualized_volatility is not None else None,
+            annualized_tracking_error=round(annualized_tracking_error, 6) if annualized_tracking_error is not None else None,
+            sharpe_ratio=round(sharpe_ratio, 6) if sharpe_ratio is not None else None,
+            sortino_ratio=round(sortino_ratio, 6) if sortino_ratio is not None else None,
+            information_ratio=round(information_ratio, 6) if information_ratio is not None else None,
+            active_return=round(active_return, 6) if active_return is not None else None,
+            best_day_return=round(best_day_return, 6) if best_day_return is not None else None,
+            worst_day_return=round(worst_day_return, 6) if worst_day_return is not None else None,
+            aligned_points=aligned_points,
             top_position_weight=round(top_position_weight, 6) if top_position_weight is not None else None,
             top3_weight=round(top3_weight, 6) if top3_weight is not None else None,
             concentration_note=concentration_note,
             meta={"loading": False, "error": ", ".join(list(dict.fromkeys(warnings + history_warnings))) or None},
         )
 
-    def portfolio_contributors(self, person_id: UUID) -> PortfolioContributorsReadModel:
+    def portfolio_contributors(self, person_id: UUID, range_value: str = "3m") -> PortfolioContributorsReadModel:
         _, holdings, _ = self._get_portfolio_holdings_snapshot(person_id)
-        enriched = sorted(holdings, key=lambda item: item.unrealized_pnl, reverse=True)
-        top_positive = [item for item in enriched if item.unrealized_pnl > 0][:5]
-        top_negative = [item for item in sorted(holdings, key=lambda item: item.unrealized_pnl) if item.unrealized_pnl < 0][:5]
+        history_by_symbol: dict[str, list[ChartPoint]] = defaultdict(list)
+        history_warnings: list[str] = []
+        with httpx.Client(timeout=self._timeout) as client:
+            symbols = [item.symbol for item in holdings if item.symbol]
+            unique_symbols = list(dict.fromkeys(symbols))
+            batch_history_items = self._load_batch_history(unique_symbols, client=client, range_value=range_value)
+        for item in batch_history_items:
+            symbol = str(item.get("symbol", "")).upper().strip()
+            if not symbol:
+                continue
+            points_raw = item.get("points", [])
+            points = points_raw if isinstance(points_raw, list) else []
+            sanitized, filtered_warnings = self._sanitize_history_points(symbol, points)
+            history_warnings.extend(filtered_warnings)
+            history_by_symbol[symbol] = [
+                ChartPoint(x=str(point.get("date", "")).strip(), y=self._as_float(point.get("close")))
+                for point in sanitized
+                if str(point.get("date", "")).strip()
+            ]
+
+        points_by_date: dict[str, dict[str, float]] = defaultdict(dict)
+        symbols_with_history: set[str] = set()
+        for symbol, points in history_by_symbol.items():
+            if len(points) < 2:
+                history_warnings.append(f"contributor_history_missing:{symbol}")
+                continue
+            symbols_with_history.add(symbol)
+            for point in points:
+                points_by_date[point.x][symbol] = point.y
+
+        ordered_days = sorted(points_by_date)
+        contribution_by_symbol: dict[str, float] = defaultdict(float)
+        periods_by_symbol: dict[str, int] = defaultdict(int)
+
+        holdings_by_symbol: dict[str, list[PortfolioHoldingSnapshot]] = defaultdict(list)
+        for holding in holdings:
+            if holding.symbol:
+                holdings_by_symbol[holding.symbol].append(holding)
+
+        for symbol in holdings_by_symbol:
+            if symbol not in history_by_symbol:
+                history_warnings.append(f"contributor_history_missing:{symbol}")
+
+        for idx in range(1, len(ordered_days)):
+            prev_day = ordered_days[idx - 1]
+            day = ordered_days[idx]
+            prev_values: dict[str, float] = {}
+            curr_values: dict[str, float] = {}
+            for symbol, position_items in holdings_by_symbol.items():
+                prev_close = points_by_date[prev_day].get(symbol)
+                curr_close = points_by_date[day].get(symbol)
+                if prev_close is None or curr_close is None or prev_close <= 0:
+                    continue
+                quantity = sum(item.quantity for item in position_items)
+                prev_values[symbol] = prev_close * quantity
+                curr_values[symbol] = curr_close * quantity
+            prev_portfolio_value = sum(prev_values.values())
+            if prev_portfolio_value <= 0:
+                continue
+            for symbol, prev_position_value in prev_values.items():
+                curr_position_value = curr_values.get(symbol)
+                if curr_position_value is None or prev_position_value <= 0:
+                    continue
+                asset_return = (curr_position_value - prev_position_value) / prev_position_value
+                contribution = (prev_position_value / prev_portfolio_value) * asset_return
+                contribution_by_symbol[symbol] += contribution
+                periods_by_symbol[symbol] += 1
 
         def to_item(item: PortfolioHoldingSnapshot) -> PortfolioContributorItem:
+            symbol = item.symbol or ""
+            contribution_return = contribution_by_symbol.get(symbol)
+            periods_used = periods_by_symbol.get(symbol, 0)
+            history_available = symbol in symbols_with_history
             contribution_weighted = item.weight * item.unrealized_pnl
-            direction = "positive" if item.unrealized_pnl >= 0 else "negative"
+            direction = "positive" if (contribution_return or 0.0) >= 0 else "negative"
             return PortfolioContributorItem(
                 symbol=item.symbol,
                 display_name=item.display_name,
@@ -1211,12 +1405,29 @@ class AnalyticsService:
                 unrealized_pnl=round(item.unrealized_pnl, 2),
                 contribution_weighted=round(contribution_weighted, 6),
                 direction=direction,
+                contribution_return=round(contribution_return, 10) if contribution_return is not None else None,
+                contribution_pct_points=round((contribution_return or 0.0) * 100, 6) if contribution_return is not None else None,
+                periods_used=periods_used,
+                history_available=history_available and periods_used > 0,
             )
 
+        contributor_items = [to_item(item) for item in holdings]
+        top_positive = [item for item in sorted(contributor_items, key=lambda x: x.contribution_return or 0.0, reverse=True) if (item.contribution_return or 0.0) > 0][:5]
+        top_negative = [item for item in sorted(contributor_items, key=lambda x: x.contribution_return or 0.0) if (item.contribution_return or 0.0) < 0][:5]
+        total_contribution_return = sum((item.contribution_return or 0.0) for item in contributor_items if item.contribution_return is not None)
+
+        deduped_warnings = list(dict.fromkeys(history_warnings))
         return PortfolioContributorsReadModel(
             person_id=person_id,
-            top_contributors=[to_item(item) for item in top_positive],
-            top_detractors=[to_item(item) for item in top_negative],
+            as_of=datetime.now(UTC).date(),
+            range=range_value,
+            methodology="static_quantity_return_contribution",
+            total_contribution_return=round(total_contribution_return, 10),
+            total_contribution_pct_points=round(total_contribution_return * 100, 6),
+            warnings=deduped_warnings,
+            top_contributors=top_positive,
+            top_detractors=top_negative,
+            meta={"loading": False, "error": ", ".join(deduped_warnings) or None},
         )
 
     def portfolio_data_coverage(self, person_id: UUID) -> PortfolioDataCoverageReadModel:
@@ -1235,4 +1446,192 @@ class AnalyticsService:
             holdings_with_marketdata_warnings=counters["holdings_with_marketdata_warnings"],
             warnings=coverage_warnings,
             meta={"loading": False, "error": None},
+        )
+
+    @staticmethod
+    def _collect_warnings(*warning_lists: list[str]) -> list[str]:
+        collected: list[str] = []
+        for warning_list in warning_lists:
+            collected.extend(warning_list)
+        return list(dict.fromkeys(collected))
+
+    def portfolio_dashboard(self, person_id: UUID, range_value: str = "3m") -> PortfolioDashboardReadModel:
+        entry = self._get_or_build_portfolio_dashboard_entry(person_id, range_value=range_value)
+        payload = entry.payload.model_copy(deep=True)
+        self._apply_generated_at_to_model_meta(payload, entry.generated_at)
+        return payload
+
+    def _dashboard_cache_key(self, person_id: UUID, range_value: str) -> tuple[UUID, str]:
+        return (person_id, range_value)
+
+    def _apply_generated_at_to_model_meta(self, model: object, generated_at: datetime) -> None:
+        meta = getattr(model, "meta", None)
+        if meta is not None and hasattr(meta, "generated_at"):
+            meta.generated_at = generated_at
+
+    def _apply_generated_at_to_dashboard_meta(
+        self,
+        payload: PortfolioDashboardReadModel,
+        generated_at: datetime,
+    ) -> PortfolioDashboardReadModel:
+        self._apply_generated_at_to_model_meta(payload, generated_at)
+        self._apply_generated_at_to_model_meta(payload.summary, generated_at)
+        self._apply_generated_at_to_model_meta(payload.performance, generated_at)
+        self._apply_generated_at_to_model_meta(payload.exposures, generated_at)
+        self._apply_generated_at_to_model_meta(payload.holdings, generated_at)
+        self._apply_generated_at_to_model_meta(payload.risk, generated_at)
+        self._apply_generated_at_to_model_meta(payload.coverage, generated_at)
+        self._apply_generated_at_to_model_meta(payload.contributors, generated_at)
+        return payload
+
+    def _get_or_build_portfolio_dashboard_entry(
+        self,
+        person_id: UUID,
+        range_value: str,
+    ) -> PortfolioDashboardCacheEntry:
+        key = self._dashboard_cache_key(person_id, range_value)
+        now = datetime.now(UTC)
+        owner = False
+        with self._portfolio_dashboard_lock:
+            cached = self._portfolio_dashboard_cache.get(key)
+            if cached is not None and cached.stale_at > now:
+                return cached
+            inflight = self._portfolio_dashboard_inflight.get(key)
+            if inflight is None:
+                inflight = Future()
+                self._portfolio_dashboard_inflight[key] = inflight
+                owner = True
+
+        if owner:
+            try:
+                generated_at = datetime.now(UTC)
+                payload = self._build_portfolio_dashboard(person_id, range_value=range_value)
+                payload = self._apply_generated_at_to_dashboard_meta(payload, generated_at)
+                entry = PortfolioDashboardCacheEntry(
+                    payload=payload,
+                    generated_at=generated_at,
+                    stale_at=generated_at + timedelta(seconds=self._portfolio_dashboard_cache_ttl_seconds),
+                )
+                with self._portfolio_dashboard_lock:
+                    self._portfolio_dashboard_cache[key] = entry
+                    if len(self._portfolio_dashboard_cache) > self.PORTFOLIO_DASHBOARD_CACHE_MAX_SIZE:
+                        oldest_key = min(
+                            self._portfolio_dashboard_cache,
+                            key=lambda cache_key: self._portfolio_dashboard_cache[cache_key].generated_at,
+                        )
+                        self._portfolio_dashboard_cache.pop(oldest_key, None)
+                    self._portfolio_dashboard_inflight.pop(key, None)
+                inflight.set_result(entry)
+                return entry
+            except Exception as exc:
+                with self._portfolio_dashboard_lock:
+                    self._portfolio_dashboard_inflight.pop(key, None)
+                inflight.set_exception(exc)
+                raise
+        return inflight.result()
+
+    def _build_portfolio_dashboard(self, person_id: UUID, range_value: str = "3m") -> PortfolioDashboardReadModel:
+        portfolios, holdings, snapshot_warnings = self._get_portfolio_holdings_snapshot(person_id)
+        history_context = self._get_portfolio_history_context(person_id, range_value=range_value)
+
+        summary = self._build_portfolio_summary_from_snapshot(person_id, portfolios, holdings, snapshot_warnings)
+        performance = self.portfolio_performance(person_id, range_value=range_value)
+
+        by_position = self._aggregate_exposure(holdings, lambda item: item.display_name or item.symbol or "UNKNOWN")
+        by_sector = self._aggregate_exposure(holdings, lambda item: item.sector or "UNKNOWN")
+        by_country = self._aggregate_exposure(holdings, lambda item: item.country or "UNKNOWN")
+        by_currency = self._aggregate_exposure(holdings, lambda item: item.currency or "UNKNOWN")
+        exposures = PortfolioExposuresReadModel(
+            person_id=person_id,
+            by_position=by_position,
+            by_sector=by_sector,
+            by_country=by_country,
+            by_currency=by_currency,
+        )
+
+        holding_items = [
+            PortfolioHoldingItem(
+                portfolio_id=item.portfolio_id,
+                portfolio_name=item.portfolio_name,
+                holding_id=item.holding_id,
+                symbol=item.symbol,
+                display_name=item.display_name,
+                quantity=round(item.quantity, 8),
+                acquisition_price=round(item.acquisition_price, 8),
+                current_price=round(item.current_price, 8) if item.current_price is not None else None,
+                invested_value=round(item.invested_value, 2),
+                market_value=round(item.market_value, 2),
+                unrealized_pnl=round(item.unrealized_pnl, 2),
+                unrealized_return_pct=round(item.unrealized_return_pct, 4)
+                if item.unrealized_return_pct is not None
+                else None,
+                weight=round(item.weight, 6),
+                sector=item.sector,
+                country=item.country,
+                currency=item.currency,
+                data_status=item.data_status,
+                warnings=item.warnings,
+            )
+            for item in sorted(holdings, key=lambda x: x.market_value, reverse=True)
+        ]
+        holdings_model = PortfolioHoldingsReadModel(
+            person_id=person_id,
+            as_of=datetime.now(UTC).date(),
+            currency="EUR",
+            items=holding_items,
+            summary=summary,
+            meta={"loading": False, "error": ", ".join(snapshot_warnings) if snapshot_warnings else None},
+        )
+
+        top_position_weight, top3_weight, concentration_note = self._concentration_metrics(holdings)
+        risk = self.portfolio_risk(person_id, range_value=range_value)
+        risk.top_position_weight = round(top_position_weight, 6) if top_position_weight is not None else None
+        risk.top3_weight = round(top3_weight, 6) if top3_weight is not None else None
+        risk.concentration_note = concentration_note
+
+        contributors = self.portfolio_contributors(person_id, range_value=range_value)
+
+        counters, coverage_warnings = self._coverage_summary(holdings, snapshot_warnings)
+        coverage = PortfolioDataCoverageReadModel(
+            person_id=person_id,
+            as_of=datetime.now(UTC).date(),
+            total_holdings=len(holdings),
+            missing_prices=counters["missing_prices"],
+            missing_sectors=counters["missing_sectors"],
+            missing_countries=counters["missing_countries"],
+            missing_currencies=counters["missing_currencies"],
+            fallback_acquisition_prices=counters["fallback_acquisition_prices"],
+            holdings_with_marketdata_warnings=counters["holdings_with_marketdata_warnings"],
+            warnings=coverage_warnings,
+            meta={"loading": False, "error": None},
+        )
+
+        warnings = self._collect_warnings(
+            snapshot_warnings,
+            history_context.snapshot_warnings,
+            history_context.history_warnings,
+            coverage.warnings,
+        )
+        errors = [
+            model.meta.error
+            for model in [summary, performance, exposures, holdings_model, risk, coverage, contributors]
+            if model.meta.error
+        ]
+        return PortfolioDashboardReadModel(
+            person_id=person_id,
+            as_of=datetime.now(UTC).date(),
+            range=range_value,
+            benchmark_symbol=performance.benchmark_symbol,
+            summary=summary,
+            performance=performance,
+            exposures=exposures,
+            holdings=holdings_model,
+            risk=risk,
+            coverage=coverage,
+            contributors=contributors,
+            meta={
+                "loading": False,
+                "error": "; ".join(list(dict.fromkeys(errors))) or None,
+                "warnings": warnings,
+            },
         )

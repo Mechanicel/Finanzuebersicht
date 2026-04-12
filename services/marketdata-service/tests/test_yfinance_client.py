@@ -108,6 +108,44 @@ class FakeTicker:
                 }
             },
         )
+        self.income_stmt = FakeBalanceSheetFrame(
+            columns=[annual_date],
+            values_by_column={
+                annual_date: {
+                    "Total Revenue": 200.0,
+                    "Operating Income": 40.0,
+                    "Net Income": 20.0,
+                }
+            },
+        )
+        self.quarterly_income_stmt = FakeBalanceSheetFrame(
+            columns=[quarter_date],
+            values_by_column={
+                quarter_date: {
+                    "Total Revenue": 50.0,
+                    "Operating Income": 9.0,
+                    "Net Income": 4.0,
+                }
+            },
+        )
+        self.cash_flow = FakeBalanceSheetFrame(
+            columns=[annual_date],
+            values_by_column={
+                annual_date: {
+                    "Operating Cash Flow": 30.0,
+                    "Capital Expenditure": 10.0,
+                }
+            },
+        )
+        self.quarterly_cash_flow = FakeBalanceSheetFrame(
+            columns=[quarter_date],
+            values_by_column={
+                quarter_date: {
+                    "Operating Cash Flow": 8.0,
+                    "Capital Expenditure": 3.0,
+                }
+            },
+        )
 
     def history(self, period: str, interval: str):
         self._calls.append((self._symbol, period, interval))
@@ -174,3 +212,31 @@ def test_balance_sheet_statement_quarterly_maps_rows(monkeypatch) -> None:
     assert len(rows) == 1
     assert rows[0]["period"] == "Q"
     assert rows[0]["calendarYear"] == "2025"
+
+
+def test_income_statement_annual_maps_rows(monkeypatch) -> None:
+    fake_yf = FakeYFinance()
+    monkeypatch.setattr(YFinanceClient, "_get_yf_module", staticmethod(lambda: fake_yf))
+    client = YFinanceClient()
+
+    rows = client.income_statement("CBK.DE", "annual")
+
+    assert len(rows) == 1
+    assert rows[0]["period"] == "FY"
+    assert rows[0]["revenue"] == 200.0
+    assert rows[0]["operatingIncome"] == 40.0
+    assert rows[0]["netIncome"] == 20.0
+
+
+def test_cash_flow_statement_quarterly_maps_rows_and_free_cash_flow(monkeypatch) -> None:
+    fake_yf = FakeYFinance()
+    monkeypatch.setattr(YFinanceClient, "_get_yf_module", staticmethod(lambda: fake_yf))
+    client = YFinanceClient()
+
+    rows = client.cash_flow_statement("CBK.DE", "quarterly")
+
+    assert len(rows) == 1
+    assert rows[0]["period"] == "Q"
+    assert rows[0]["operatingCashFlow"] == 8.0
+    assert rows[0]["capitalExpenditure"] == 3.0
+    assert rows[0]["freeCashFlow"] == 5.0

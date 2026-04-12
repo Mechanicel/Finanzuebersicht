@@ -35,6 +35,8 @@ class KpiBlock(BaseModel):
 class LoadingMeta(BaseModel):
     loading: bool = False
     error: str | None = None
+    generated_at: datetime | None = None
+
 
 
 class OverviewReadModel(BaseModel):
@@ -230,6 +232,15 @@ class PortfolioRiskReadModel(BaseModel):
     correlation: float | None = None
     beta: float | None = None
     tracking_error: float | None = None
+    annualized_volatility: float | None = None
+    annualized_tracking_error: float | None = None
+    sharpe_ratio: float | None = None
+    sortino_ratio: float | None = None
+    information_ratio: float | None = None
+    active_return: float | None = None
+    best_day_return: float | None = None
+    worst_day_return: float | None = None
+    aligned_points: int | None = None
     top_position_weight: float | None = None
     top3_weight: float | None = None
     concentration_note: str | None = None
@@ -244,10 +255,20 @@ class PortfolioContributorItem(BaseModel):
     unrealized_pnl: float
     contribution_weighted: float
     direction: str | None = None
+    contribution_return: float | None = None
+    contribution_pct_points: float | None = None
+    periods_used: int = 0
+    history_available: bool = False
 
 
 class PortfolioContributorsReadModel(BaseModel):
     person_id: UUID
+    as_of: date
+    range: str = "3m"
+    methodology: str = "static_quantity_return_contribution"
+    total_contribution_return: float | None = None
+    total_contribution_pct_points: float | None = None
+    warnings: list[str] = Field(default_factory=list)
     top_contributors: list[PortfolioContributorItem]
     top_detractors: list[PortfolioContributorItem]
     meta: LoadingMeta = Field(default_factory=LoadingMeta)
@@ -265,3 +286,22 @@ class PortfolioDataCoverageReadModel(BaseModel):
     holdings_with_marketdata_warnings: int = 0
     warnings: list[str] = Field(default_factory=list)
     meta: LoadingMeta = Field(default_factory=LoadingMeta)
+
+
+class PortfolioDashboardMetaReadModel(LoadingMeta):
+    warnings: list[str] = Field(default_factory=list)
+
+
+class PortfolioDashboardReadModel(BaseModel):
+    person_id: UUID
+    as_of: date
+    range: str
+    benchmark_symbol: str | None = None
+    summary: PortfolioSummaryReadModel
+    performance: PortfolioPerformanceReadModel
+    exposures: PortfolioExposuresReadModel
+    holdings: PortfolioHoldingsReadModel
+    risk: PortfolioRiskReadModel
+    coverage: PortfolioDataCoverageReadModel
+    contributors: PortfolioContributorsReadModel
+    meta: PortfolioDashboardMetaReadModel = Field(default_factory=PortfolioDashboardMetaReadModel)

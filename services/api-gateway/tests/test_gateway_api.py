@@ -312,6 +312,22 @@ class StubGatewayService:
             "meta": {"loading": False, "error": None},
         }
 
+    async def get_portfolio_dashboard(self, person_id: UUID, range_value: str = "3m") -> dict:
+        return {
+            "person_id": str(person_id),
+            "as_of": "2026-04-10",
+            "range": range_value,
+            "benchmark_symbol": "SPY",
+            "summary": await self.get_portfolio_summary(person_id),
+            "performance": await self.get_portfolio_performance(person_id),
+            "exposures": await self.get_portfolio_exposures(person_id),
+            "holdings": await self.get_portfolio_holdings(person_id),
+            "risk": await self.get_portfolio_risk(person_id),
+            "coverage": await self.get_portfolio_data_coverage(person_id),
+            "contributors": await self.get_portfolio_contributors(person_id),
+            "meta": {"loading": False, "error": None, "warnings": []},
+        }
+
     async def get_portfolio_performance(self, person_id: UUID) -> dict:
         return {
             "person_id": str(person_id),
@@ -377,9 +393,15 @@ class StubGatewayService:
             "meta": {"loading": False, "error": "volatility_and_drawdown_not_available_yet"},
         }
 
-    async def get_portfolio_contributors(self, person_id: UUID) -> dict:
+    async def get_portfolio_contributors(self, person_id: UUID, range_value: str = "3m") -> dict:
         return {
             "person_id": str(person_id),
+            "as_of": "2026-04-10",
+            "range": range_value,
+            "methodology": "static_quantity_return_contribution",
+            "total_contribution_return": 0.12,
+            "total_contribution_pct_points": 12.0,
+            "warnings": [],
             "top_contributors": [
                 {
                     "symbol": "AAPL",
@@ -389,6 +411,10 @@ class StubGatewayService:
                     "unrealized_pnl": 20.0,
                     "contribution_weighted": 12.22222,
                     "direction": "positive",
+                    "contribution_return": 0.08,
+                    "contribution_pct_points": 8.0,
+                    "periods_used": 21,
+                    "history_available": True,
                 }
             ],
             "top_detractors": [],
@@ -580,6 +606,7 @@ def test_app_endpoints_for_vue_pages() -> None:
     assert client.get(f"/api/v1/app/persons/{PERSON_ID}/dashboard/allocation").status_code == 200
     assert client.get(f"/api/v1/app/persons/{PERSON_ID}/dashboard/timeseries").status_code == 200
     assert client.get(f"/api/v1/app/persons/{PERSON_ID}/dashboard/metrics").status_code == 200
+    assert client.get(f"/api/v1/app/persons/{PERSON_ID}/portfolio-dashboard", params={"range": "6m"}).status_code == 200
     assert client.get(f"/api/v1/app/persons/{PERSON_ID}/portfolio-summary").status_code == 200
     assert client.get(f"/api/v1/app/persons/{PERSON_ID}/portfolio-performance").status_code == 200
     assert client.get(f"/api/v1/app/persons/{PERSON_ID}/portfolio-exposures").status_code == 200
