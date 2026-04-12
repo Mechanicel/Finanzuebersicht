@@ -8,21 +8,17 @@
             <th>Symbol</th>
             <th>Name</th>
             <th>Gewicht</th>
-            <th>Stückzahl</th>
-            <th>Einstieg</th>
-            <th>Aktuell</th>
             <th>Marktwert</th>
-            <th>P&L</th>
-            <th>P&L %</th>
+            <th>P&amp;L</th>
+            <th>P&amp;L %</th>
             <th>Sektor</th>
             <th>Land</th>
-            <th>Währung</th>
             <th>Datenstatus</th>
           </tr>
         </thead>
         <tbody>
           <tr v-if="sortedItems.length === 0">
-            <td colspan="13" class="empty-row">Keine Holdings vorhanden.</td>
+            <td colspan="9" class="empty-row">Keine Holdings vorhanden.</td>
           </tr>
           <tr
             v-for="item in sortedItems"
@@ -33,18 +29,14 @@
             <td>{{ item.symbol || 'n/a' }}</td>
             <td>{{ item.display_name || item.portfolio_name || 'n/a' }}</td>
             <td>{{ formatPercent(item.weight) }}</td>
-            <td>{{ formatNumber(item.quantity, 4) }}</td>
-            <td>{{ formatMoney(item.acquisition_price, currency) }}</td>
-            <td>{{ formatMoney(item.current_price, currency) }}</td>
             <td>{{ formatMoney(item.market_value, currency) }}</td>
             <td :class="pnlClass(item.unrealized_pnl)">{{ formatSignedMoney(item.unrealized_pnl, currency) }}</td>
             <td :class="pnlClass(item.unrealized_return_pct)">{{ formatPercentPoints(item.unrealized_return_pct) }}</td>
             <td>{{ item.sector || 'n/a' }}</td>
             <td>{{ item.country || 'n/a' }}</td>
-            <td>{{ item.currency || 'n/a' }}</td>
             <td>
               <span class="status-badge" :class="statusClass(item.data_status)">{{ mapHoldingDataStatus(item.data_status) }}</span>
-              <p v-if="item.warnings?.length" class="warning-hint">{{ item.warnings.join(', ') }}</p>
+              <p v-if="hasWarnings(item.warnings)" class="warning-hint">{{ item.warnings?.join(', ') }}</p>
             </td>
           </tr>
         </tbody>
@@ -58,7 +50,6 @@ import { computed } from 'vue'
 import type { PortfolioHoldingItem } from '@/shared/model/types'
 import {
   formatMoney,
-  formatNumber,
   formatPercent,
   formatPercentPoints,
   formatSignedMoney,
@@ -94,6 +85,10 @@ function statusClass(status: string | null | undefined) {
   if (status === 'fallback_acquisition_price') return 'fallback'
   return 'warning'
 }
+
+function hasWarnings(warnings: string[] | null | undefined) {
+  return Boolean(warnings?.some((warning) => warning.trim().length > 0))
+}
 </script>
 
 <style scoped>
@@ -115,7 +110,7 @@ h3 {
 table {
   width: 100%;
   border-collapse: collapse;
-  min-width: 980px;
+  min-width: 760px;
 }
 
 th,
