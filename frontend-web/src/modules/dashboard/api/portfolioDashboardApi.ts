@@ -1,6 +1,7 @@
 import { http } from '@/shared/api/http'
 import type {
   ApiEnvelope,
+  PortfolioAttributionReadModel,
   PortfolioDashboardRange,
   PortfolioContributorsReadModel,
   PortfolioDashboardReadModel,
@@ -49,6 +50,14 @@ export async function fetchPortfolioRisk(personId: string) {
 export async function fetchPortfolioContributors(personId: string) {
   return (
     await http.get<ApiEnvelope<PortfolioContributorsReadModel>>(`/app/persons/${personId}/portfolio-contributors`)
+  ).data.data
+}
+
+export async function fetchPortfolioAttribution(personId: string, range: PortfolioDashboardRange | string = '3m') {
+  return (
+    await http.get<ApiEnvelope<PortfolioAttributionReadModel>>(`/app/persons/${personId}/portfolio-attribution`, {
+      params: { range }
+    })
   ).data.data
 }
 

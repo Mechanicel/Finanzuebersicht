@@ -14,7 +14,7 @@ vi.mock('@/modules/dashboard/composables/usePortfolioDashboard', () => ({
 
 import { usePortfolioDashboard } from '@/modules/dashboard/composables/usePortfolioDashboard'
 
-function buildDashboardState(overrides: Record<string, unknown> = {}) {
+function buildDashboardState(overrides: Record<string, unknown> = {}): ReturnType<typeof usePortfolioDashboard> {
   return {
     summary: ref(null),
     dashboardSummary: computed(() => ({
@@ -65,6 +65,7 @@ function buildDashboardState(overrides: Record<string, unknown> = {}) {
       meta: {}
     }),
     contributors: ref({ person_id: 'person-1', top_contributors: [], top_detractors: [], meta: {} }),
+    attribution: ref(null),
     coverage: ref({
       person_id: 'person-1',
       as_of: '2026-04-10',
@@ -79,15 +80,16 @@ function buildDashboardState(overrides: Record<string, unknown> = {}) {
       meta: {}
     }),
     loading: ref(false),
-    loadingStates: ref({ summary: false, performance: false, exposures: false, holdings: false, risk: false, contributors: false, coverage: false }),
+    loadingStates: ref({ summary: false, performance: false, exposures: false, holdings: false, risk: false, attribution: false, contributors: false, coverage: false }),
     error: ref(''),
-    errors: ref({ summary: '', performance: '', exposures: '', holdings: '', risk: '', contributors: '', coverage: '' }),
+    errors: ref({ summary: '', performance: '', exposures: '', holdings: '', risk: '', attribution: '', contributors: '', coverage: '' }),
     loadAll: loadAllMock,
     loadSummary: vi.fn(),
     loadPerformance: vi.fn(),
     loadExposures: vi.fn(),
     loadHoldings: vi.fn(),
     loadRisk: vi.fn(),
+    loadAttribution: vi.fn(),
     loadContributors: vi.fn(),
     loadCoverage: vi.fn(),
     loadInitial: vi.fn(),
@@ -98,7 +100,7 @@ function buildDashboardState(overrides: Record<string, unknown> = {}) {
     topHoldings: computed(() => []),
     isEmpty: computed(() => false),
     ...overrides
-  }
+  } as unknown as ReturnType<typeof usePortfolioDashboard>
 }
 
 function childTestIds(wrapper: VueWrapper, selector: string) {
@@ -108,14 +110,14 @@ function childTestIds(wrapper: VueWrapper, selector: string) {
     .filter((testId): testId is string => Boolean(testId))
 }
 
-function stackAreaOrder(wrapper: VueWrapper, stackTestId: 'dashboard-main-left' | 'dashboard-main-right') {
+function stackAreaOrder(wrapper: VueWrapper, stackTestId: 'main-left-stack' | 'main-right-stack') {
   return childTestIds(wrapper, `[data-testid="${stackTestId}"]`).filter((testId) => testId.startsWith('dashboard-area-'))
 }
 
 function responsivePanelOrder(wrapper: VueWrapper) {
   return [
-    ...stackAreaOrder(wrapper, 'dashboard-main-left'),
-    ...stackAreaOrder(wrapper, 'dashboard-main-right')
+    ...stackAreaOrder(wrapper, 'main-left-stack'),
+    ...stackAreaOrder(wrapper, 'main-right-stack')
   ]
 }
 
@@ -134,6 +136,7 @@ describe('PortfolioDashboardContainer', () => {
 
     expect(wrapper.text()).toContain('Portfolio Dashboard')
     expect(wrapper.text()).toContain('Handlungsbedarf')
+    expect(wrapper.text()).toContain('Warum lief das Portfolio so?')
     expect(wrapper.text()).toContain('Hohe Volatilitaet')
     expect(wrapper.text()).toContain('Portfolio Performance')
     expect(wrapper.text()).toContain('Portfolio Risk')
@@ -155,32 +158,32 @@ describe('PortfolioDashboardContainer', () => {
 
     const topZone = wrapper.find('[data-testid="dashboard-top-zone"]')
     const composition = wrapper.find('[data-testid="portfolio-dashboard-composition"]')
-    const mainGrid = wrapper.find('[data-testid="portfolio-dashboard-main-grid"]')
+    const mainGrid = wrapper.find('[data-testid="portfolio-main-grid"]')
 
     expect(topZone.exists()).toBe(true)
     expect(topZone.find('[data-test="summary-grid"]').exists()).toBe(true)
     expect(topZone.find('[data-test="portfolio-alerts-panel"]').exists()).toBe(true)
+    expect(topZone.find('[data-testid="portfolio-attribution-panel"]').exists()).toBe(true)
     expect(composition.exists()).toBe(true)
     expect(composition.classes()).toContain('dashboard-composition')
-    expect(mainGrid.classes()).toContain('dashboard-main-grid')
-    expect(childTestIds(wrapper, '[data-testid="portfolio-dashboard-main-grid"]')).toEqual(['dashboard-main-left', 'dashboard-main-right'])
-    expect(stackAreaOrder(wrapper, 'dashboard-main-left')).toEqual([
+    expect(mainGrid.classes()).toContain('main-grid')
+    expect(childTestIds(wrapper, '[data-testid="portfolio-main-grid"]')).toEqual(['main-left-stack', 'main-right-stack'])
+    expect(stackAreaOrder(wrapper, 'main-left-stack')).toEqual([
       'dashboard-area-performance',
       'dashboard-area-holdings',
       'dashboard-area-exposures'
     ])
-    expect(stackAreaOrder(wrapper, 'dashboard-main-right')).toEqual([
+    expect(stackAreaOrder(wrapper, 'main-right-stack')).toEqual([
       'dashboard-area-risk',
       'dashboard-area-instrument-detail',
-      'dashboard-area-contributors',
       'dashboard-area-coverage'
     ])
-    expect(childTestIds(wrapper, '[data-testid="portfolio-dashboard-composition"]')).toEqual(['portfolio-dashboard-main-grid'])
+    expect(childTestIds(wrapper, '[data-testid="portfolio-dashboard-composition"]')).toEqual(['portfolio-main-grid'])
     expect(wrapper.find('[data-testid="dashboard-area-performance"]').classes()).toContain('dashboard-area--performance')
     expect(wrapper.find('[data-testid="dashboard-area-holdings"]').classes()).toContain('dashboard-area--holdings')
     expect(wrapper.find('[data-testid="dashboard-area-risk"]').classes()).toContain('dashboard-area--risk')
     expect(wrapper.find('[data-testid="dashboard-area-instrument-detail"]').classes()).toContain('dashboard-area--instrument-detail')
-    expect(wrapper.find('[data-testid="dashboard-area-contributors"]').classes()).toContain('dashboard-area--contributors')
+    expect(wrapper.find('[data-testid="dashboard-area-contributors"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="dashboard-area-coverage"]').classes()).toContain('dashboard-area--coverage')
     expect(wrapper.find('[data-testid="dashboard-area-exposures"]').classes()).toContain('dashboard-area--exposures')
   })
@@ -196,12 +199,11 @@ describe('PortfolioDashboardContainer', () => {
       'dashboard-area-exposures',
       'dashboard-area-risk',
       'dashboard-area-instrument-detail',
-      'dashboard-area-contributors',
       'dashboard-area-coverage'
     ])
     expect(new Set(responsivePanelOrder(wrapper)).size).toBe(responsivePanelOrder(wrapper).length)
-    expect(wrapper.find('[data-testid="dashboard-main-right"] [data-test="coverage-banner"]').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="dashboard-main-left"] [data-test="coverage-banner"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="main-right-stack"] [data-test="coverage-banner"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="main-left-stack"] [data-test="coverage-banner"]').exists()).toBe(false)
   })
 
   it('uses an existing performance range as defensive default', () => {
@@ -261,7 +263,7 @@ describe('PortfolioDashboardContainer', () => {
         risk: ref(null),
         coverage: ref(null),
         contributors: ref(null),
-        loadingStates: ref({ summary: false, performance: true, exposures: true, holdings: false, risk: true, contributors: true, coverage: true })
+        loadingStates: ref({ summary: false, performance: true, exposures: true, holdings: false, risk: true, attribution: true, contributors: true, coverage: true })
       })
     )
 
@@ -281,7 +283,7 @@ describe('PortfolioDashboardContainer', () => {
       buildDashboardState({
         performance: ref(null),
         errors: ref({ summary: '', performance: 'Performance temporär nicht verfügbar.', exposures: '', holdings: '', risk: '', contributors: '', coverage: '' }),
-        loadingStates: ref({ summary: false, performance: false, exposures: false, holdings: false, risk: false, contributors: false, coverage: false })
+        loadingStates: ref({ summary: false, performance: false, exposures: false, holdings: false, risk: false, attribution: false, contributors: false, coverage: false })
       })
     )
 
@@ -305,7 +307,7 @@ describe('PortfolioDashboardContainer', () => {
         contributors: ref(null),
         coverage: ref(null),
         error: ref('Alles fehlgeschlagen'),
-        errors: ref({ summary: 'x', performance: 'x', exposures: 'x', holdings: 'x', risk: 'x', contributors: 'x', coverage: 'x' })
+        errors: ref({ summary: 'x', performance: 'x', exposures: 'x', holdings: 'x', risk: 'x', attribution: 'x', contributors: 'x', coverage: 'x' })
       })
     )
 
@@ -330,14 +332,11 @@ describe('PortfolioDashboardContainer', () => {
     })
 
     expect(wrapper.find('[data-testid="dashboard-area-holdings"]').exists()).toBe(false)
-    expect(stackAreaOrder(wrapper, 'main-left-stack')).toEqual(['dashboard-area-performance'])
+    expect(stackAreaOrder(wrapper, 'main-left-stack')).toEqual(['dashboard-area-performance', 'dashboard-area-exposures'])
     expect(stackAreaOrder(wrapper, 'main-right-stack')).toEqual(['dashboard-area-risk', 'dashboard-area-instrument-detail'])
     expect(wrapper.find('[data-testid="dashboard-area-contributors"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="dashboard-area-coverage"]').exists()).toBe(false)
-    expect(childTestIds(wrapper, '[data-testid="portfolio-dashboard-composition"]')).toEqual([
-      'portfolio-main-grid',
-      'dashboard-area-exposures'
-    ])
+    expect(childTestIds(wrapper, '[data-testid="portfolio-dashboard-composition"]')).toEqual(['portfolio-main-grid'])
     expect(wrapper.text()).toContain('Bitte eine Holding ausw')
   })
 
@@ -349,8 +348,8 @@ describe('PortfolioDashboardContainer', () => {
         exposures: ref(null),
         contributors: ref(null),
         coverage: ref(null),
-        loadingStates: ref({ summary: false, performance: true, exposures: false, holdings: false, risk: false, contributors: false, coverage: true }),
-        errors: ref({ summary: '', performance: '', exposures: '', holdings: '', risk: '', contributors: 'Contributors nicht verfuegbar.', coverage: '' })
+        loadingStates: ref({ summary: false, performance: true, exposures: false, holdings: false, risk: false, attribution: false, contributors: false, coverage: true }),
+        errors: ref({ summary: '', performance: '', exposures: '', holdings: '', risk: '', attribution: 'Attribution nicht verfuegbar.', contributors: '', coverage: '' })
       })
     )
 
@@ -361,15 +360,15 @@ describe('PortfolioDashboardContainer', () => {
     expect(stackAreaOrder(wrapper, 'main-left-stack')).toEqual(['dashboard-area-performance', 'dashboard-area-holdings'])
     expect(stackAreaOrder(wrapper, 'main-right-stack')).toEqual([
       'dashboard-area-instrument-detail',
-      'dashboard-area-contributors',
       'dashboard-area-coverage'
     ])
     expect(wrapper.text()).toContain('Holdings')
     expect(wrapper.text()).toContain('Performance wird geladen')
     expect(wrapper.text()).toContain('Datenabdeckung wird geladen')
-    expect(wrapper.text()).toContain('Contributors nicht verfuegbar.')
+    expect(wrapper.text()).toContain('Attribution nicht verfuegbar.')
     expect(wrapper.find('[data-testid="dashboard-area-risk"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="dashboard-area-exposures"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="dashboard-area-contributors"]').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('Portfolio-Dashboard-Daten konnten nicht geladen werden.')
   })
 
@@ -416,11 +415,14 @@ describe('PortfolioDashboardContainer', () => {
     })
 
     expect(wrapper.text()).toContain('Bitte eine Holding auswählen.')
-    expect(stackAreaOrder(wrapper, 'main-left-stack')).toEqual(['dashboard-area-performance', 'dashboard-area-holdings'])
+    expect(stackAreaOrder(wrapper, 'main-left-stack')).toEqual([
+      'dashboard-area-performance',
+      'dashboard-area-holdings',
+      'dashboard-area-exposures'
+    ])
     expect(stackAreaOrder(wrapper, 'main-right-stack')).toEqual([
       'dashboard-area-risk',
       'dashboard-area-instrument-detail',
-      'dashboard-area-contributors',
       'dashboard-area-coverage'
     ])
     expect(wrapper.find('[data-test="holdings-table-wrap"]').classes()).toContain('table-wrap--small')

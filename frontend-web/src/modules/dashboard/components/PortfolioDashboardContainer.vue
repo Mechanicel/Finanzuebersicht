@@ -49,14 +49,24 @@
         :contributors="contributors"
       />
 
+      <PortfolioAttributionPanel
+        v-if="attribution"
+        :attribution="attribution"
+      />
+      <div v-else-if="isSectionLoading.attribution" class="section-state">Attribution wird geladenâ€¦</div>
+      <div v-else-if="sectionErrors.attribution" class="section-state section-state--error">
+        <span>{{ sectionErrors.attribution }}</span>
+        <button class="btn flow-btn btn-small" type="button" @click="void reloadDashboard()">Erneut laden</button>
+      </div>
+
       </div>
 
       <div
         class="dashboard-composition"
         data-testid="portfolio-dashboard-composition"
       >
-        <div class="dashboard-main-grid" data-testid="portfolio-dashboard-main-grid">
-          <div class="dashboard-main-left" data-testid="dashboard-main-left">
+        <div class="dashboard-main-grid main-grid" data-testid="portfolio-main-grid">
+          <div class="dashboard-main-left main-stack" data-testid="main-left-stack">
         <div
           v-if="hasPerformanceArea"
           class="dashboard-area dashboard-area--performance"
@@ -104,7 +114,7 @@
 
           </div>
 
-          <div class="dashboard-main-right" data-testid="dashboard-main-right">
+          <div class="dashboard-main-right main-stack" data-testid="main-right-stack">
             <div
               v-if="hasRiskArea"
               class="dashboard-area dashboard-area--risk"
@@ -211,8 +221,10 @@ import PortfolioExposuresPanel from '@/modules/dashboard/components/PortfolioExp
 import PortfolioHoldingsTable from '@/modules/dashboard/components/PortfolioHoldingsTable.vue'
 import PortfolioCoverageBanner from '@/modules/dashboard/components/PortfolioCoverageBanner.vue'
 import PortfolioAlertsPanel from '@/modules/dashboard/components/PortfolioAlertsPanel.vue'
+import PortfolioAttributionPanel from '@/modules/dashboard/components/PortfolioAttributionPanel.vue'
 import PortfolioInstrumentDetailPanel from '@/modules/dashboard/components/PortfolioInstrumentDetailPanel.vue'
 import { usePortfolioDashboard } from '@/modules/dashboard/composables/usePortfolioDashboard'
+import { resolvePortfolioAttribution } from '@/modules/dashboard/model/portfolioAttribution'
 import {
   formatDate,
   formatNullableText,
@@ -236,6 +248,16 @@ const holdings = computed(() => portfolioDashboard.holdings.value)
 const risk = computed(() => portfolioDashboard.risk.value)
 const coverage = computed(() => portfolioDashboard.coverage.value)
 const contributors = computed(() => portfolioDashboard.contributors.value)
+const attribution = computed(
+  () =>
+    portfolioDashboard.attribution?.value ??
+    resolvePortfolioAttribution({
+      contributors: contributors.value,
+      performance: performance.value,
+      risk: risk.value,
+      personId: props.personId
+    })
+)
 
 const error = computed(() => portfolioDashboard.error.value)
 const isEmpty = computed(() => portfolioDashboard.isEmpty.value)
@@ -245,7 +267,7 @@ const hasPerformanceArea = computed(() => Boolean(performance.value || isSection
 const hasRiskArea = computed(() => Boolean(risk.value || isSectionLoading.value.risk || sectionErrors.value.risk))
 const hasHoldingsArea = computed(() => Boolean(holdings.value || isSectionLoading.value.holdings || sectionErrors.value.holdings))
 const hasExposuresArea = computed(() => Boolean(exposures.value || isSectionLoading.value.exposures || sectionErrors.value.exposures))
-const hasContributorsArea = computed(() => Boolean(contributors.value || isSectionLoading.value.contributors || sectionErrors.value.contributors))
+const hasContributorsArea = computed(() => Boolean(contributors.value) && !attribution.value)
 const hasCoverageArea = computed(() => Boolean(coverage.value || isSectionLoading.value.coverage || sectionErrors.value.coverage))
 
 const loadBootstrap = portfolioDashboard.loadBootstrap
@@ -265,11 +287,19 @@ function normalizeDashboardRange(value: string | null | undefined): PortfolioDas
 }
 
 const selectedRange = ref<PortfolioDashboardRange>(
-  normalizeDashboardRange(performance.value?.range ?? contributors.value?.range ?? '3m')
+  normalizeDashboardRange(performance.value?.range ?? attribution.value?.range ?? contributors.value?.range ?? '3m')
 )
 
 const hasAnyRenderableSection = computed(
-  () => !!summary.value || !!performance.value || !!holdings.value || !!risk.value || !!coverage.value || !!exposures.value || !!contributors.value
+  () =>
+    !!summary.value ||
+    !!performance.value ||
+    !!holdings.value ||
+    !!risk.value ||
+    !!coverage.value ||
+    !!exposures.value ||
+    !!contributors.value ||
+    !!attribution.value
 )
 const hasAnySectionLoading = computed(() => Object.values(isSectionLoading.value).some(Boolean))
 const isReloading = computed(() => portfolioDashboard.loading.value || hasAnySectionLoading.value)

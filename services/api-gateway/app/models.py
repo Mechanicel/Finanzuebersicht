@@ -13,6 +13,10 @@ from pydantic import BaseModel, Field
 from finanzuebersicht_shared.models import (
     ChartSeries,
     LoadingMeta,
+    PortfolioAttributionItem,
+    PortfolioAttributionMethodology,
+    PortfolioAttributionReadModel,
+    PortfolioAttributionSummary,
     PortfolioContributorItem,
     PortfolioContributorsReadModel,
     PortfolioDashboardMetaReadModel,
@@ -32,6 +36,10 @@ __all__ = [
     # re-exported from shared
     "ChartSeries",
     "LoadingMeta",
+    "PortfolioAttributionItem",
+    "PortfolioAttributionMethodology",
+    "PortfolioAttributionReadModel",
+    "PortfolioAttributionSummary",
     "PortfolioContributorItem",
     "PortfolioContributorsReadModel",
     "PortfolioDashboardMetaReadModel",

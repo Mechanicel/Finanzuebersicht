@@ -27,6 +27,9 @@ from app.models import (
     MetricsReadModel,
     MonthlyComparisonItem,
     MonthlyComparisonReadModel,
+    PortfolioAttributionItem,
+    PortfolioAttributionReadModel,
+    PortfolioAttributionSummary,
     PortfolioContributorItem,
     PortfolioContributorsReadModel,
     PortfolioDashboardReadModel,
@@ -109,6 +112,20 @@ class PortfolioHistoryContext:
 class PortfolioHistoryCacheEntry:
     context: PortfolioHistoryContext
     stale_at: datetime
+
+
+@dataclass(slots=True)
+class PortfolioAttributionPosition:
+    symbol: str
+    label: str
+    contribution_pct_points: float
+    return_pct: float | None
+    weight: float
+    market_value: float
+    sector: str
+    country: str
+    currency: str
+    periods_used: int
 
 
 @dataclass(slots=True)
@@ -1379,6 +1396,209 @@ class AnalyticsService:
             meta={"loading": False, "error": ", ".join(list(dict.fromkeys(warnings + history_warnings))) or None},
         )
 
+    @staticmethod
+    def _direction(value: float | None) -> str:
+        if value is None or value == 0:
+            return "neutral"
+        return "positive" if value > 0 else "negative"
+
+    @staticmethod
+    def _portfolio_range_return_pct(points: list[ChartPoint]) -> float | None:
+        if len(points) < 2:
+            return None
+        start_value = points[0].y
+        end_value = points[-1].y
+        if start_value <= 0:
+            return None
+        return (end_value - start_value) / start_value * 100
+
+    def _build_position_attribution(
+        self,
+        history_context: PortfolioHistoryContext,
+    ) -> tuple[list[PortfolioAttributionPosition], list[str]]:
+        holdings = history_context.holdings
+        history_by_symbol = history_context.history_by_symbol
+        warnings: list[str] = []
+
+        holdings_by_symbol: dict[str, list[PortfolioHoldingSnapshot]] = defaultdict(list)
+        unknown_holdings: list[PortfolioHoldingSnapshot] = []
+        for holding in holdings:
+            if holding.symbol:
+                holdings_by_symbol[holding.symbol].append(holding)
+            else:
+                unknown_holdings.append(holding)
+
+        points_by_date: dict[str, dict[str, float]] = defaultdict(dict)
+        for symbol in holdings_by_symbol:
+            points = history_by_symbol.get(symbol, [])
+            if len(points) < 2:
+                warnings.append(f"attribution_history_missing:{symbol}")
+                continue
+            for point in points:
+                points_by_date[point.x][symbol] = point.y
+
+        ordered_days = sorted(points_by_date)
+        contribution_by_symbol: dict[str, float] = defaultdict(float)
+        periods_by_symbol: dict[str, int] = defaultdict(int)
+
+        for idx in range(1, len(ordered_days)):
+            previous_day = ordered_days[idx - 1]
+            current_day = ordered_days[idx]
+            previous_values: dict[str, float] = {}
+            current_values: dict[str, float] = {}
+
+            for symbol, position_items in holdings_by_symbol.items():
+                previous_close = points_by_date[previous_day].get(symbol)
+                current_close = points_by_date[current_day].get(symbol)
+                if previous_close is None or current_close is None or previous_close <= 0:
+                    continue
+                quantity = sum(item.quantity for item in position_items)
+                previous_values[symbol] = previous_close * quantity
+                current_values[symbol] = current_close * quantity
+
+            previous_portfolio_value = sum(previous_values.values())
+            if previous_portfolio_value <= 0:
+                continue
+
+            for symbol, previous_position_value in previous_values.items():
+                current_position_value = current_values.get(symbol)
+                if current_position_value is None or previous_position_value <= 0:
+                    continue
+                asset_return = (current_position_value - previous_position_value) / previous_position_value
+                contribution_by_symbol[symbol] += (previous_position_value / previous_portfolio_value) * asset_return * 100
+                periods_by_symbol[symbol] += 1
+
+        positions: list[PortfolioAttributionPosition] = []
+        for symbol, position_items in holdings_by_symbol.items():
+            representative = max(position_items, key=lambda item: item.market_value)
+            points = history_by_symbol.get(symbol, [])
+            return_pct = None
+            if len(points) >= 2 and points[0].y > 0:
+                return_pct = ((points[-1].y - points[0].y) / points[0].y) * 100
+            contribution = contribution_by_symbol.get(symbol, 0.0)
+            positions.append(
+                PortfolioAttributionPosition(
+                    symbol=symbol,
+                    label=representative.display_name or symbol,
+                    contribution_pct_points=round(contribution, 6),
+                    return_pct=round(return_pct, 4) if return_pct is not None else None,
+                    weight=round(sum(item.weight for item in position_items), 6),
+                    market_value=round(sum(item.market_value for item in position_items), 2),
+                    sector=representative.sector or "UNKNOWN",
+                    country=representative.country or "UNKNOWN",
+                    currency=representative.currency or "UNKNOWN",
+                    periods_used=periods_by_symbol.get(symbol, 0),
+                )
+            )
+
+        for holding in unknown_holdings:
+            warnings.append("attribution_missing_symbol")
+            positions.append(
+                PortfolioAttributionPosition(
+                    symbol="",
+                    label=holding.display_name or holding.holding_id or "UNKNOWN",
+                    contribution_pct_points=0.0,
+                    return_pct=None,
+                    weight=round(holding.weight, 6),
+                    market_value=round(holding.market_value, 2),
+                    sector=holding.sector or "UNKNOWN",
+                    country=holding.country or "UNKNOWN",
+                    currency=holding.currency or "UNKNOWN",
+                    periods_used=0,
+                )
+            )
+
+        return positions, list(dict.fromkeys(warnings))
+
+    def _position_to_attribution_item(self, position: PortfolioAttributionPosition) -> PortfolioAttributionItem:
+        return PortfolioAttributionItem(
+            label=position.label,
+            symbol=position.symbol or None,
+            contribution_pct_points=position.contribution_pct_points,
+            return_pct=position.return_pct,
+            weight=position.weight,
+            market_value=position.market_value,
+            direction=self._direction(position.contribution_pct_points),
+        )
+
+    def _aggregate_attribution(
+        self,
+        positions: list[PortfolioAttributionPosition],
+        label_getter,
+    ) -> list[PortfolioAttributionItem]:
+        grouped: dict[str, list[PortfolioAttributionPosition]] = defaultdict(list)
+        for position in positions:
+            grouped[label_getter(position)].append(position)
+
+        items: list[PortfolioAttributionItem] = []
+        for label, group in grouped.items():
+            contribution = sum(item.contribution_pct_points for item in group)
+            weight = sum(item.weight for item in group)
+            market_value = sum(item.market_value for item in group)
+            weighted_return_sum = sum(
+                item.return_pct * item.weight
+                for item in group
+                if item.return_pct is not None and item.weight > 0
+            )
+            return_weight = sum(item.weight for item in group if item.return_pct is not None and item.weight > 0)
+            return_pct = (weighted_return_sum / return_weight) if return_weight > 0 else None
+            items.append(
+                PortfolioAttributionItem(
+                    label=label,
+                    contribution_pct_points=round(contribution, 6),
+                    return_pct=round(return_pct, 4) if return_pct is not None else None,
+                    weight=round(weight, 6),
+                    market_value=round(market_value, 2),
+                    direction=self._direction(contribution),
+                )
+            )
+
+        return sorted(items, key=lambda item: abs(item.contribution_pct_points), reverse=True)
+
+    def portfolio_attribution(self, person_id: UUID, range_value: str = "3m") -> PortfolioAttributionReadModel:
+        history_context = self._get_portfolio_history_context(person_id, range_value=range_value)
+        positions, attribution_warnings = self._build_position_attribution(history_context)
+        by_position = sorted(
+            [self._position_to_attribution_item(position) for position in positions],
+            key=lambda item: abs(item.contribution_pct_points),
+            reverse=True,
+        )
+        total_contribution_pct_points = round(sum(item.contribution_pct_points for item in by_position), 6)
+        portfolio_return_pct = self._portfolio_range_return_pct(history_context.portfolio_points)
+        residual_pct_points = (
+            round(portfolio_return_pct - total_contribution_pct_points, 6)
+            if portfolio_return_pct is not None
+            else None
+        )
+        covered_positions = sum(1 for position in positions if position.periods_used > 0)
+        warnings = self._collect_warnings(
+            history_context.snapshot_warnings,
+            history_context.history_warnings,
+            attribution_warnings,
+        )
+
+        return PortfolioAttributionReadModel(
+            person_id=person_id,
+            as_of=datetime.now(UTC).date(),
+            range=range_value,
+            range_label=self._range_label(range_value),
+            benchmark_symbol=self.DEFAULT_BENCHMARK_SYMBOL if history_context.benchmark_points else None,
+            summary=PortfolioAttributionSummary(
+                portfolio_return_pct=round(portfolio_return_pct, 4) if portfolio_return_pct is not None else None,
+                total_contribution_pct_points=total_contribution_pct_points,
+                residual_pct_points=residual_pct_points,
+                covered_positions=covered_positions,
+                total_positions=len(positions),
+                unattributed_positions=max(0, len(positions) - covered_positions),
+            ),
+            by_position=by_position,
+            by_sector=self._aggregate_attribution(positions, lambda item: item.sector),
+            by_country=self._aggregate_attribution(positions, lambda item: item.country),
+            by_currency=self._aggregate_attribution(positions, lambda item: item.currency),
+            warnings=warnings,
+            meta={"loading": False, "error": ", ".join(warnings) or None},
+        )
+
     def portfolio_contributors(self, person_id: UUID, range_value: str = "3m") -> PortfolioContributorsReadModel:
         history_context = self._get_portfolio_history_context(person_id, range_value=range_value)
         return self._build_portfolio_contributors_from_history_context(
@@ -1541,6 +1761,8 @@ class AnalyticsService:
         self._apply_generated_at_to_model_meta(payload.risk, generated_at)
         self._apply_generated_at_to_model_meta(payload.coverage, generated_at)
         self._apply_generated_at_to_model_meta(payload.contributors, generated_at)
+        if payload.attribution is not None:
+            self._apply_generated_at_to_model_meta(payload.attribution, generated_at)
         return payload
 
     def _get_or_build_portfolio_dashboard_entry(
@@ -1661,6 +1883,7 @@ class AnalyticsService:
             range_value=range_value,
             history_context=history_context,
         )
+        attribution = self.portfolio_attribution(person_id, range_value=range_value)
 
         counters, coverage_warnings = self._coverage_summary(holdings, snapshot_warnings)
         coverage = PortfolioDataCoverageReadModel(
@@ -1685,7 +1908,7 @@ class AnalyticsService:
         )
         errors = [
             model.meta.error
-            for model in [summary, performance, exposures, holdings_model, risk, coverage, contributors]
+            for model in [summary, performance, exposures, holdings_model, risk, coverage, contributors, attribution]
             if model.meta.error
         ]
         return PortfolioDashboardReadModel(
@@ -1700,6 +1923,7 @@ class AnalyticsService:
             risk=risk,
             coverage=coverage,
             contributors=contributors,
+            attribution=attribution,
             meta={
                 "loading": False,
                 "error": "; ".join(list(dict.fromkeys(errors))) or None,

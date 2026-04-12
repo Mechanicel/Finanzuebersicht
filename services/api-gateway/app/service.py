@@ -34,6 +34,7 @@ from app.models import (
     PersonReadModel,
     PersonUpdatePayload,
     PortfolioCreatePayload,
+    PortfolioAttributionReadModel,
     PortfolioDataCoverageReadModel,
     PortfolioContributorsReadModel,
     PortfolioDashboardReadModel,
@@ -532,6 +533,16 @@ class GatewayService:
             params={"range": range_value},
         )
         return PortfolioContributorsReadModel.model_validate(payload)
+
+    async def get_portfolio_attribution(
+        self, person_id: UUID, range_value: str = "3m"
+    ) -> PortfolioAttributionReadModel:
+        payload = await self._request_json(
+            f"{self._analytics_base_url}/api/v1/analytics/persons/{person_id}/portfolio-attribution",
+            "GET",
+            params={"range": range_value},
+        )
+        return PortfolioAttributionReadModel.model_validate(payload)
 
     async def get_portfolio_data_coverage(self, person_id: UUID) -> PortfolioDataCoverageReadModel:
         payload = await self._request_json(

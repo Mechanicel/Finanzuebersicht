@@ -17,6 +17,7 @@ from app.models import (
     MetricsReadModel,
     MonthlyComparisonReadModel,
     OverviewReadModel,
+    PortfolioAttributionReadModel,
     PortfolioContributorsReadModel,
     PortfolioDashboardReadModel,
     PortfolioDataCoverageReadModel,
@@ -263,6 +264,22 @@ async def portfolio_risk(
     return ApiResponse(
         data=await asyncio.to_thread(
             _call_or_404, lambda: service.portfolio_risk(person_id, range_value=range)
+        )
+    )
+
+
+@router.get(
+    "/analytics/persons/{person_id}/portfolio-attribution",
+    response_model=ApiResponse[PortfolioAttributionReadModel],
+)
+async def portfolio_attribution(
+    person_id: UUID,
+    service: Annotated[AnalyticsService, Depends(get_analytics_service)],
+    range: str = "3m",
+) -> ApiResponse[PortfolioAttributionReadModel]:
+    return ApiResponse(
+        data=await asyncio.to_thread(
+            _call_or_404, lambda: service.portfolio_attribution(person_id, range_value=range)
         )
     )
 

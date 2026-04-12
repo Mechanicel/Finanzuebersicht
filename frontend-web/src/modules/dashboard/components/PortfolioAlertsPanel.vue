@@ -70,33 +70,20 @@ import type {
 import {
   buildPortfolioAlerts,
   type PortfolioAlert,
+  sourceLabels,
+  sourceOrder,
+  severityLabels,
+  type PortfolioAlertSourceKey,
   type PortfolioAlertSeverity
 } from '@/modules/dashboard/model/portfolioAlerts'
 
-type AlertSourceKey = 'risk' | 'coverage' | 'concentration' | 'summary'
-
 interface SourceSummary {
-  key: AlertSourceKey
+  key: PortfolioAlertSourceKey
   label: string
   count: number
 }
 
 const PRIMARY_ALERT_LIMIT = 3
-
-const severityLabels: Record<PortfolioAlertSeverity, string> = {
-  kritisch: 'Kritisch',
-  warnung: 'Warnung',
-  info: 'Info'
-}
-
-const sourceLabels: Record<AlertSourceKey, string> = {
-  risk: 'Risk',
-  coverage: 'Coverage',
-  concentration: 'Konzentration',
-  summary: 'Summary'
-}
-
-const sourceOrder: AlertSourceKey[] = ['risk', 'coverage', 'concentration', 'summary']
 
 const props = withDefaults(
   defineProps<{
@@ -131,10 +118,10 @@ const primaryAlerts = computed(() => alerts.value.slice(0, PRIMARY_ALERT_LIMIT))
 const additionalAlerts = computed(() => alerts.value.slice(PRIMARY_ALERT_LIMIT))
 
 const sourceSummaries = computed<SourceSummary[]>(() => {
-  const counts = new Map<AlertSourceKey, number>()
+  const counts = new Map<PortfolioAlertSourceKey, number>()
 
   for (const alert of alerts.value) {
-    const key = sourceKey(alert)
+    const key = alert.sourceKey
     counts.set(key, (counts.get(key) ?? 0) + 1)
   }
 
@@ -172,32 +159,16 @@ function severityLabel(severity: PortfolioAlertSeverity): string {
   return severityLabels[severity]
 }
 
-function sourceKey(alert: PortfolioAlert): AlertSourceKey {
-  if (
-    alert.id.includes('concentration') ||
-    alert.id === 'small-portfolio' ||
-    alert.source.toLowerCase().includes('summary')
-  ) {
-    return 'concentration'
-  }
-
-  if (alert.source === 'Coverage') return 'coverage'
-  if (alert.source === 'Risk') return 'risk'
-
-  return 'summary'
+function sourceKey(alert: PortfolioAlert): PortfolioAlertSourceKey {
+  return alert.sourceKey
 }
 
 function sourceLabel(alert: PortfolioAlert): string {
-  return sourceLabels[sourceKey(alert)]
+  return alert.sourceLabel
 }
 
 function actionHint(alert: PortfolioAlert): string {
-  if (alert.id.includes('concentration') || alert.id === 'small-portfolio') return 'Konzentration pruefen'
-  if (alert.source === 'Coverage' || alert.id.includes('quality')) return 'Datenquelle pruefen'
-  if (alert.id === 'high-tracking-error') return 'Benchmark-Abweichung pruefen'
-  if (alert.source === 'Risk') return 'Risikobudget pruefen'
-  if (alert.id === 'negative-range-return') return 'Renditetreiber pruefen'
-  return 'Hinweis pruefen'
+  return alert.actionHint
 }
 </script>
 
@@ -295,6 +266,12 @@ h3 {
   border-color: #fecaca;
   background: #fef2f2;
   color: #991b1b;
+}
+
+.source-chip--contributors {
+  border-color: #fed7aa;
+  background: #fff7ed;
+  color: #9a3412;
 }
 
 .source-chip--summary {

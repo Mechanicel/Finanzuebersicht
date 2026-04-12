@@ -8,6 +8,7 @@ vi.mock('@/modules/dashboard/api/portfolioDashboardApi', () => ({
   fetchPortfolioExposures: vi.fn(),
   fetchPortfolioHoldings: vi.fn(),
   fetchPortfolioRisk: vi.fn(),
+  fetchPortfolioAttribution: vi.fn(),
   fetchPortfolioContributors: vi.fn(),
   fetchPortfolioDataCoverage: vi.fn()
 }))
@@ -19,6 +20,7 @@ import {
   fetchPortfolioExposures,
   fetchPortfolioHoldings,
   fetchPortfolioRisk,
+  fetchPortfolioAttribution,
   fetchPortfolioContributors,
   fetchPortfolioDataCoverage
 } from '@/modules/dashboard/api/portfolioDashboardApi'
@@ -107,15 +109,57 @@ describe('usePortfolioDashboard', () => {
     expect(fetchPortfolioPerformance).not.toHaveBeenCalled()
     expect(fetchPortfolioHoldings).not.toHaveBeenCalled()
     expect(fetchPortfolioRisk).not.toHaveBeenCalled()
+    expect(fetchPortfolioAttribution).not.toHaveBeenCalled()
     expect(fetchPortfolioContributors).not.toHaveBeenCalled()
     expect(fetchPortfolioDataCoverage).not.toHaveBeenCalled()
     expect(fetchPortfolioExposures).not.toHaveBeenCalled()
 
     expect(vm.summary.value?.person_id).toBe('person-1')
     expect(vm.performance.value?.range).toBe('6m')
+    expect(vm.attribution.value?.benchmark_symbol).toBe('SPY')
+    expect(vm.attribution.value?.meta.source).toBe('contributors_fallback')
     expect(vm.dashboardSummary.value?.market_value).toBe(100)
     expect(vm.loading.value).toBe(false)
     expect(Object.values(vm.loadingStates.value).every((value) => !value)).toBe(true)
+  })
+
+  it('prefers the dashboard attribution contract when it is present', async () => {
+    const dashboard = buildDashboard('3m')
+    dashboard.attribution = {
+      person_id: 'person-1',
+      as_of: '2026-04-10',
+      range: '3m',
+      range_label: '3 Monate',
+      benchmark_symbol: 'MSCI World',
+      methodology: {
+        key: 'range_contribution',
+        label: 'Beitrag zur Zeitraumrendite',
+        description: 'Beitrag in Prozentpunkten',
+        contribution_basis: 'range_contribution',
+        contribution_unit: 'percentage_points'
+      },
+      summary: {
+        total_contribution_pct_points: 2.1,
+        covered_positions: 1,
+        total_positions: 1,
+        unattributed_positions: 0
+      },
+      by_position: [{ label: 'Apple', contribution_pct_points: 1.2, direction: 'positive' }],
+      by_sector: [{ label: 'Technology', contribution_pct_points: 0.9, direction: 'positive' }],
+      by_country: [],
+      by_currency: [],
+      warnings: [],
+      meta: { source: 'portfolio_attribution' }
+    }
+    vi.mocked(fetchPortfolioDashboard).mockResolvedValueOnce(dashboard)
+
+    const vm = usePortfolioDashboard('person-1')
+
+    await vm.loadBootstrap('3m')
+
+    expect(vm.attribution.value?.benchmark_symbol).toBe('MSCI World')
+    expect(vm.attribution.value?.by_sector?.[0]?.label).toBe('Technology')
+    expect(vm.attribution.value?.meta.source).toBe('portfolio_attribution')
   })
 
   it('keeps legacy loadInitial and loadAll on the bootstrap path', async () => {

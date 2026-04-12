@@ -199,6 +199,52 @@ class PortfolioContributorsReadModel(BaseModel):
     meta: LoadingMeta = Field(default_factory=LoadingMeta)
 
 
+class PortfolioAttributionMethodology(BaseModel):
+    key: str = "holdings_based_static_return_contribution"
+    label: str = "Holdings-based static return contribution"
+    description: str = (
+        "Uses current portfolio holdings with static quantities and instrument price history over the selected range. "
+        "Contributions are additive percentage-point return contributions."
+    )
+    contribution_basis: str = "return contribution over selected range"
+    contribution_unit: str = "percentage_points"
+
+
+class PortfolioAttributionSummary(BaseModel):
+    portfolio_return_pct: float | None = None
+    total_contribution_pct_points: float = 0.0
+    residual_pct_points: float | None = None
+    covered_positions: int = 0
+    total_positions: int = 0
+    unattributed_positions: int = 0
+
+
+class PortfolioAttributionItem(BaseModel):
+    label: str
+    contribution_pct_points: float
+    return_pct: float | None = None
+    weight: float | None = None
+    market_value: float | None = None
+    direction: str | None = None
+    symbol: str | None = None
+
+
+class PortfolioAttributionReadModel(BaseModel):
+    person_id: UUID
+    as_of: date
+    range: str = "3m"
+    range_label: str | None = None
+    benchmark_symbol: str | None = None
+    methodology: PortfolioAttributionMethodology = Field(default_factory=PortfolioAttributionMethodology)
+    summary: PortfolioAttributionSummary = Field(default_factory=PortfolioAttributionSummary)
+    by_position: list[PortfolioAttributionItem] = Field(default_factory=list)
+    by_sector: list[PortfolioAttributionItem] = Field(default_factory=list)
+    by_country: list[PortfolioAttributionItem] = Field(default_factory=list)
+    by_currency: list[PortfolioAttributionItem] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    meta: LoadingMeta = Field(default_factory=LoadingMeta)
+
+
 class PortfolioDataCoverageReadModel(BaseModel):
     person_id: UUID
     as_of: date
@@ -229,4 +275,5 @@ class PortfolioDashboardReadModel(BaseModel):
     risk: PortfolioRiskReadModel
     coverage: PortfolioDataCoverageReadModel
     contributors: PortfolioContributorsReadModel
+    attribution: PortfolioAttributionReadModel | None = None
     meta: PortfolioDashboardMetaReadModel = Field(default_factory=PortfolioDashboardMetaReadModel)

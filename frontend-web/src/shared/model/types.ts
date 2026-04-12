@@ -650,6 +650,66 @@ export interface PortfolioContributorsReadModel {
   meta: { loading?: boolean; error?: string | null; [key: string]: unknown }
 }
 
+export interface PortfolioAttributionMethodology {
+  key: string
+  label: string
+  description: string
+  contribution_basis: string
+  contribution_unit: 'percentage_points' | (string & {})
+}
+
+export interface PortfolioAttributionSummary {
+  portfolio_return_pct?: number | null
+  total_contribution_pct_points: number
+  residual_pct_points?: number | null
+  covered_positions: number
+  total_positions: number
+  unattributed_positions: number
+}
+
+export interface PortfolioAttributionItem {
+  label: string
+  contribution_pct_points: number
+  return_pct?: number | null
+  weight?: number | null
+  market_value?: number | null
+  direction?: 'positive' | 'negative' | 'neutral' | string | null
+  symbol?: string | null
+}
+
+export type PortfolioAttributionBucketKey = 'position' | 'sector' | 'country' | 'currency'
+
+export type PortfolioAttributionBucket =
+  | PortfolioAttributionItem[]
+  | {
+      top_positive?: PortfolioAttributionItem[]
+      top_negative?: PortfolioAttributionItem[]
+      positive?: PortfolioAttributionItem[]
+      negative?: PortfolioAttributionItem[]
+      top_contributors?: PortfolioAttributionItem[]
+      top_detractors?: PortfolioAttributionItem[]
+      items?: PortfolioAttributionItem[]
+      warnings?: string[]
+      meta?: Record<string, unknown>
+      [key: string]: unknown
+    }
+
+export interface PortfolioAttributionReadModel {
+  person_id: string
+  as_of: string
+  range: string
+  range_label?: string | null
+  benchmark_symbol?: string | null
+  methodology: PortfolioAttributionMethodology
+  summary: PortfolioAttributionSummary
+  by_position: PortfolioAttributionItem[]
+  by_sector: PortfolioAttributionItem[]
+  by_country: PortfolioAttributionItem[]
+  by_currency: PortfolioAttributionItem[]
+  warnings: string[]
+  meta: { loading?: boolean; error?: string | null; [key: string]: unknown }
+}
+
 export interface PortfolioDataCoverageReadModel {
   person_id: string
   as_of: string
@@ -676,6 +736,7 @@ export interface PortfolioDashboardReadModel {
   risk: PortfolioRiskReadModel
   coverage: PortfolioDataCoverageReadModel
   contributors: PortfolioContributorsReadModel
+  attribution?: PortfolioAttributionReadModel | null
   meta: { loading?: boolean; error?: string | null; warnings?: string[]; [key: string]: unknown }
 }
 

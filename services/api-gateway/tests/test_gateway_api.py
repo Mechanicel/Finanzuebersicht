@@ -325,6 +325,7 @@ class StubGatewayService:
             "risk": await self.get_portfolio_risk(person_id),
             "coverage": await self.get_portfolio_data_coverage(person_id),
             "contributors": await self.get_portfolio_contributors(person_id),
+            "attribution": await self.get_portfolio_attribution(person_id, range_value=range_value),
             "meta": {"loading": False, "error": None, "warnings": []},
         }
 
@@ -418,6 +419,46 @@ class StubGatewayService:
                 }
             ],
             "top_detractors": [],
+            "meta": {"loading": False, "error": None},
+        }
+
+    async def get_portfolio_attribution(self, person_id: UUID, range_value: str = "3m") -> dict:
+        return {
+            "person_id": str(person_id),
+            "as_of": "2026-04-10",
+            "range": range_value,
+            "range_label": "6 months" if range_value == "6m" else "3 months",
+            "benchmark_symbol": "SPY",
+            "methodology": {
+                "key": "holdings_based_static_return_contribution",
+                "label": "Holdings-based static return contribution",
+                "description": "Uses current holdings and additive return contributions.",
+                "contribution_basis": "return contribution over selected range",
+                "contribution_unit": "percentage_points",
+            },
+            "summary": {
+                "portfolio_return_pct": 20.0,
+                "total_contribution_pct_points": 12.0,
+                "residual_pct_points": 8.0,
+                "covered_positions": 1,
+                "total_positions": 1,
+                "unattributed_positions": 0,
+            },
+            "by_position": [
+                {
+                    "label": "Apple Inc.",
+                    "symbol": "AAPL",
+                    "contribution_pct_points": 12.0,
+                    "return_pct": 20.0,
+                    "weight": 0.611111,
+                    "market_value": 220.0,
+                    "direction": "positive",
+                }
+            ],
+            "by_sector": [{"label": "Technology", "contribution_pct_points": 12.0, "direction": "positive"}],
+            "by_country": [{"label": "US", "contribution_pct_points": 12.0, "direction": "positive"}],
+            "by_currency": [{"label": "USD", "contribution_pct_points": 12.0, "direction": "positive"}],
+            "warnings": [],
             "meta": {"loading": False, "error": None},
         }
 
@@ -612,6 +653,7 @@ def test_app_endpoints_for_vue_pages() -> None:
     assert client.get(f"/api/v1/app/persons/{PERSON_ID}/portfolio-exposures").status_code == 200
     assert client.get(f"/api/v1/app/persons/{PERSON_ID}/portfolio-holdings").status_code == 200
     assert client.get(f"/api/v1/app/persons/{PERSON_ID}/portfolio-risk").status_code == 200
+    assert client.get(f"/api/v1/app/persons/{PERSON_ID}/portfolio-attribution").status_code == 200
     assert client.get(f"/api/v1/app/persons/{PERSON_ID}/portfolio-contributors").status_code == 200
     assert client.get(f"/api/v1/app/persons/{PERSON_ID}/portfolio-data-coverage").status_code == 200
     assert client.get(f"/api/v1/app/persons/{PERSON_ID}/accounts").status_code == 200
@@ -681,6 +723,22 @@ def test_app_endpoints_for_vue_pages() -> None:
     assert payload["overview"]["labels"]
     assert payload["kpis"]
 
+    app.dependency_overrides.clear()
+
+
+def test_portfolio_attribution_route_passes_range_and_contract() -> None:
+    app.dependency_overrides[get_gateway_service] = lambda: StubGatewayService()
+    client = create_test_client(app)
+
+    response = client.get(f"/api/v1/app/persons/{PERSON_ID}/portfolio-attribution", params={"range": "6m"})
+
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["range"] == "6m"
+    assert payload["methodology"]["key"] == "holdings_based_static_return_contribution"
+    assert payload["summary"]["total_contribution_pct_points"] == 12.0
+    assert payload["by_position"][0]["label"] == "Apple Inc."
+    assert payload["by_sector"][0]["contribution_pct_points"] == 12.0
     app.dependency_overrides.clear()
 
 

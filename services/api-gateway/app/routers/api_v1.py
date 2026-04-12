@@ -29,6 +29,7 @@ from app.models import (
     PersonReadModel,
     PersonBankAssignmentReadModel,
     PersonUpdatePayload,
+    PortfolioAttributionReadModel,
     PortfolioContributorsReadModel,
     PortfolioDashboardReadModel,
     PortfolioCreatePayload,
@@ -272,6 +273,18 @@ async def portfolio_risk(
     person_id: UUID, service: Annotated[GatewayService, Depends(get_gateway_service)]
 ) -> ApiResponse[PortfolioRiskReadModel]:
     return ApiResponse(data=await service.get_portfolio_risk(person_id))
+
+
+@router.get(
+    "/app/persons/{person_id}/portfolio-attribution",
+    response_model=ApiResponse[PortfolioAttributionReadModel],
+)
+async def portfolio_attribution(
+    person_id: UUID,
+    service: Annotated[GatewayService, Depends(get_gateway_service)],
+    range: str = Query(default="3m"),
+) -> ApiResponse[PortfolioAttributionReadModel]:
+    return ApiResponse(data=await service.get_portfolio_attribution(person_id, range_value=range))
 
 
 @router.get(

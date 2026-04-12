@@ -1,6 +1,7 @@
 import { computed, ref, unref, type Ref } from 'vue'
 import { extractApiErrorMessage } from '@/shared/api/extractApiErrorMessage'
 import {
+  fetchPortfolioAttribution,
   fetchPortfolioDashboard,
   fetchPortfolioContributors,
   fetchPortfolioDataCoverage,
@@ -10,7 +11,9 @@ import {
   fetchPortfolioRisk,
   fetchPortfolioSummary
 } from '@/modules/dashboard/api/portfolioDashboardApi'
+import { resolvePortfolioAttribution } from '@/modules/dashboard/model/portfolioAttribution'
 import type {
+  PortfolioAttributionReadModel,
   PortfolioContributorsReadModel,
   PortfolioDashboardReadModel,
   PortfolioDashboardRange,
@@ -31,6 +34,7 @@ const loadingStatesDefault = {
   exposures: false,
   holdings: false,
   risk: false,
+  attribution: false,
   contributors: false,
   coverage: false
 }
@@ -41,6 +45,7 @@ const errorsDefault = {
   exposures: '',
   holdings: '',
   risk: '',
+  attribution: '',
   contributors: '',
   coverage: ''
 }
@@ -53,6 +58,7 @@ export function usePortfolioDashboard(personId: MaybeRef<string>) {
   const holdings = ref<PortfolioHoldingsReadModel | null>(null)
   const risk = ref<PortfolioRiskReadModel | null>(null)
   const contributors = ref<PortfolioContributorsReadModel | null>(null)
+  const attribution = ref<PortfolioAttributionReadModel | null>(null)
   const coverage = ref<PortfolioDataCoverageReadModel | null>(null)
 
   const loading = ref(false)
@@ -73,6 +79,16 @@ export function usePortfolioDashboard(personId: MaybeRef<string>) {
 
   function isCurrentLoad(version: number) {
     return loadVersion.value === version
+  }
+
+  function updateAttribution(rawAttribution?: PortfolioAttributionReadModel | null) {
+    attribution.value = resolvePortfolioAttribution({
+      attribution: rawAttribution ?? attribution.value,
+      contributors: contributors.value,
+      performance: performance.value,
+      risk: risk.value,
+      personId: currentPersonId()
+    })
   }
 
   async function loadSummary(version = loadVersion.value) {
@@ -192,6 +208,7 @@ export function usePortfolioDashboard(personId: MaybeRef<string>) {
       const payload = await fetchPortfolioContributors(currentPersonId())
       if (isCurrentLoad(version)) {
         contributors.value = payload
+        updateAttribution()
       }
       return payload
     } catch (rawError) {
@@ -203,6 +220,28 @@ export function usePortfolioDashboard(personId: MaybeRef<string>) {
     } finally {
       if (isCurrentLoad(version)) {
         loadingStates.value.contributors = false
+      }
+    }
+  }
+
+  async function loadAttribution(range: PortfolioDashboardRange | string = '3m', version = loadVersion.value) {
+    loadingStates.value.attribution = true
+    errors.value.attribution = ''
+    try {
+      const payload = await fetchPortfolioAttribution(currentPersonId(), range)
+      if (isCurrentLoad(version)) {
+        attribution.value = payload
+      }
+      return payload
+    } catch (rawError) {
+      const message = normalizeError(rawError, 'Portfolio Attribution konnte nicht geladen werden.')
+      if (isCurrentLoad(version)) {
+        errors.value.attribution = message
+      }
+      throw rawError
+    } finally {
+      if (isCurrentLoad(version)) {
+        loadingStates.value.attribution = false
       }
     }
   }
@@ -249,6 +288,7 @@ export function usePortfolioDashboard(personId: MaybeRef<string>) {
     results.push(await runSectionLoad(() => loadHoldings(version)))
     results.push(await runSectionLoad(() => loadRisk(version)))
     results.push(await runSectionLoad(() => loadContributors(version)))
+    results.push(await runSectionLoad(() => loadAttribution('3m', version)))
     results.push(await runSectionLoad(() => loadCoverage(version)))
     results.push(await runSectionLoad(() => loadExposures(version)))
 
@@ -267,7 +307,7 @@ export function usePortfolioDashboard(personId: MaybeRef<string>) {
     loading.value = true
     clearErrors()
     const version = ++loadVersion.value
-    const keys: SectionKey[] = ['summary', 'performance', 'exposures', 'holdings', 'risk', 'contributors', 'coverage']
+    const keys: SectionKey[] = ['summary', 'performance', 'exposures', 'holdings', 'risk', 'attribution', 'contributors', 'coverage']
     keys.forEach((key) => {
       loadingStates.value[key] = true
       errors.value[key] = ''
@@ -282,6 +322,13 @@ export function usePortfolioDashboard(personId: MaybeRef<string>) {
         holdings.value = payload.holdings
         risk.value = payload.risk
         contributors.value = payload.contributors
+        attribution.value = resolvePortfolioAttribution({
+          attribution: payload.attribution,
+          contributors: payload.contributors,
+          performance: payload.performance,
+          risk: payload.risk,
+          personId: payload.person_id
+        })
         coverage.value = payload.coverage
       }
       return payload
@@ -317,6 +364,7 @@ export function usePortfolioDashboard(personId: MaybeRef<string>) {
       !!exposures.value ||
       !!holdings.value ||
       !!risk.value ||
+      !!attribution.value ||
       !!contributors.value ||
       !!coverage.value
   )
@@ -342,6 +390,7 @@ export function usePortfolioDashboard(personId: MaybeRef<string>) {
     holdings,
     risk,
     contributors,
+    attribution,
     coverage,
     loading,
     loadingStates,
@@ -356,6 +405,7 @@ export function usePortfolioDashboard(personId: MaybeRef<string>) {
     loadExposures,
     loadHoldings,
     loadRisk,
+    loadAttribution,
     loadContributors,
     loadCoverage,
     hasData,

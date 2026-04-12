@@ -205,6 +205,7 @@ def test_all_analytics_endpoints_exist() -> None:
         "portfolio-exposures",
         "portfolio-holdings",
         "portfolio-risk",
+        "portfolio-attribution",
         "portfolio-contributors",
         "portfolio-data-coverage",
     ]
@@ -520,12 +521,12 @@ def test_portfolio_performance_and_risk_payloads_stay_stable() -> None:
     assert risk_response.status_code == 200
 
     perf = perf_response.json()["data"]
-    assert perf["summary"] == {
-        "start_value": 340.0,
-        "end_value": 365.0,
-        "absolute_change": 25.0,
-        "return_pct": 7.3529,
-    }
+    assert perf["summary"]["summary_kind"] == "range"
+    assert perf["summary"]["return_basis"] == "range_start_value"
+    assert perf["summary"]["start_value"] == 340.0
+    assert perf["summary"]["end_value"] == 365.0
+    assert perf["summary"]["absolute_change"] == 25.0
+    assert perf["summary"]["return_pct"] == 7.3529
     assert perf["benchmark_symbol"] == "SPY"
 
     risk = risk_response.json()["data"]
@@ -658,6 +659,69 @@ def test_portfolio_contributors_use_return_contribution_instead_of_unrealized_pn
     assert payload["total_contribution_pct_points"] == 35.294118
 
 
+def test_portfolio_attribution_returns_additive_position_and_dimension_buckets() -> None:
+    client = _client_with_fake_service()
+    response = client.get(f"/api/v1/analytics/persons/{PERSON_ID}/portfolio-attribution?range=6m")
+
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    position_total = round(sum(item["contribution_pct_points"] for item in payload["by_position"]), 6)
+
+    assert payload["person_id"] == PERSON_ID
+    assert payload["range"] == "6m"
+    assert payload["range_label"] == "6 months"
+    assert payload["benchmark_symbol"] == "SPY"
+    assert payload["methodology"]["key"] == "holdings_based_static_return_contribution"
+    assert payload["methodology"]["contribution_basis"] == "return contribution over selected range"
+    assert payload["methodology"]["contribution_unit"] == "percentage_points"
+    assert payload["summary"]["total_contribution_pct_points"] == position_total
+    assert payload["summary"]["portfolio_return_pct"] == 7.3529
+    assert payload["summary"]["covered_positions"] == 2
+    assert payload["summary"]["unattributed_positions"] == 0
+    assert [item["symbol"] for item in payload["by_position"]] == ["AAPL", "MSFT"]
+    assert payload["by_sector"][0]["label"] == "Technology"
+    assert payload["by_sector"][0]["contribution_pct_points"] == position_total
+    assert payload["by_country"][0]["label"] == "US"
+    assert payload["by_currency"][0]["label"] == "USD"
+
+
+def test_portfolio_attribution_marks_missing_history_as_unattributed() -> None:
+    class MissingAttributionHistoryService(FakeAnalyticsService):
+        def _request_json(self, url: str, client=None) -> dict | list[dict]:
+            if "/marketdata/batch/history" in url:
+                return {
+                    "items": [
+                        {
+                            "symbol": "AAPL",
+                            "points": [
+                                {"date": "2026-01-01", "close": 100},
+                                {"date": "2026-01-02", "close": 110},
+                            ],
+                        },
+                        {
+                            "symbol": "SPY",
+                            "points": [
+                                {"date": "2026-01-01", "close": 200},
+                                {"date": "2026-01-02", "close": 210},
+                            ],
+                        },
+                    ]
+                }
+            return super()._request_json(url, client=client)
+
+    app.dependency_overrides[get_analytics_service] = lambda: MissingAttributionHistoryService()
+    client = create_test_client(app)
+    payload = client.get(f"/api/v1/analytics/persons/{PERSON_ID}/portfolio-attribution").json()["data"]
+
+    msft = next(item for item in payload["by_position"] if item["symbol"] == "MSFT")
+    assert msft["contribution_pct_points"] == 0.0
+    assert msft["return_pct"] is None
+    assert msft["direction"] == "neutral"
+    assert payload["summary"]["covered_positions"] == 1
+    assert payload["summary"]["unattributed_positions"] == 1
+    assert "attribution_history_missing:MSFT" in payload["warnings"]
+
+
 def test_portfolio_contributors_sets_warning_for_missing_history() -> None:
     class MissingContributorHistoryService(FakeAnalyticsService):
         def _request_json(self, url: str, client=None) -> dict | list[dict]:
@@ -716,6 +780,7 @@ def test_portfolio_endpoints_reuse_snapshot_load_for_same_person() -> None:
     service.portfolio_exposures(person_id)
     service.portfolio_holdings(person_id)
     service.portfolio_risk(person_id)
+    service.portfolio_attribution(person_id)
     service.portfolio_contributors(person_id)
     service.portfolio_data_coverage(person_id)
 
@@ -738,6 +803,8 @@ def test_portfolio_dashboard_bootstrap_contains_all_sections() -> None:
     assert "portfolio_volatility" in payload["risk"]
     assert "warnings" in payload["coverage"]
     assert "top_contributors" in payload["contributors"]
+    assert payload["attribution"]["methodology"]["key"] == "holdings_based_static_return_contribution"
+    assert "by_position" in payload["attribution"]
     assert payload["meta"]["loading"] is False
     assert isinstance(payload["meta"]["warnings"], list)
 
