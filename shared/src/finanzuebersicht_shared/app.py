@@ -10,10 +10,10 @@ from finanzuebersicht_shared.logging import configure_logging
 from finanzuebersicht_shared.request_context import RequestContextMiddleware
 
 
-def create_app(*, settings: ServiceSettings, api_router: APIRouter | None = None) -> FastAPI:
+def create_app(*, settings: ServiceSettings, api_router: APIRouter | None = None, lifespan=None) -> FastAPI:
     configure_logging(settings.log_level)
 
-    app = FastAPI(title=settings.app_name, version=settings.app_version)
+    app = FastAPI(title=settings.app_name, version=settings.app_version, lifespan=lifespan)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_allow_origins,

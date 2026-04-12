@@ -4,8 +4,8 @@
       <h3>Holdings</h3>
       <p class="meta"><strong>Snapshot</strong> · Stand: {{ asOfLabel }}</p>
     </header>
-    <div class="table-wrap" :class="{ 'table-wrap--no-scroll': useCompactLayout }" data-test="holdings-table-wrap">
-      <table class="holdings-table" :class="{ 'holdings-table--compact': useCompactLayout }">
+    <div class="table-wrap" :class="{ 'table-wrap--small': useSmallTableState }" data-test="holdings-table-wrap">
+      <table class="holdings-table" :class="{ 'holdings-table--small': useSmallTableState }">
         <colgroup>
           <col class="col-symbol" />
           <col class="col-name" />
@@ -31,42 +31,51 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-if="sortedItems.length === 0">
+          <tr v-if="rows.length === 0" class="empty-state-row">
             <td colspan="9" class="empty-row">Keine Holdings vorhanden.</td>
           </tr>
           <tr
-            v-for="item in sortedItems"
-            :key="`${item.portfolio_id}-${item.holding_id || item.symbol}`"
-            :class="{ active: item.symbol && item.symbol === selectedSymbol }"
-            @click="onSelect(item)"
+            v-for="row in rows"
+            :key="row.key"
+            :class="{ active: row.item.symbol && row.item.symbol === selectedSymbol }"
+            @click="onSelect(row.item)"
           >
-            <td class="cell-symbol text-truncate" :title="formatNullableText(item.symbol)">
-              {{ formatNullableText(item.symbol) }}
+            <td class="cell-symbol text-truncate" :title="row.symbolLabel">
+              {{ row.symbolLabel }}
             </td>
-            <td class="cell-name text-truncate" :title="holdingName(item)">
-              {{ holdingName(item) }}
+            <td class="cell-name text-truncate" :title="row.nameLabel">
+              {{ row.nameLabel }}
             </td>
-            <td class="cell-number">{{ formatPercent(item.weight) }}</td>
-            <td class="cell-number">{{ formatMoney(item.market_value, currency) }}</td>
-            <td class="cell-number" :class="pnlClass(item.unrealized_pnl)">
-              {{ formatSignedMoney(item.unrealized_pnl, currency) }}
+            <td class="cell-number" :title="row.weightLabel">{{ row.weightLabel }}</td>
+            <td class="cell-number" :title="row.marketValueLabel">{{ row.marketValueLabel }}</td>
+            <td class="cell-number" :class="pnlClass(row.item.unrealized_pnl)" :title="row.pnlLabel">
+              {{ row.pnlLabel }}
             </td>
-            <td class="cell-number" :class="pnlClass(item.unrealized_return_pct)">
-              {{ formatPercentValue(item.unrealized_return_pct) }}
+            <td class="cell-number" :class="pnlClass(row.item.unrealized_return_pct)" :title="row.returnLabel">
+              {{ row.returnLabel }}
             </td>
-            <td class="cell-sector text-truncate" :title="formatNullableText(item.sector)">
-              {{ formatNullableText(item.sector) }}
+            <td class="cell-sector text-truncate" :title="row.sectorLabel">
+              {{ row.sectorLabel }}
             </td>
-            <td class="cell-country text-truncate" :title="formatNullableText(item.country)">
-              {{ formatNullableText(item.country) }}
+            <td class="cell-country text-truncate" :title="row.countryLabel">
+              {{ row.countryLabel }}
             </td>
             <td class="cell-status">
-              <span class="status-badge" :class="statusClass(item.data_status)" :title="mapHoldingDataStatus(item.data_status)">
-                {{ mapHoldingDataStatus(item.data_status) }}
-              </span>
-              <p v-if="hasWarnings(item.warnings)" class="warning-hint" :title="formatWarnings(item.warnings)">
-                {{ formatWarnings(item.warnings) }}
-              </p>
+              <div class="status-stack">
+                <span class="status-badge" :class="statusClass(row.item.data_status)" :title="row.statusLabel">
+                  {{ row.statusLabel }}
+                </span>
+                <div v-if="row.warningLabels.length > 0" class="warning-summary" :title="row.warningTitle">
+                  <span class="warning-text">{{ row.warningLabels[0] }}</span>
+                  <span
+                    v-if="row.hiddenWarningCount > 0"
+                    class="warning-count"
+                    :aria-label="`${row.hiddenWarningCount} weitere Warnungen: ${row.hiddenWarningsLabel}`"
+                  >
+                    +{{ row.hiddenWarningCount }}
+                  </span>
+                </div>
+              </div>
             </td>
           </tr>
         </tbody>
@@ -103,7 +112,32 @@ const currency = computed(() => props.currency ?? 'EUR')
 const asOfLabel = computed(() => formatDate(props.asOf))
 
 const sortedItems = computed(() => [...props.items].sort((left, right) => right.weight - left.weight))
-const useCompactLayout = computed(() => sortedItems.value.length <= 3)
+const useSmallTableState = computed(() => sortedItems.value.length <= 2)
+
+const rows = computed(() =>
+  sortedItems.value.map((item) => {
+    const warningLabels = warningDisplayLabels(item.warnings)
+    const hiddenWarnings = warningLabels.slice(1)
+
+    return {
+      item,
+      key: `${item.portfolio_id}-${item.holding_id || item.symbol}`,
+      symbolLabel: formatNullableText(item.symbol),
+      nameLabel: holdingName(item),
+      weightLabel: formatPercent(item.weight),
+      marketValueLabel: formatMoney(item.market_value, currency.value),
+      pnlLabel: formatSignedMoney(item.unrealized_pnl, currency.value),
+      returnLabel: formatPercentValue(item.unrealized_return_pct),
+      sectorLabel: formatNullableText(item.sector),
+      countryLabel: formatNullableText(item.country),
+      statusLabel: mapHoldingDataStatus(item.data_status),
+      warningLabels,
+      warningTitle: warningLabels.join(', '),
+      hiddenWarningCount: hiddenWarnings.length,
+      hiddenWarningsLabel: hiddenWarnings.join(', ')
+    }
+  })
+)
 
 function holdingName(item: PortfolioHoldingItem) {
   return formatNullableText(item.display_name, '') || formatNullableText(item.portfolio_name)
@@ -126,15 +160,10 @@ function statusClass(status: string | null | undefined) {
   return 'warning'
 }
 
-function hasWarnings(warnings: string[] | null | undefined) {
-  return Boolean(warnings?.some((warning) => warning.trim().length > 0))
-}
-
-function formatWarnings(warnings: string[] | null | undefined) {
+function warningDisplayLabels(warnings: string[] | null | undefined) {
   return (warnings ?? [])
     .filter((warning) => warning.trim().length > 0)
     .map((warning) => mapPortfolioWarning(warning))
-    .join(', ')
 }
 </script>
 
@@ -164,20 +193,22 @@ h3 {
   overflow-y: auto;
   overflow-x: auto;
   max-height: 26rem;
+  scrollbar-gutter: stable;
 }
 
-.table-wrap--no-scroll {
+.table-wrap--small {
   overflow-x: hidden;
 }
 
 .holdings-table {
   width: 100%;
+  min-width: 76rem;
   border-collapse: collapse;
   table-layout: fixed;
 }
 
 .col-symbol {
-  width: 8%;
+  width: 6.25rem;
 }
 
 .col-name {
@@ -185,56 +216,63 @@ h3 {
 }
 
 .col-weight {
-  width: 8%;
+  width: 6.5rem;
 }
 
 .col-market-value,
 .col-pnl {
-  width: 10%;
+  width: 8.75rem;
 }
 
 .col-return {
-  width: 9%;
+  width: 7.25rem;
 }
 
 .col-sector {
-  width: 11%;
+  width: 9rem;
 }
 
 .col-country {
-  width: 6%;
+  width: 5.5rem;
 }
 
 .col-status {
-  width: 12%;
+  width: 12rem;
 }
 
-.holdings-table--compact .col-symbol {
-  width: 7%;
+.holdings-table--small {
+  min-width: 0;
 }
 
-.holdings-table--compact .col-weight {
-  width: 7%;
-}
-
-.holdings-table--compact .col-market-value,
-.holdings-table--compact .col-pnl {
+.holdings-table--small .col-symbol {
   width: 9%;
 }
 
-.holdings-table--compact .col-return {
+.holdings-table--small .col-weight {
   width: 8%;
 }
 
-.holdings-table--compact .col-sector {
-  width: 10%;
+.holdings-table--small .col-market-value {
+  width: 11%;
 }
 
-.holdings-table--compact .col-country {
-  width: 6%;
+.holdings-table--small .col-pnl {
+  width: 10.5%;
 }
 
-.holdings-table--compact .col-status {
+.holdings-table--small .col-return {
+  width: 9%;
+}
+
+.holdings-table--small .col-sector {
+  width: 11%;
+}
+
+.holdings-table--small .col-country {
+  width: 6.5%;
+}
+
+.holdings-table--small .col-status {
   width: 14%;
 }
 
@@ -242,19 +280,22 @@ th,
 td {
   text-align: left;
   font-size: 0.8rem;
-  padding: 0.42rem 0.36rem;
+  padding: 0.48rem 0.55rem;
   border-bottom: 1px solid #e2e8f0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
   vertical-align: middle;
 }
 
-tbody tr {
+td {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+tbody tr:not(.empty-state-row) {
   cursor: pointer;
 }
 
-tbody tr:hover {
+tbody tr:not(.empty-state-row):hover {
   background: #f8fafc;
 }
 
@@ -266,6 +307,10 @@ tbody tr.active {
 th {
   color: #475569;
   font-weight: 700;
+  line-height: 1.15;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
   position: sticky;
   top: 0;
   z-index: 1;
@@ -275,6 +320,15 @@ th {
 .cell-number {
   text-align: right;
   font-variant-numeric: tabular-nums;
+}
+
+.cell-symbol {
+  color: #0f172a;
+  font-weight: 700;
+}
+
+.cell-status {
+  white-space: normal;
 }
 
 .text-truncate {
@@ -300,11 +354,13 @@ th {
 .status-badge {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   max-width: 100%;
   border-radius: 999px;
-  padding: 0.1rem 0.4rem;
+  padding: 0.12rem 0.48rem;
   border: 1px solid #cbd5e1;
   font-size: 0.72rem;
+  line-height: 1.2;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -328,13 +384,43 @@ th {
   border-color: #fcd34d;
 }
 
-.warning-hint {
-  margin: 0.18rem 0 0;
+.status-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.2rem;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.warning-summary {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.warning-text {
+  min-width: 0;
   color: #92400e;
   font-size: 0.72rem;
+  line-height: 1.2;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.warning-count {
+  flex: 0 0 auto;
+  border: 1px solid #fcd34d;
+  border-radius: 999px;
+  padding: 0 0.32rem;
+  background: #fef3c7;
+  color: #92400e;
+  font-size: 0.68rem;
+  line-height: 1.15rem;
+  font-variant-numeric: tabular-nums;
 }
 
 .empty-row {
@@ -344,12 +430,21 @@ th {
 }
 
 @media (max-width: 760px) {
-  .table-wrap--no-scroll {
+  .table-wrap--small {
     overflow-x: auto;
   }
 
   .holdings-table {
-    min-width: 46rem;
+    min-width: 64rem;
+  }
+
+  .holdings-table--small {
+    min-width: 48rem;
+  }
+
+  th,
+  td {
+    padding: 0.42rem 0.45rem;
   }
 }
 </style>

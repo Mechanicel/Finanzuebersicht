@@ -71,8 +71,8 @@ describe('PortfolioHoldingsTable', () => {
     })
 
     expect(wrapper.get('table').classes()).toContain('holdings-table')
-    expect(wrapper.get('table').classes()).not.toContain('holdings-table--compact')
-    expect(wrapper.get('[data-test="holdings-table-wrap"]').classes()).not.toContain('table-wrap--no-scroll')
+    expect(wrapper.get('table').classes()).not.toContain('holdings-table--small')
+    expect(wrapper.get('[data-test="holdings-table-wrap"]').classes()).not.toContain('table-wrap--small')
     expect(wrapper.findAll('col').map((col) => col.classes()[0])).toEqual([
       'col-symbol',
       'col-name',
@@ -124,6 +124,29 @@ describe('PortfolioHoldingsTable', () => {
     expect(sectorCell.text()).toBe(longSector)
   })
 
+  it('summarizes multiple warnings and keeps the full warning text in the title', () => {
+    const wrapper = mount(PortfolioHoldingsTable, {
+      props: {
+        items: [
+          holding({
+            warnings: ['missing_current_price', 'missing_price', 'fallback_acquisition_price_used']
+          })
+        ]
+      }
+    })
+
+    const warningSummary = wrapper.get('.warning-summary')
+
+    expect(warningSummary.attributes('title')).toBe(
+      'Aktueller Preis fehlt, Preis fehlt, Fallback auf Einstandspreis aktiv'
+    )
+    expect(warningSummary.get('.warning-text').text()).toBe('Aktueller Preis fehlt')
+    expect(warningSummary.get('.warning-count').text()).toBe('+2')
+    expect(warningSummary.get('.warning-count').attributes('aria-label')).toContain(
+      '2 weitere Warnungen: Preis fehlt, Fallback auf Einstandspreis aktiv'
+    )
+  })
+
   it('renders missing optional values compactly', () => {
     const wrapper = mount(PortfolioHoldingsTable, {
       props: {
@@ -149,17 +172,18 @@ describe('PortfolioHoldingsTable', () => {
     expect(wrapper.get('td.cell-country').text()).toBe('n/a')
     expect(wrapper.findAll('td.cell-number').at(3)?.text()).toBe('n/a')
     expect(wrapper.text()).toContain('Unbekannt')
+    expect(wrapper.find('.warning-summary').exists()).toBe(false)
   })
 
-  it('uses the compact no-scroll layout for a 1-holding portfolio', () => {
+  it('uses the readable small-table layout for a 1-holding portfolio', () => {
     const wrapper = mount(PortfolioHoldingsTable, {
       props: {
         items: [holding()]
       }
     })
 
-    expect(wrapper.get('[data-test="holdings-table-wrap"]').classes()).toContain('table-wrap--no-scroll')
-    expect(wrapper.get('table').classes()).toContain('holdings-table--compact')
+    expect(wrapper.get('[data-test="holdings-table-wrap"]').classes()).toContain('table-wrap--small')
+    expect(wrapper.get('table').classes()).toContain('holdings-table--small')
     expect(wrapper.findAll('tbody tr')).toHaveLength(1)
     expect(wrapper.get('td.cell-name').text()).toBe('Apple')
   })
@@ -171,8 +195,8 @@ describe('PortfolioHoldingsTable', () => {
       }
     })
 
-    expect(wrapper.get('[data-test="holdings-table-wrap"]').classes()).toContain('table-wrap--no-scroll')
-    expect(wrapper.get('table').classes()).toContain('holdings-table--compact')
+    expect(wrapper.get('[data-test="holdings-table-wrap"]').classes()).toContain('table-wrap--small')
+    expect(wrapper.get('table').classes()).toContain('holdings-table--small')
     expect(wrapper.get('.empty-row').text()).toBe('Keine Holdings vorhanden.')
     expect(wrapper.get('.empty-row').attributes('colspan')).toBe('9')
     expect(wrapper.emitted('select-holding')).toBeUndefined()

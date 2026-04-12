@@ -13,7 +13,12 @@ class Settings(ServiceSettings):
     portfolio_service_url: str = "http://localhost:8004"
     account_service_url: str = "http://localhost:8003"
     marketdata_service_url: str = "http://localhost:8005"
-    request_timeout_seconds: float = 30.0
+
+    # 5.1 / 5.3: shortened timeout reduces cascade latency; circuit breaker
+    # catches persistent failures before they drain the thread pool.
+    request_timeout_seconds: float = 10.0
+    circuit_breaker_failure_threshold: int = 5
+    circuit_breaker_recovery_timeout_seconds: float = 30.0
 
 
 @lru_cache(maxsize=1)

@@ -7,6 +7,96 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+# Portfolio analytics models are canonical in finanzuebersicht_shared.
+# Import them here so that routers and service.py can keep their existing
+# "from app.models import ..." imports unchanged.
+from finanzuebersicht_shared.models import (
+    ChartSeries,
+    LoadingMeta,
+    PortfolioContributorItem,
+    PortfolioContributorsReadModel,
+    PortfolioDashboardMetaReadModel,
+    PortfolioDashboardReadModel,
+    PortfolioDataCoverageReadModel,
+    PortfolioExposureSlice,
+    PortfolioExposuresReadModel,
+    PortfolioHoldingItem,
+    PortfolioHoldingsReadModel,
+    PortfolioPerformanceReadModel,
+    PortfolioPerformanceSummary,
+    PortfolioRiskReadModel,
+    PortfolioSummaryReadModel,
+)
+
+__all__ = [
+    # re-exported from shared
+    "ChartSeries",
+    "LoadingMeta",
+    "PortfolioContributorItem",
+    "PortfolioContributorsReadModel",
+    "PortfolioDashboardMetaReadModel",
+    "PortfolioDashboardReadModel",
+    "PortfolioDataCoverageReadModel",
+    "PortfolioExposureSlice",
+    "PortfolioExposuresReadModel",
+    "PortfolioHoldingItem",
+    "PortfolioHoldingsReadModel",
+    "PortfolioPerformanceReadModel",
+    "PortfolioPerformanceSummary",
+    "PortfolioRiskReadModel",
+    "PortfolioSummaryReadModel",
+    # gateway-specific
+    "TaxProfileModel",
+    "TaxProfileUpdateModel",
+    "PersonReadModel",
+    "PersonCreatePayload",
+    "PersonUpdatePayload",
+    "PersonListItem",
+    "PersonListPagination",
+    "PersonListReadModel",
+    "PersonDetailReadModel",
+    "BankReadModel",
+    "BankCreatePayload",
+    "BankListReadModel",
+    "PersonBankAssignmentReadModel",
+    "AssignmentListReadModel",
+    "TaxAllowanceReadModel",
+    "AllowanceUpsertPayload",
+    "AllowanceListReadModel",
+    "AllowanceSummaryBankItemReadModel",
+    "AllowanceSummaryReadModel",
+    "AccountReadModel",
+    "AccountCreatePayload",
+    "AccountUpdatePayload",
+    "PortfolioCreatePayload",
+    "HoldingCreatePayload",
+    "HoldingUpdatePayload",
+    "HoldingReadModel",
+    "PortfolioReadModel",
+    "PortfolioListReadModel",
+    "PortfolioDetailReadModel",
+    "HoldingsRefreshStubReadModel",
+    "MarketdataProfileReadModel",
+    "DashboardReadModel",
+    "HealthDependency",
+    "GatewayHealthReadModel",
+    # legacy aliases kept for backwards-compat
+    "PortfolioExposureSliceReadModel",
+    "PortfolioHoldingItemReadModel",
+    "PortfolioContributorReadModel",
+]
+
+# ---------------------------------------------------------------------------
+# Legacy aliases so existing code that uses the old names still compiles
+# ---------------------------------------------------------------------------
+PortfolioExposureSliceReadModel = PortfolioExposureSlice
+PortfolioHoldingItemReadModel = PortfolioHoldingItem
+PortfolioContributorReadModel = PortfolioContributorItem
+
+
+# ---------------------------------------------------------------------------
+# Gateway-specific models (persons, banks, accounts, holdings, …)
+# ---------------------------------------------------------------------------
 
 class TaxProfileModel(BaseModel):
     tax_country: Literal["DE"] = "DE"
@@ -187,8 +277,6 @@ class AccountUpdatePayload(BaseModel):
     settlement_account_iban: str | None = None
 
 
-
-
 class PortfolioCreatePayload(BaseModel):
     display_name: str
 
@@ -245,8 +333,6 @@ class HoldingsRefreshStubReadModel(BaseModel):
     detail: str
 
 
-
-
 class MarketdataProfileReadModel(BaseModel):
     symbol: str
     company_name: str
@@ -268,6 +354,7 @@ class MarketdataProfileReadModel(BaseModel):
     zip: str | None = None
     address_line: str | None = None
 
+
 class DashboardReadModel(BaseModel):
     person_id: UUID
     overview: dict
@@ -275,172 +362,6 @@ class DashboardReadModel(BaseModel):
     metrics: dict
     timeseries: dict
     kpis: list[dict] = Field(default_factory=list)
-
-
-class PortfolioSummaryReadModel(BaseModel):
-    person_id: UUID
-    as_of: date
-    summary_kind: str = "snapshot"
-    return_basis: str = "since_cost_basis"
-    currency: str = "EUR"
-    market_value: float
-    invested_value: float
-    unrealized_pnl: float
-    unrealized_return_pct: float | None = None
-    portfolios_count: int
-    holdings_count: int
-    top_position_weight: float | None = None
-    top3_weight: float | None = None
-    meta: dict = Field(default_factory=dict)
-
-
-class PortfolioPerformanceSummary(BaseModel):
-    summary_kind: str = "range"
-    return_basis: str = "range_start_value"
-    start_value: float | None = None
-    end_value: float | None = None
-    absolute_change: float | None = None
-    return_pct: float | None = None
-
-
-class PortfolioPerformanceReadModel(BaseModel):
-    person_id: UUID
-    range: str
-    range_label: str | None = None
-    benchmark_symbol: str | None = None
-    series: list[dict] = Field(default_factory=list)
-    summary: PortfolioPerformanceSummary
-    meta: dict = Field(default_factory=dict)
-
-
-class PortfolioExposureSliceReadModel(BaseModel):
-    label: str
-    market_value: float
-    weight: float
-
-
-class PortfolioExposuresReadModel(BaseModel):
-    person_id: UUID
-    by_position: list[PortfolioExposureSliceReadModel] = Field(default_factory=list)
-    by_sector: list[PortfolioExposureSliceReadModel] = Field(default_factory=list)
-    by_country: list[PortfolioExposureSliceReadModel] = Field(default_factory=list)
-    by_currency: list[PortfolioExposureSliceReadModel] = Field(default_factory=list)
-    meta: dict = Field(default_factory=dict)
-
-
-class PortfolioHoldingItemReadModel(BaseModel):
-    portfolio_id: str
-    portfolio_name: str | None = None
-    holding_id: str | None = None
-    symbol: str | None = None
-    display_name: str | None = None
-    quantity: float
-    acquisition_price: float | None = None
-    current_price: float | None = None
-    invested_value: float
-    market_value: float
-    unrealized_pnl: float
-    unrealized_return_pct: float | None = None
-    weight: float
-    sector: str | None = None
-    country: str | None = None
-    currency: str | None = None
-    data_status: str
-    warnings: list[str] = Field(default_factory=list)
-
-
-class PortfolioHoldingsReadModel(BaseModel):
-    person_id: UUID
-    as_of: date
-    currency: str = "EUR"
-    items: list[PortfolioHoldingItemReadModel] = Field(default_factory=list)
-    summary: PortfolioSummaryReadModel
-    meta: dict = Field(default_factory=dict)
-
-
-class PortfolioRiskReadModel(BaseModel):
-    person_id: UUID
-    as_of: date
-    range: str = "3m"
-    range_label: str | None = None
-    methodology: str = "daily_returns_on_range"
-    benchmark_relation: str = "relative_to_benchmark"
-    benchmark_symbol: str | None = None
-    portfolio_volatility: float | None = None
-    max_drawdown: float | None = None
-    correlation: float | None = None
-    beta: float | None = None
-    tracking_error: float | None = None
-    annualized_volatility: float | None = None
-    annualized_tracking_error: float | None = None
-    sharpe_ratio: float | None = None
-    sortino_ratio: float | None = None
-    information_ratio: float | None = None
-    active_return: float | None = None
-    best_day_return: float | None = None
-    worst_day_return: float | None = None
-    aligned_points: int | None = None
-    top_position_weight: float | None = None
-    top3_weight: float | None = None
-    concentration_note: str | None = None
-    meta: dict = Field(default_factory=dict)
-
-
-class PortfolioContributorReadModel(BaseModel):
-    symbol: str | None = None
-    display_name: str | None = None
-    market_value: float
-    weight: float
-    unrealized_pnl: float
-    contribution_weighted: float
-    direction: str | None = None
-    contribution_return: float | None = None
-    contribution_pct_points: float | None = None
-    periods_used: int = 0
-    history_available: bool = False
-
-
-class PortfolioContributorsReadModel(BaseModel):
-    person_id: UUID
-    as_of: date | None = None
-    range: str = "3m"
-    range_label: str | None = None
-    summary_kind: str = "range"
-    return_basis: str = "range_contribution"
-    methodology: str = "static_quantity_return_contribution"
-    total_contribution_return: float | None = None
-    total_contribution_pct_points: float | None = None
-    warnings: list[str] = Field(default_factory=list)
-    top_contributors: list[PortfolioContributorReadModel] = Field(default_factory=list)
-    top_detractors: list[PortfolioContributorReadModel] = Field(default_factory=list)
-    meta: dict = Field(default_factory=dict)
-
-
-class PortfolioDataCoverageReadModel(BaseModel):
-    person_id: UUID
-    as_of: date
-    total_holdings: int
-    missing_prices: int
-    missing_sectors: int
-    missing_countries: int
-    missing_currencies: int
-    warnings: list[str] = Field(default_factory=list)
-    meta: dict = Field(default_factory=dict)
-
-
-class PortfolioDashboardReadModel(BaseModel):
-    person_id: UUID
-    as_of: date
-    range: str
-    benchmark_symbol: str | None = None
-    summary: PortfolioSummaryReadModel
-    performance: PortfolioPerformanceReadModel
-    exposures: PortfolioExposuresReadModel
-    holdings: PortfolioHoldingsReadModel
-    risk: PortfolioRiskReadModel
-    coverage: PortfolioDataCoverageReadModel
-    contributors: PortfolioContributorsReadModel
-    meta: dict = Field(default_factory=dict)
 
 
 class HealthDependency(BaseModel):

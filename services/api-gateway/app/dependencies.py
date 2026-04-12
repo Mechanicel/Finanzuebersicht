@@ -17,4 +17,6 @@ def get_gateway_service() -> GatewayService:
         portfolio_base_url=settings.portfolio_service_url,
         marketdata_base_url=settings.marketdata_service_url,
         timeout_seconds=settings.request_timeout_seconds,
+        circuit_breaker_failure_threshold=settings.circuit_breaker_failure_threshold,
+        circuit_breaker_recovery_timeout_seconds=settings.circuit_breaker_recovery_timeout_seconds,
     )

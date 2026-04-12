@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { mount, type VueWrapper } from '@vue/test-utils'
 import { ref, computed } from 'vue'
 import PortfolioDashboardContainer from '@/modules/dashboard/components/PortfolioDashboardContainer.vue'
 import PortfolioSummaryBar from '@/modules/dashboard/components/PortfolioSummaryBar.vue'
@@ -101,6 +101,13 @@ function buildDashboardState(overrides: Record<string, unknown> = {}) {
   }
 }
 
+function dashboardAreaOrder(wrapper: VueWrapper) {
+  const composition = wrapper.find('[data-testid="portfolio-dashboard-composition"]')
+  return Array.from(composition.element.children)
+    .map((element) => element.getAttribute('data-testid'))
+    .filter((testId): testId is string => Boolean(testId?.startsWith('dashboard-area-')))
+}
+
 describe('PortfolioDashboardContainer', () => {
   beforeEach(() => {
     vi.resetAllMocks()
@@ -115,6 +122,8 @@ describe('PortfolioDashboardContainer', () => {
     })
 
     expect(wrapper.text()).toContain('Portfolio Dashboard')
+    expect(wrapper.text()).toContain('Handlungsbedarf')
+    expect(wrapper.text()).toContain('Hohe Volatilitaet')
     expect(wrapper.text()).toContain('Portfolio Performance')
     expect(wrapper.text()).toContain('Portfolio Risk')
     expect(wrapper.text()).toContain('Benchmark: SPY')
@@ -126,6 +135,46 @@ describe('PortfolioDashboardContainer', () => {
     expect(loadBootstrapMock).toHaveBeenCalledTimes(1)
     expect(loadBootstrapMock).toHaveBeenCalledWith('3m')
     expect(loadAllMock).not.toHaveBeenCalled()
+  })
+
+  it('renders desktop dashboard areas as one explicit composition', () => {
+    const wrapper = mount(PortfolioDashboardContainer, {
+      props: { personId: 'person-1' }
+    })
+
+    const composition = wrapper.find('[data-testid="portfolio-dashboard-composition"]')
+
+    expect(composition.exists()).toBe(true)
+    expect(composition.classes()).toContain('dashboard-composition')
+    expect(composition.classes()).not.toContain('dashboard-composition--no-holdings')
+    expect(dashboardAreaOrder(wrapper)).toEqual([
+      'dashboard-area-performance',
+      'dashboard-area-risk',
+      'dashboard-area-holdings',
+      'dashboard-area-workspace',
+      'dashboard-area-exposures'
+    ])
+    expect(wrapper.find('[data-testid="dashboard-area-performance"]').classes()).toContain('dashboard-area--performance')
+    expect(wrapper.find('[data-testid="dashboard-area-risk"]').classes()).toContain('dashboard-area--risk')
+    expect(wrapper.find('[data-testid="dashboard-area-holdings"]').classes()).toContain('dashboard-area--holdings')
+    expect(wrapper.find('[data-testid="dashboard-area-workspace"]').classes()).toContain('dashboard-area--workspace')
+    expect(wrapper.find('[data-testid="dashboard-area-exposures"]').classes()).toContain('dashboard-area--exposures')
+  })
+
+  it('keeps the responsive stacking order in direct grid children', () => {
+    const wrapper = mount(PortfolioDashboardContainer, {
+      props: { personId: 'person-1' }
+    })
+
+    expect(dashboardAreaOrder(wrapper)).toEqual([
+      'dashboard-area-performance',
+      'dashboard-area-risk',
+      'dashboard-area-holdings',
+      'dashboard-area-workspace',
+      'dashboard-area-exposures'
+    ])
+    expect(wrapper.find('[data-testid="dashboard-area-workspace"] [data-test="coverage-banner"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="dashboard-area-risk"] [data-test="coverage-banner"]').exists()).toBe(false)
   })
 
   it('uses an existing performance range as defensive default', () => {
@@ -238,6 +287,64 @@ describe('PortfolioDashboardContainer', () => {
     })
 
     expect(wrapper.text()).toContain('Alles fehlgeschlagen')
+  })
+
+  it('spans the workspace when holdings are missing without a local state', () => {
+    vi.mocked(usePortfolioDashboard).mockReturnValue(
+      buildDashboardState({
+        holdings: ref(null),
+        contributors: ref(null),
+        coverage: ref(null)
+      })
+    )
+
+    const wrapper = mount(PortfolioDashboardContainer, {
+      props: { personId: 'person-1' }
+    })
+
+    const composition = wrapper.find('[data-testid="portfolio-dashboard-composition"]')
+
+    expect(composition.classes()).toContain('dashboard-composition--no-holdings')
+    expect(wrapper.find('[data-testid="dashboard-area-holdings"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="dashboard-area-workspace"]').exists()).toBe(true)
+    expect(dashboardAreaOrder(wrapper)).toEqual([
+      'dashboard-area-performance',
+      'dashboard-area-risk',
+      'dashboard-area-workspace',
+      'dashboard-area-exposures'
+    ])
+    expect(wrapper.text()).toContain('Bitte eine Holding ausw')
+  })
+
+  it('keeps partially available sections renderable with local loading and error states', () => {
+    vi.mocked(usePortfolioDashboard).mockReturnValue(
+      buildDashboardState({
+        performance: ref(null),
+        risk: ref(null),
+        exposures: ref(null),
+        contributors: ref(null),
+        coverage: ref(null),
+        loadingStates: ref({ summary: false, performance: true, exposures: false, holdings: false, risk: false, contributors: false, coverage: true }),
+        errors: ref({ summary: '', performance: '', exposures: '', holdings: '', risk: '', contributors: 'Contributors nicht verfuegbar.', coverage: '' })
+      })
+    )
+
+    const wrapper = mount(PortfolioDashboardContainer, {
+      props: { personId: 'person-1' }
+    })
+
+    expect(dashboardAreaOrder(wrapper)).toEqual([
+      'dashboard-area-performance',
+      'dashboard-area-holdings',
+      'dashboard-area-workspace'
+    ])
+    expect(wrapper.text()).toContain('Holdings')
+    expect(wrapper.text()).toContain('Performance wird geladen')
+    expect(wrapper.text()).toContain('Datenabdeckung wird geladen')
+    expect(wrapper.text()).toContain('Contributors nicht verfuegbar.')
+    expect(wrapper.find('[data-testid="dashboard-area-risk"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="dashboard-area-exposures"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('Portfolio-Dashboard-Daten konnten nicht geladen werden.')
   })
 
   it('shows stable empty detail state when no holdings are available', () => {
