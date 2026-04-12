@@ -1,6 +1,7 @@
 <template>
   <article class="panel">
     <h3>Holdings</h3>
+    <p class="meta">Typ: Snapshot · Stand: {{ asOfLabel }}</p>
     <div class="table-wrap">
       <table>
         <thead>
@@ -10,7 +11,7 @@
             <th>Gewicht</th>
             <th>Marktwert</th>
             <th>P&amp;L</th>
-            <th>P&amp;L %</th>
+            <th>Unreal. Rendite</th>
             <th>Sektor</th>
             <th>Land</th>
             <th>Datenstatus</th>
@@ -49,6 +50,7 @@
 import { computed } from 'vue'
 import type { PortfolioHoldingItem } from '@/shared/model/types'
 import {
+  formatAsOf,
   formatMoney,
   formatPercent,
   formatPercentPoints,
@@ -59,6 +61,7 @@ import {
 const props = defineProps<{
   items: PortfolioHoldingItem[]
   currency?: string
+  asOf?: string
   selectedSymbol?: string | null
 }>()
 const emit = defineEmits<{
@@ -66,6 +69,7 @@ const emit = defineEmits<{
 }>()
 
 const currency = computed(() => props.currency ?? 'EUR')
+const asOfLabel = computed(() => formatAsOf(props.asOf))
 
 const sortedItems = computed(() => [...props.items].sort((left, right) => right.weight - left.weight))
 
@@ -101,6 +105,12 @@ function hasWarnings(warnings: string[] | null | undefined) {
 
 h3 {
   margin: 0 0 0.6rem;
+}
+
+.meta {
+  margin: -0.25rem 0 0.6rem;
+  font-size: 0.76rem;
+  color: #64748b;
 }
 
 .table-wrap {

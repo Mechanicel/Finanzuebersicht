@@ -5,7 +5,7 @@
         <h3>Instrument-Detail</h3>
         <p v-if="selectedHolding">
           Aktiv: <strong>{{ selectedHolding.symbol || 'n/a' }}</strong>
-          <span class="muted"> · {{ selectedHolding.display_name || selectedHolding.portfolio_name || 'Ohne Namen' }}</span>
+          <span class="muted"> · {{ selectedHolding.display_name || selectedHolding.portfolio_name || 'n/a' }}</span>
         </p>
         <p v-else class="muted">Bitte eine Holding auswählen.</p>
       </div>
@@ -15,6 +15,7 @@
       <span>Gewicht: {{ formatPercent(selectedHolding.weight) }}</span>
       <span>Marktwert: {{ formatMoney(selectedHolding.market_value, selectedHolding.currency || 'EUR') }}</span>
       <span>P&amp;L: {{ formatSignedMoney(selectedHolding.unrealized_pnl, selectedHolding.currency || 'EUR') }}</span>
+      <span>Unreal. Rendite: {{ formatPercentPoints(selectedHolding.unrealized_return_pct) }}</span>
       <span>Sektor: {{ selectedHolding.sector || 'n/a' }}</span>
       <span>Land: {{ selectedHolding.country || 'n/a' }}</span>
       <span>Währung: {{ selectedHolding.currency || 'n/a' }}</span>
@@ -59,7 +60,7 @@
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import InstrumentAnalysisTabs from '@/modules/dashboard/components/InstrumentAnalysisTabs.vue'
 import type { PortfolioHoldingItem } from '@/shared/model/types'
-import { formatMoney, formatPercent, formatSignedMoney } from '@/modules/dashboard/model/portfolioFormatting'
+import { formatMoney, formatPercent, formatPercentPoints, formatSignedMoney } from '@/modules/dashboard/model/portfolioFormatting'
 
 const props = defineProps<{
   selectedHolding: PortfolioHoldingItem | null

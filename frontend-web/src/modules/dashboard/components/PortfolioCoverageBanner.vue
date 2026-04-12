@@ -1,6 +1,7 @@
 <template>
   <section class="coverage" :class="{ warning: hasCoverageGap }">
     <p class="title"><strong>Datenabdeckung</strong> für {{ coverage.total_holdings }} Holdings</p>
+    <p class="meta">Typ: Snapshot · Stand: {{ asOfLabel }}</p>
     <p class="stats-line">
       Preise fehlen: {{ coverage.missing_prices }} ·
       Sektoren fehlen: {{ coverage.missing_sectors }} ·
@@ -16,7 +17,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { PortfolioDataCoverageReadModel } from '@/shared/model/types'
-import { mapCoverageWarning } from '@/modules/dashboard/model/portfolioFormatting'
+import { formatAsOf, mapCoverageWarning } from '@/modules/dashboard/model/portfolioFormatting'
 
 const props = defineProps<{
   coverage: PortfolioDataCoverageReadModel
@@ -37,6 +38,8 @@ const hasWarnings = computed(() => props.coverage.warnings.length > 0)
 const compactWarnings = computed(() =>
   props.coverage.warnings.slice(0, 6).map((warning) => mapCoverageWarning(warning)).join(', ')
 )
+
+const asOfLabel = computed(() => formatAsOf(props.coverage.as_of))
 </script>
 
 <style scoped>
@@ -68,6 +71,11 @@ p {
   color: #475569;
   font-size: 0.78rem;
   line-height: 1.3;
+}
+
+.meta {
+  color: #64748b;
+  font-size: 0.76rem;
 }
 
 .warnings {

@@ -3,10 +3,10 @@
     <header class="panel-header">
       <div>
         <h3>Portfolio Performance</h3>
-        <p class="meta">
-          Benchmark:
-          <strong>{{ benchmarkSymbol }}</strong>
-        </p>
+        <p class="meta">Typ: Zeitraum-Kennzahlen</p>
+        <p class="meta">Zeitraum: {{ rangeLabel }} · Stand: {{ asOfLabel }}</p>
+        <p class="meta">Benchmark: <strong>{{ benchmarkSymbol }}</strong></p>
+        <p v-if="methodologyLabel !== 'n/a'" class="meta">Methodik: {{ methodologyLabel }}</p>
       </div>
       <div class="legend">
         <span class="legend-item portfolio">Portfolio</span>
@@ -26,7 +26,7 @@
         <strong>Veränderung</strong>
         <span :class="changeClass">{{ formatSignedMoney(performance.summary.absolute_change, currency) }}</span>
       </p>
-      <p><strong>Rendite</strong><span>{{ formatPercentPoints(performance.summary.return_pct) }}</span></p>
+      <p><strong>Zeitraumrendite</strong><span>{{ formatPercentPoints(performance.summary.return_pct) }}</span></p>
     </div>
   </article>
 </template>
@@ -35,7 +35,7 @@
 import { computed } from 'vue'
 import SimpleLineChart from '@/shared/ui/SimpleLineChart.vue'
 import type { PortfolioPerformanceReadModel } from '@/shared/model/types'
-import { formatMoney, formatPercentPoints, formatSignedMoney } from '@/modules/dashboard/model/portfolioFormatting'
+import { formatAsOf, formatMoney, formatPercentPoints, formatRange, formatSignedMoney } from '@/modules/dashboard/model/portfolioFormatting'
 
 const props = defineProps<{
   performance: PortfolioPerformanceReadModel
@@ -45,6 +45,15 @@ const props = defineProps<{
 const currency = computed(() => props.currency ?? 'EUR')
 
 const benchmarkSymbol = computed(() => props.performance.benchmark_symbol ?? 'n/a')
+const rangeLabel = computed(() => formatRange(props.performance.range))
+const asOfLabel = computed(() => {
+  const points = portfolioLinePoints.value
+  return formatAsOf(points.length > 0 ? points[points.length - 1]?.date : null)
+})
+const methodologyLabel = computed(() => {
+  const method = props.performance.meta?.methodology
+  return typeof method === 'string' && method.trim().length > 0 ? method : 'n/a'
+})
 
 const portfolioLinePoints = computed(() => {
   const portfolioSeries = props.performance.series.find((series) => series.key === 'portfolio_value') ?? props.performance.series[0]

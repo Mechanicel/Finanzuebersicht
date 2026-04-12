@@ -55,7 +55,7 @@ export function formatSignedMoney(value: number | null | undefined, currency = '
 }
 
 export function mapHoldingDataStatus(status: string | null | undefined): string {
-  if (!status) return 'Unbekannt'
+  if (!status) return 'n/a'
   if (status === 'ok') return 'OK'
   if (status === 'fallback_acquisition_price') return 'Preis-Fallback'
   if (status === 'missing_symbol') return 'Symbol fehlt'
@@ -80,4 +80,28 @@ export function mapCoverageWarning(warning: string): string {
     missing_currency_data: 'Währungsdaten unvollständig'
   }
   return mappedWarnings[warning] ?? warning.replaceAll('_', ' ')
+}
+
+export function formatAsOf(value: string | null | undefined): string {
+  if (!value) return 'n/a'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return 'n/a'
+  return new Intl.DateTimeFormat('de-DE', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).format(date)
+}
+
+export function formatRange(value: string | null | undefined): string {
+  if (!value) return 'n/a'
+  const labels: Record<string, string> = {
+    '1m': '1 Monat',
+    '3m': '3 Monate',
+    '6m': '6 Monate',
+    ytd: 'YTD',
+    '1y': '1 Jahr',
+    max: 'Max'
+  }
+  return labels[value] ?? value
 }

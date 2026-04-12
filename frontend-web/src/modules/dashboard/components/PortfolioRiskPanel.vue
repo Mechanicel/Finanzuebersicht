@@ -1,7 +1,10 @@
 <template>
   <article class="panel">
     <h3>Portfolio Risk</h3>
+    <p class="meta">Typ: Snapshot-Kennzahlen</p>
+    <p class="meta">Stand: {{ asOfLabel }}</p>
     <p class="meta">Benchmark: {{ risk.benchmark_symbol || 'n/a' }}</p>
+    <p v-if="methodologyLabel !== 'n/a'" class="meta">Methodik: {{ methodologyLabel }}</p>
 
     <section class="group">
       <h4>Risikometriken</h4>
@@ -28,7 +31,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { PortfolioRiskReadModel } from '@/shared/model/types'
-import { formatNumber, formatPercent, formatPercentPoints, mapConcentrationNote } from '@/modules/dashboard/model/portfolioFormatting'
+import { formatAsOf, formatNumber, formatPercent, formatPercentPoints, mapConcentrationNote } from '@/modules/dashboard/model/portfolioFormatting'
 
 const props = defineProps<{
   risk: PortfolioRiskReadModel
@@ -39,6 +42,12 @@ const concentrationNote = computed(() => {
     return 'n/a'
   }
   return mapConcentrationNote(props.risk.concentration_note)
+})
+
+const asOfLabel = computed(() => formatAsOf(props.risk.as_of))
+const methodologyLabel = computed(() => {
+  const method = props.risk.meta?.methodology
+  return typeof method === 'string' && method.trim().length > 0 ? method : 'n/a'
 })
 </script>
 

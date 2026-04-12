@@ -53,6 +53,7 @@
           v-if="holdings"
           :items="holdings.items"
           :currency="summary?.currency"
+          :as-of="holdings.as_of"
           :selected-symbol="selectedSymbol"
           @select-holding="onSelectHolding"
         />
@@ -72,13 +73,20 @@
                 Detractors: {{ detractorCount }}
               </span>
             </div>
+            <p class="contributors-meta">
+              Typ: Zeitraum-Kennzahlen · Zeitraum: {{ contributorsRangeLabel }} · Stand: {{ contributorsAsOfLabel }}
+            </p>
+            <p class="contributors-meta">
+              Benchmark: {{ contributorsBenchmarkLabel }}
+              <span v-if="contributorsMethodologyLabel !== 'n/a'"> · Methodik: {{ contributorsMethodologyLabel }}</span>
+            </p>
             <div v-if="hasContributorRows || hasDetractorRows" class="contributors-grid">
               <div v-if="hasContributorRows" class="contributors-list-block">
                 <p class="contributors-list-title">Contributors</p>
                 <ul class="contributors-list">
                   <li v-for="(item, index) in topContributorRows" :key="`contributor-${item.symbol ?? item.display_name ?? index}`">
-                    <span class="contributors-name">{{ item.display_name || item.symbol || 'Unbekannt' }}</span>
-                    <span class="contributors-value">{{ item.contribution_pct_points ?? 0 }} pp</span>
+                    <span class="contributors-name">{{ item.display_name || item.symbol || 'n/a' }}</span>
+                    <span class="contributors-value">{{ formatContributionPp(item.contribution_pct_points) }}</span>
                   </li>
                 </ul>
               </div>
@@ -86,8 +94,8 @@
                 <p class="contributors-list-title">Detractors</p>
                 <ul class="contributors-list">
                   <li v-for="(item, index) in topDetractorRows" :key="`detractor-${item.symbol ?? item.display_name ?? index}`">
-                    <span class="contributors-name">{{ item.display_name || item.symbol || 'Unbekannt' }}</span>
-                    <span class="contributors-value">{{ item.contribution_pct_points ?? 0 }} pp</span>
+                    <span class="contributors-name">{{ item.display_name || item.symbol || 'n/a' }}</span>
+                    <span class="contributors-value">{{ formatContributionPp(item.contribution_pct_points) }}</span>
                   </li>
                 </ul>
               </div>
@@ -125,6 +133,7 @@ import PortfolioHoldingsTable from '@/modules/dashboard/components/PortfolioHold
 import PortfolioCoverageBanner from '@/modules/dashboard/components/PortfolioCoverageBanner.vue'
 import PortfolioInstrumentDetailPanel from '@/modules/dashboard/components/PortfolioInstrumentDetailPanel.vue'
 import { usePortfolioDashboard } from '@/modules/dashboard/composables/usePortfolioDashboard'
+import { formatAsOf, formatRange } from '@/modules/dashboard/model/portfolioFormatting'
 import type { PortfolioHoldingItem } from '@/shared/model/types'
 
 const props = defineProps<{ personId: string }>()
@@ -177,9 +186,21 @@ const contributorCount = computed(() => contributors.value?.top_contributors?.le
 const detractorCount = computed(() => contributors.value?.top_detractors?.length ?? 0)
 const hasContributorRows = computed(() => topContributorRows.value.length > 0)
 const hasDetractorRows = computed(() => topDetractorRows.value.length > 0)
+const contributorsAsOfLabel = computed(() => formatAsOf(contributors.value?.as_of))
+const contributorsRangeLabel = computed(() => formatRange(contributors.value?.range))
+const contributorsMethodologyLabel = computed(() => {
+  const method = contributors.value?.methodology
+  return method && method.trim().length > 0 ? method : 'n/a'
+})
+const contributorsBenchmarkLabel = computed(() => performance.value?.benchmark_symbol ?? 'n/a')
 
 function onSelectHolding(item: PortfolioHoldingItem) {
   selectedSymbol.value = item.symbol ?? null
+}
+
+function formatContributionPp(value: number | null | undefined): string {
+  if (value == null || Number.isNaN(value)) return 'n/a'
+  return `${value.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} pp`
 }
 
 watch(
@@ -326,6 +347,12 @@ h2 {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.5rem;
+}
+
+.contributors-meta {
+  margin: 0;
+  color: #64748b;
+  font-size: 0.76rem;
 }
 
 .contributors-list-block {
