@@ -13,61 +13,113 @@
       </p>
     </header>
 
-    <section class="group primary-group">
-      <h4>Kernrisiko <span>primär</span></h4>
-      <div class="primary-grid">
-        <div
-          v-for="metric in primaryRiskMetrics"
-          :key="metric.key"
-          class="primary-metric"
-          :data-testid="`risk-primary-${metric.key}`"
-        >
-          <span>{{ metric.label }}</span>
-          <strong :class="metric.tone">{{ metric.value }}</strong>
+    <div class="risk-board" data-testid="risk-metric-board">
+      <section class="metric-block" data-testid="risk-block-core">
+        <div class="block-heading">
+          <h4>Kernrisiko</h4>
+          <span>Primär</span>
         </div>
-      </div>
-      <ul v-if="coreSecondaryMetrics.length > 0" class="metric-list compact-list">
-        <li v-for="metric in coreSecondaryMetrics" :key="metric.key" :data-testid="`risk-metric-${metric.key}`">
-          <span>{{ metric.label }}</span>
-          <strong :class="metric.tone">{{ metric.value }}</strong>
-        </li>
-      </ul>
-    </section>
 
-    <section class="group">
-      <h4>Benchmark-relativ <span>{{ benchmarkSymbol }}</span></h4>
-      <ul v-if="benchmarkMetrics.length > 0" class="metric-list">
-        <li v-for="metric in benchmarkMetrics" :key="metric.key" :data-testid="`risk-metric-${metric.key}`">
-          <span>{{ metric.label }}</span>
-          <strong :class="metric.tone">{{ metric.value }}</strong>
-        </li>
-      </ul>
-      <p v-else class="empty-line" data-testid="risk-benchmark-empty">Keine Benchmark-Daten verfügbar.</p>
-    </section>
+        <dl class="primary-grid" data-testid="risk-primary-grid">
+          <div
+            v-for="metric in primaryRiskMetrics"
+            :key="metric.key"
+            class="metric-card metric-card--primary"
+            :class="{ 'is-missing': metric.isMissing }"
+            :data-testid="`risk-primary-${metric.key}`"
+          >
+            <dt>{{ metric.label }}</dt>
+            <dd>
+              <strong class="metric-value metric-value--primary" :class="metric.tone">{{ metric.value }}</strong>
+            </dd>
+          </div>
+        </dl>
 
-    <section class="group">
-      <h4>Konzentration <span>Snapshot</span></h4>
-      <ul class="metric-list">
-        <li v-for="metric in concentrationMetrics" :key="metric.key" :data-testid="`risk-metric-${metric.key}`">
-          <span>{{ metric.label }}</span>
-          <strong>{{ metric.value }}</strong>
-        </li>
-        <li data-testid="risk-metric-concentration-note">
-          <span>Hinweis</span>
-          <strong>{{ concentrationNote }}</strong>
-        </li>
-      </ul>
-    </section>
+        <dl v-if="coreSecondaryMetrics.length > 0" class="metric-strip" data-testid="risk-core-secondary">
+          <div
+            v-for="metric in coreSecondaryMetrics"
+            :key="metric.key"
+            class="metric-cell metric-cell--secondary"
+            :data-testid="`risk-metric-${metric.key}`"
+          >
+            <dt>{{ metric.label }}</dt>
+            <dd>
+              <strong class="metric-value" :class="metric.tone">{{ metric.value }}</strong>
+            </dd>
+          </div>
+        </dl>
+      </section>
 
-    <section v-if="behaviorMetrics.length > 0" class="group">
-      <h4>Performance-Verhalten <span>Tage</span></h4>
-      <ul class="metric-list">
-        <li v-for="metric in behaviorMetrics" :key="metric.key" :data-testid="`risk-metric-${metric.key}`">
-          <span>{{ metric.label }}</span>
-          <strong :class="metric.tone">{{ metric.value }}</strong>
-        </li>
-      </ul>
-    </section>
+      <section class="metric-block" data-testid="risk-block-benchmark">
+        <div class="block-heading">
+          <h4>Benchmark-relativ</h4>
+          <span>{{ benchmarkSymbol }}</span>
+        </div>
+
+        <dl v-if="benchmarkMetrics.length > 0" class="metric-grid metric-grid--dense">
+          <div
+            v-for="metric in benchmarkMetrics"
+            :key="metric.key"
+            class="metric-cell"
+            :data-testid="`risk-metric-${metric.key}`"
+          >
+            <dt>{{ metric.label }}</dt>
+            <dd>
+              <strong class="metric-value" :class="metric.tone">{{ metric.value }}</strong>
+            </dd>
+          </div>
+        </dl>
+        <p v-else class="empty-state" data-testid="risk-benchmark-empty">Keine Benchmark-Daten verfügbar.</p>
+      </section>
+
+      <section class="metric-block" :class="{ 'metric-block--critical': isConcentrationCritical }" data-testid="risk-block-concentration">
+        <div class="block-heading">
+          <h4>Konzentration</h4>
+          <span>Snapshot</span>
+        </div>
+
+        <dl class="metric-grid metric-grid--compact">
+          <div
+            v-for="metric in concentrationMetrics"
+            :key="metric.key"
+            class="metric-cell"
+            :data-testid="`risk-metric-${metric.key}`"
+          >
+            <dt>{{ metric.label }}</dt>
+            <dd>
+              <strong class="metric-value" :class="metric.tone">{{ metric.value }}</strong>
+            </dd>
+          </div>
+          <div class="metric-cell metric-cell--note" :class="concentrationTone" data-testid="risk-metric-concentration-note">
+            <dt>Hinweis</dt>
+            <dd>
+              <strong class="metric-value" :class="concentrationTone">{{ concentrationNote }}</strong>
+            </dd>
+          </div>
+        </dl>
+      </section>
+
+      <section v-if="behaviorMetrics.length > 0" class="metric-block" data-testid="risk-block-performance">
+        <div class="block-heading">
+          <h4>Performance-Verhalten</h4>
+          <span>Tage</span>
+        </div>
+
+        <dl class="metric-grid metric-grid--compact">
+          <div
+            v-for="metric in behaviorMetrics"
+            :key="metric.key"
+            class="metric-cell"
+            :data-testid="`risk-metric-${metric.key}`"
+          >
+            <dt>{{ metric.label }}</dt>
+            <dd>
+              <strong class="metric-value" :class="metric.tone">{{ metric.value }}</strong>
+            </dd>
+          </div>
+        </dl>
+      </section>
+    </div>
   </article>
 </template>
 
@@ -97,8 +149,11 @@ interface RiskMetric {
   key: string
   label: string
   value: string
-  tone?: MetricTone
+  tone: MetricTone
+  isMissing?: boolean
 }
+
+const criticalConcentrationNotes = new Set(['single_position_dominates', 'very_high_top3_concentration'])
 
 function hasMetricValue(value: number | null | undefined): value is number {
   return value != null && !Number.isNaN(value)
@@ -109,6 +164,23 @@ function signedTone(value: number | null | undefined): MetricTone {
     return 'neutral'
   }
   return value > 0 ? 'positive' : 'negative'
+}
+
+function displayMetric(
+  key: string,
+  label: string,
+  value: number | null | undefined,
+  formatter: (value: number | null | undefined) => string,
+  tone: MetricTone = 'neutral'
+): RiskMetric {
+  const isMissing = !hasMetricValue(value)
+  return {
+    key,
+    label,
+    value: formatter(value),
+    tone: isMissing ? 'neutral' : tone,
+    isMissing
+  }
 }
 
 function optionalMetric(
@@ -149,30 +221,10 @@ const methodologyLabel = computed(() => {
 })
 
 const primaryRiskMetrics = computed<RiskMetric[]>(() => [
-  {
-    key: 'annualized-volatility',
-    label: 'Ann. Volatilität',
-    value: formatPercent(props.risk.annualized_volatility),
-    tone: 'neutral'
-  },
-  {
-    key: 'max-drawdown',
-    label: 'Max Drawdown',
-    value: formatSignedPercentFromRatio(props.risk.max_drawdown),
-    tone: signedTone(props.risk.max_drawdown)
-  },
-  {
-    key: 'sharpe-ratio',
-    label: 'Sharpe',
-    value: formatNumber(props.risk.sharpe_ratio, 2),
-    tone: signedTone(props.risk.sharpe_ratio)
-  },
-  {
-    key: 'sortino-ratio',
-    label: 'Sortino',
-    value: formatNumber(props.risk.sortino_ratio, 2),
-    tone: signedTone(props.risk.sortino_ratio)
-  }
+  displayMetric('annualized-volatility', 'Ann. Volatilität', props.risk.annualized_volatility, formatPercent),
+  displayMetric('max-drawdown', 'Max Drawdown', props.risk.max_drawdown, formatSignedPercentFromRatio, signedTone(props.risk.max_drawdown)),
+  displayMetric('sharpe-ratio', 'Sharpe', props.risk.sharpe_ratio, (value) => formatNumber(value, 2), signedTone(props.risk.sharpe_ratio)),
+  displayMetric('sortino-ratio', 'Sortino', props.risk.sortino_ratio, (value) => formatNumber(value, 2), signedTone(props.risk.sortino_ratio))
 ])
 
 const coreSecondaryMetrics = computed(() =>
@@ -207,19 +259,25 @@ const behaviorMetrics = computed(() =>
   ])
 )
 
-const concentrationNote = computed(() => {
-  if (!props.risk.concentration_note || props.risk.concentration_note.trim().length === 0) {
-    return 'n/a'
+const rawConcentrationNote = computed(() => {
+  if (typeof props.risk.concentration_note !== 'string') {
+    return null
   }
-  return mapConcentrationNote(props.risk.concentration_note)
+  const normalized = props.risk.concentration_note.trim()
+  return normalized.length > 0 ? normalized : null
 })
+
+const isConcentrationCritical = computed(() => rawConcentrationNote.value != null && criticalConcentrationNotes.has(rawConcentrationNote.value))
+const concentrationTone = computed<MetricTone>(() => (isConcentrationCritical.value ? 'negative' : 'neutral'))
+
+const concentrationNote = computed(() => mapConcentrationNote(rawConcentrationNote.value))
 </script>
 
 <style scoped>
 .panel {
   border: 1px solid #e2e8f0;
   border-radius: 8px;
-  padding: 0.72rem;
+  padding: 0.75rem;
   background: #fff;
 }
 
@@ -228,7 +286,9 @@ h3 {
 }
 
 .panel-heading {
-  margin-bottom: 0.45rem;
+  display: grid;
+  gap: 0.24rem;
+  margin-bottom: 0.6rem;
 }
 
 .title-row {
@@ -245,126 +305,211 @@ h3 {
   color: #475569;
   font-size: 0.72rem;
   font-weight: 700;
+  line-height: 1.25;
 }
 
 .meta {
-  margin: 0.22rem 0 0;
+  margin: 0;
   color: #64748b;
   font-size: 0.8rem;
+  line-height: 1.35;
   display: flex;
   flex-wrap: wrap;
-  gap: 0.42rem;
+  gap: 0.25rem 0.5rem;
 }
 
 .meta strong {
   color: #334155;
 }
 
-.group + .group {
-  margin-top: 0.5rem;
+.risk-board {
+  display: grid;
+  gap: 0.62rem;
+}
+
+.metric-block {
+  min-width: 0;
+  border-top: 1px solid #e2e8f0;
+  padding-top: 0.56rem;
+}
+
+.metric-block:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.metric-block--critical {
+  border-top-color: #fecaca;
+}
+
+.block-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.55rem;
+  margin-bottom: 0.35rem;
 }
 
 h4 {
-  margin: 0 0 0.24rem;
-  font-size: 0.79rem;
+  margin: 0;
   color: #475569;
-  text-transform: uppercase;
+  font-size: 0.76rem;
+  line-height: 1.2;
   letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
-h4 span {
-  margin-left: 0.25rem;
+.block-heading span {
+  min-width: 0;
   color: #64748b;
   font-size: 0.72rem;
-  letter-spacing: 0;
-  text-transform: none;
+  font-weight: 700;
+  line-height: 1.2;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.primary-grid,
+.metric-grid,
+.metric-strip {
+  display: grid;
+  padding: 0;
+  margin: 0;
 }
 
 .primary-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0.35rem 0.65rem;
+  grid-template-columns: repeat(auto-fit, minmax(104px, 1fr));
+  gap: 0.36rem;
 }
 
-.primary-metric {
+.metric-grid {
+  grid-template-columns: repeat(auto-fit, minmax(116px, 1fr));
+  gap: 0.34rem;
+}
+
+.metric-grid--dense {
+  grid-template-columns: repeat(auto-fit, minmax(108px, 1fr));
+}
+
+.metric-grid--compact {
+  grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
+}
+
+.metric-strip {
+  grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
+  gap: 0.34rem;
+  margin-top: 0.38rem;
+}
+
+.metric-card,
+.metric-cell {
   min-width: 0;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
 }
 
-.primary-metric span {
-  display: block;
+.metric-card--primary {
+  min-height: 4.6rem;
+  padding: 0.54rem 0.58rem;
+  display: grid;
+  align-content: space-between;
+  gap: 0.4rem;
+}
+
+.metric-cell {
+  min-height: 3.55rem;
+  padding: 0.4rem 0.48rem;
+  display: grid;
+  align-content: start;
+  gap: 0.16rem;
+}
+
+.metric-cell--secondary,
+.metric-cell--note {
+  background: #f8fafc;
+}
+
+.metric-cell--note {
+  grid-column: span 2;
+}
+
+.metric-cell--note.negative {
+  border-color: #fecaca;
+  background: #fff5f5;
+}
+
+dt {
+  min-width: 0;
   color: #64748b;
-  font-size: 0.73rem;
+  font-size: 0.72rem;
+  font-weight: 700;
   line-height: 1.2;
+  overflow-wrap: anywhere;
+  hyphens: auto;
 }
 
-.primary-metric strong {
-  display: block;
-  margin-top: 0.08rem;
-  color: #0f172a;
-  font-size: 1rem;
-  line-height: 1.18;
-}
-
-.metric-list {
-  list-style: none;
-  padding: 0;
+dd {
+  min-width: 0;
   margin: 0;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.24rem 0.8rem;
 }
 
-.compact-list {
-  margin-top: 0.34rem;
-}
-
-.metric-list li {
-  min-width: 0;
-  display: flex;
-  justify-content: space-between;
-  gap: 0.65rem;
-  font-size: 0.84rem;
-  line-height: 1.25;
-}
-
-.metric-list span {
-  min-width: 0;
-  color: #64748b;
-}
-
-strong {
+.metric-value {
+  display: block;
   color: #0f172a;
-  white-space: nowrap;
+  font-size: 0.92rem;
+  font-weight: 700;
+  line-height: 1.12;
+  overflow-wrap: anywhere;
 }
 
-strong.positive {
+.metric-value--primary {
+  font-size: 1.12rem;
+  line-height: 1.05;
+}
+
+.metric-value.positive {
   color: #166534;
 }
 
-strong.negative {
+.metric-value.negative {
   color: #b91c1c;
 }
 
-strong.neutral {
+.metric-value.neutral {
   color: #0f172a;
 }
 
-.empty-line {
-  margin: 0;
-  color: #64748b;
-  font-size: 0.84rem;
+.is-missing {
+  border-style: dashed;
+  background: #f8fafc;
 }
 
-@media (max-width: 720px) {
-  .primary-grid,
-  .metric-list {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
+.is-missing .metric-value {
+  color: #64748b;
+  font-weight: 700;
+}
+
+.empty-state {
+  margin: 0;
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+  padding: 0.45rem 0.5rem;
+  color: #64748b;
+  font-size: 0.82rem;
+  line-height: 1.3;
+  background: #f8fafc;
 }
 
 @media (max-width: 520px) {
-  .metric-list {
+  .primary-grid,
+  .metric-grid,
+  .metric-strip {
     grid-template-columns: 1fr;
+  }
+
+  .metric-cell--note {
+    grid-column: auto;
   }
 }
 </style>
