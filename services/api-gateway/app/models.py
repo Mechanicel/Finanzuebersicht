@@ -359,6 +359,18 @@ class PortfolioRiskReadModel(BaseModel):
     benchmark_symbol: str | None = None
     portfolio_volatility: float | None = None
     max_drawdown: float | None = None
+    correlation: float | None = None
+    beta: float | None = None
+    tracking_error: float | None = None
+    annualized_volatility: float | None = None
+    annualized_tracking_error: float | None = None
+    sharpe_ratio: float | None = None
+    sortino_ratio: float | None = None
+    information_ratio: float | None = None
+    active_return: float | None = None
+    best_day_return: float | None = None
+    worst_day_return: float | None = None
+    aligned_points: int | None = None
     top_position_weight: float | None = None
     top3_weight: float | None = None
     concentration_note: str | None = None
@@ -373,10 +385,20 @@ class PortfolioContributorReadModel(BaseModel):
     unrealized_pnl: float
     contribution_weighted: float
     direction: str | None = None
+    contribution_return: float | None = None
+    contribution_pct_points: float | None = None
+    periods_used: int = 0
+    history_available: bool = False
 
 
 class PortfolioContributorsReadModel(BaseModel):
     person_id: UUID
+    as_of: date | None = None
+    range: str = "3m"
+    methodology: str = "static_quantity_return_contribution"
+    total_contribution_return: float | None = None
+    total_contribution_pct_points: float | None = None
+    warnings: list[str] = Field(default_factory=list)
     top_contributors: list[PortfolioContributorReadModel] = Field(default_factory=list)
     top_detractors: list[PortfolioContributorReadModel] = Field(default_factory=list)
     meta: dict = Field(default_factory=dict)
@@ -391,6 +413,21 @@ class PortfolioDataCoverageReadModel(BaseModel):
     missing_countries: int
     missing_currencies: int
     warnings: list[str] = Field(default_factory=list)
+    meta: dict = Field(default_factory=dict)
+
+
+class PortfolioDashboardReadModel(BaseModel):
+    person_id: UUID
+    as_of: date
+    range: str
+    benchmark_symbol: str | None = None
+    summary: PortfolioSummaryReadModel
+    performance: PortfolioPerformanceReadModel
+    exposures: PortfolioExposuresReadModel
+    holdings: PortfolioHoldingsReadModel
+    risk: PortfolioRiskReadModel
+    coverage: PortfolioDataCoverageReadModel
+    contributors: PortfolioContributorsReadModel
     meta: dict = Field(default_factory=dict)
 
 

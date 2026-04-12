@@ -29,6 +29,8 @@ from app.repositories import (
     InMemoryPriceHistoryCacheRepository,
 )
 from app.service import MarketDataService
+from app.ttl_lru_cache import TtlLruCache
+import time
 
 
 class FakeSeries:
@@ -118,6 +120,8 @@ class FakeYFinanceClient:
     def __init__(self, backend: FakeYFinance) -> None:
         self._backend = backend
         self.balance_sheet_calls: list[tuple[str, str]] = []
+        self.income_statement_calls: list[tuple[str, str]] = []
+        self.cash_flow_calls: list[tuple[str, str]] = []
         self._balance_sheet_rows: list[dict] = [
             {
                 "symbol": "CBK.DE",
@@ -129,7 +133,31 @@ class FakeYFinanceClient:
                 "totalAssets": 110.0,
             }
         ]
+        self._income_statement_rows: list[dict] = [
+            {
+                "symbol": "CBK.DE",
+                "date": "2025-12-31",
+                "calendarYear": "2025",
+                "period": "FY",
+                "revenue": 200.0,
+                "operatingIncome": 40.0,
+                "netIncome": 20.0,
+            }
+        ]
+        self._cash_flow_rows: list[dict] = [
+            {
+                "symbol": "CBK.DE",
+                "date": "2025-12-31",
+                "calendarYear": "2025",
+                "period": "FY",
+                "operatingCashFlow": 30.0,
+                "capitalExpenditure": 10.0,
+                "freeCashFlow": 20.0,
+            }
+        ]
         self._raise_balance_sheet_error = False
+        self._raise_income_statement_error = False
+        self._raise_cash_flow_error = False
 
     def fetch_current_price(self, symbol: str) -> float:
         ticker = self._backend.Ticker(symbol)
@@ -153,6 +181,34 @@ class FakeYFinanceClient:
             return []
         rows: list[dict] = []
         for row in self._balance_sheet_rows:
+            copied = dict(row)
+            copied["symbol"] = symbol
+            copied["period"] = "FY" if period == "annual" else "Q"
+            rows.append(copied)
+        return rows
+
+    def income_statement(self, symbol: str, period: str):
+        self.income_statement_calls.append((symbol, period))
+        if self._raise_income_statement_error:
+            raise UpstreamServiceError("income failed")
+        if symbol == "EMPTY":
+            return []
+        rows: list[dict] = []
+        for row in self._income_statement_rows:
+            copied = dict(row)
+            copied["symbol"] = symbol
+            copied["period"] = "FY" if period == "annual" else "Q"
+            rows.append(copied)
+        return rows
+
+    def cash_flow_statement(self, symbol: str, period: str):
+        self.cash_flow_calls.append((symbol, period))
+        if self._raise_cash_flow_error:
+            raise UpstreamServiceError("cash flow failed")
+        if symbol == "EMPTY":
+            return []
+        rows: list[dict] = []
+        for row in self._cash_flow_rows:
             copied = dict(row)
             copied["symbol"] = symbol
             copied["period"] = "FY" if period == "annual" else "Q"
@@ -491,6 +547,40 @@ def test_batch_history_cache_miss_seeded() -> None:
     assert len(result.items[0].points) == 2
 
 
+def test_ttl_lru_cache_expires_entries() -> None:
+    cache = TtlLruCache(max_size=4, ttl_seconds=0.01)
+    cache.set("a", 1)
+    assert cache.get("a") == 1
+    time.sleep(0.02)
+    assert cache.get("a") is None
+
+
+def test_ttl_lru_cache_evicts_least_recently_used() -> None:
+    cache = TtlLruCache(max_size=2, ttl_seconds=10)
+    cache.set("a", 1)
+    cache.set("b", 2)
+    assert cache.get("a") == 1
+    cache.set("c", 3)
+    assert cache.get("a") == 1
+    assert cache.get("b") is None
+    assert cache.get("c") == 3
+
+
+def test_marketdata_search_cache_still_returns_same_result_with_ttl_lru_cache() -> None:
+    service, client, _, _, _, _ = build_service()
+    service._search_cache = TtlLruCache(max_size=8, ttl_seconds=0.01)
+
+    first = service.search_instruments("Commerzbank", 5)
+    second = service.search_instruments("Commerzbank", 5)
+    assert first.total == second.total
+    assert client.search_calls == [("Commerzbank", 5)]
+
+    time.sleep(0.02)
+    third = service.search_instruments("Commerzbank", 5)
+    assert third.total == first.total
+    assert client.search_calls == [("Commerzbank", 5), ("Commerzbank", 5)]
+
+
 def test_financials_rejects_invalid_period() -> None:
     service, _, _, _, _, _ = build_service()
     try:
@@ -508,15 +598,24 @@ def test_financials_cache_miss_loads_balance_sheet_and_stores() -> None:
 
     assert payload["symbol"] == "CBK.DE"
     assert payload["period"] == "annual"
-    assert payload["statements"]["income_statement"] == []
-    assert payload["statements"]["cash_flow"] == []
+    assert len(payload["statements"]["income_statement"]) == 1
+    assert len(payload["statements"]["cash_flow"]) == 1
     assert len(payload["statements"]["balance_sheet"]) == 1
     assert payload["statements"]["balance_sheet"][0]["totalAssets"] == 110.0
     assert payload["statements"]["balance_sheet"][0]["fiscalYear"] == "2025"
-    assert payload["meta"]["source"] == "yfinance_balance_sheet_v1"
-    assert payload["meta"]["warnings"][0]["code"] == "income_statement_not_integrated"
-    assert payload["meta"]["warnings"][1]["code"] == "cash_flow_not_integrated"
+    assert payload["meta"]["source"] == "yfinance_financials_v2"
+    assert payload["meta"]["warnings"] == []
+    assert payload["meta"]["coverage"] == {
+        "income_statement": "integrated",
+        "balance_sheet": "integrated",
+        "cash_flow": "integrated",
+    }
+    assert payload["derived"]["latest_period_date"] == "2025-12-31"
+    assert payload["derived"]["total_debt"] is None
+    assert payload["derived"]["free_cash_flow"] == 20.0
     assert fake_yf_client.balance_sheet_calls == [("CBK.DE", "annual")]
+    assert fake_yf_client.income_statement_calls == [("CBK.DE", "annual")]
+    assert fake_yf_client.cash_flow_calls == [("CBK.DE", "annual")]
     assert client.balance_sheet_calls == []
     assert financials_repository.get("CBK.DE", "annual") is not None
 
@@ -558,6 +657,11 @@ def test_financials_payload_exposes_total_equity_total_debt_and_net_debt() -> No
     assert row["totalEquity"] == 55.0
     assert row["totalDebt"] == 30.0
     assert row["netDebt"] == 23.0
+    assert payload["derived"]["total_debt"] == 30.0
+    assert payload["derived"]["net_debt"] == 23.0
+    assert payload["derived"]["roe"] == (20.0 / 55.0)
+    assert payload["derived"]["roa"] is None
+    assert payload["derived"]["debt_to_equity"] == (30.0 / 55.0)
 
 
 def test_financials_uses_fmp_when_yfinance_is_empty() -> None:
@@ -568,8 +672,9 @@ def test_financials_uses_fmp_when_yfinance_is_empty() -> None:
 
     assert fake_yf_client.balance_sheet_calls == [("EMPTY", "annual")]
     assert client.balance_sheet_calls == [("EMPTY", "annual")]
-    assert payload["meta"]["source"] == "fmp_balance_sheet_v1"
-    assert payload["meta"]["warnings"][2]["code"] == "yfinance_balance_sheet_empty"
+    assert payload["meta"]["source"] == "fmp_balance_sheet_v2"
+    codes = [warning["code"] for warning in payload["meta"]["warnings"]]
+    assert "yfinance_balance_sheet_empty" in codes
 
 
 def test_financials_uses_fmp_when_yfinance_errors() -> None:
@@ -581,8 +686,9 @@ def test_financials_uses_fmp_when_yfinance_errors() -> None:
 
     assert fake_yf_client.balance_sheet_calls == [("CBK.DE", "annual")]
     assert client.balance_sheet_calls == [("CBK.DE", "annual")]
-    assert payload["meta"]["source"] == "fmp_balance_sheet_v1"
-    assert payload["meta"]["warnings"][2]["code"] == "yfinance_balance_sheet_failed"
+    assert payload["meta"]["source"] == "fmp_balance_sheet_v2"
+    codes = [warning["code"] for warning in payload["meta"]["warnings"]]
+    assert "yfinance_balance_sheet_failed" in codes
 
 
 def test_financials_both_providers_fail_uses_stale_cache() -> None:
@@ -620,7 +726,7 @@ def test_financials_quarterly_empty_yfinance_falls_back_to_fmp() -> None:
     assert fake_yf_client.balance_sheet_calls == [("EMPTY", "quarterly")]
     assert client.balance_sheet_calls == [("EMPTY", "quarterly")]
     assert payload["period"] == "quarterly"
-    assert payload["meta"]["source"] == "fmp_balance_sheet_v1"
+    assert payload["meta"]["source"] == "fmp_balance_sheet_v2"
 
 
 def test_timeseries_supports_normalized_close_and_returns() -> None:
@@ -691,10 +797,27 @@ def test_financials_payload_exposes_coverage_metadata() -> None:
     payload = service.get_instrument_financials("CBK.DE", "annual")
 
     assert payload["meta"]["coverage"] == {
-        "income_statement": "not_integrated",
+        "income_statement": "integrated",
         "balance_sheet": "integrated",
-        "cash_flow": "not_integrated",
+        "cash_flow": "integrated",
     }
+
+
+def test_financials_empty_income_and_cashflow_return_empty_lists_without_crash() -> None:
+    fake_yf_client = FakeYFinanceClient(FakeYFinance())
+    fake_yf_client._income_statement_rows = []
+    fake_yf_client._cash_flow_rows = []
+    service, _, _, _, _, _ = build_service(yfinance_client=fake_yf_client)
+
+    payload = service.get_instrument_financials("CBK.DE", "annual")
+
+    assert payload["statements"]["income_statement"] == []
+    assert payload["statements"]["cash_flow"] == []
+    assert payload["meta"]["coverage"]["income_statement"] == "empty"
+    assert payload["meta"]["coverage"]["cash_flow"] == "empty"
+    codes = [warning["code"] for warning in payload["meta"]["warnings"]]
+    assert "income_statement_empty" in codes
+    assert "cash_flow_empty" in codes
 
 
 def test_timeseries_supports_price_and_benchmark_price() -> None:

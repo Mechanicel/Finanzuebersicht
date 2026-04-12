@@ -84,6 +84,71 @@ class YFinanceClient:
             rows.append(row)
         return rows
 
+    def income_statement(self, symbol: str, period: str) -> list[dict[str, Any]]:
+        try:
+            yf = self._get_yf_module()
+            ticker = yf.Ticker(symbol)
+            frame = ticker.income_stmt if period == "annual" else ticker.quarterly_income_stmt
+        except Exception as exc:
+            raise UpstreamServiceError("Market data provider temporarily unavailable") from exc
+
+        if getattr(frame, "empty", True):
+            return []
+
+        rows: list[dict[str, Any]] = []
+        for column in getattr(frame, "columns", []):
+            try:
+                series = frame[column]
+            except Exception:
+                continue
+            date_value, year = self._column_to_date_and_year(column)
+            row: dict[str, Any] = {
+                "symbol": symbol,
+                "date": date_value,
+                "calendarYear": year,
+                "period": "FY" if period == "annual" else "Q",
+            }
+            self._set_numeric_field(row, "revenue", series, ["Total Revenue", "Revenue"])
+            self._set_numeric_field(row, "operatingIncome", series, ["Operating Income"])
+            self._set_numeric_field(row, "netIncome", series, ["Net Income"])
+            rows.append(row)
+        return rows
+
+    def cash_flow_statement(self, symbol: str, period: str) -> list[dict[str, Any]]:
+        try:
+            yf = self._get_yf_module()
+            ticker = yf.Ticker(symbol)
+            frame = ticker.cash_flow if period == "annual" else ticker.quarterly_cash_flow
+        except Exception as exc:
+            raise UpstreamServiceError("Market data provider temporarily unavailable") from exc
+
+        if getattr(frame, "empty", True):
+            return []
+
+        rows: list[dict[str, Any]] = []
+        for column in getattr(frame, "columns", []):
+            try:
+                series = frame[column]
+            except Exception:
+                continue
+            date_value, year = self._column_to_date_and_year(column)
+            row: dict[str, Any] = {
+                "symbol": symbol,
+                "date": date_value,
+                "calendarYear": year,
+                "period": "FY" if period == "annual" else "Q",
+            }
+            self._set_numeric_field(row, "operatingCashFlow", series, ["Operating Cash Flow"])
+            self._set_numeric_field(row, "capitalExpenditure", series, ["Capital Expenditure"])
+            operating_cf = row.get("operatingCashFlow")
+            capex = row.get("capitalExpenditure")
+            if isinstance(operating_cf, int | float) and isinstance(capex, int | float):
+                row["freeCashFlow"] = float(operating_cf) - float(capex)
+            else:
+                row["freeCashFlow"] = None
+            rows.append(row)
+        return rows
+
     @staticmethod
     def _set_numeric_field(target: dict[str, Any], target_key: str, source: Any, source_keys: list[str]) -> None:
         for source_key in source_keys:

@@ -47,6 +47,7 @@ from app.repositories import (
     InstrumentProfileCacheRepository,
     PriceHistoryCacheRepository,
 )
+from app.ttl_lru_cache import TtlLruCache
 
 LOGGER = logging.getLogger(__name__)
 
@@ -56,6 +57,16 @@ class MarketDataService:
     VALID_HISTORY_RANGES: tuple[HistoryRange, ...] = ("1m", "3m", "6m", "ytd", "1y", "max")
     PRICE_CACHE_STALE_AFTER = timedelta(hours=20)
     HISTORY_STALE_AFTER = timedelta(hours=24)
+    SEARCH_CACHE_MAX_SIZE = 256
+    SEARCH_CACHE_TTL_SECONDS = 86400
+    SNAPSHOT_CACHE_MAX_SIZE = 512
+    SNAPSHOT_CACHE_TTL_SECONDS = 300
+    METRICS_CACHE_MAX_SIZE = 512
+    METRICS_CACHE_TTL_SECONDS = 300
+    FUNDAMENTALS_CACHE_MAX_SIZE = 512
+    FUNDAMENTALS_CACHE_TTL_SECONDS = 3600
+    BENCHMARK_CATALOG_CACHE_MAX_SIZE = 8
+    BENCHMARK_CATALOG_CACHE_TTL_SECONDS = 86400
 
     def __init__(
         self,
@@ -79,11 +90,14 @@ class MarketDataService:
         self._cache_enabled = cache_enabled
         self._profile_cache_ttl_seconds = profile_cache_ttl_seconds
         self._financials_cache_ttl_seconds = financials_cache_ttl_seconds
-        self._search_cache: dict[tuple[str, int], InstrumentSearchResponse] = {}
-        self._snapshot_cache: dict[str, dict[str, Any]] = {}
-        self._metrics_cache: dict[str, dict[str, Any]] = {}
-        self._fundamentals_cache: dict[str, dict[str, Any]] = {}
-        self._benchmark_catalog_cache: dict[str, Any] | None = None
+        self._search_cache = TtlLruCache(max_size=self.SEARCH_CACHE_MAX_SIZE, ttl_seconds=self.SEARCH_CACHE_TTL_SECONDS)
+        self._snapshot_cache = TtlLruCache(max_size=self.SNAPSHOT_CACHE_MAX_SIZE, ttl_seconds=self.SNAPSHOT_CACHE_TTL_SECONDS)
+        self._metrics_cache = TtlLruCache(max_size=self.METRICS_CACHE_MAX_SIZE, ttl_seconds=self.METRICS_CACHE_TTL_SECONDS)
+        self._fundamentals_cache = TtlLruCache(max_size=self.FUNDAMENTALS_CACHE_MAX_SIZE, ttl_seconds=self.FUNDAMENTALS_CACHE_TTL_SECONDS)
+        self._benchmark_catalog_cache = TtlLruCache(
+            max_size=self.BENCHMARK_CATALOG_CACHE_MAX_SIZE,
+            ttl_seconds=self.BENCHMARK_CATALOG_CACHE_TTL_SECONDS,
+        )
         self._inflight_locks: dict[tuple[str, str], threading.Lock] = {}
         self._inflight_guard = threading.Lock()
 
@@ -108,17 +122,18 @@ class MarketDataService:
             bounded_limit,
             self._cache_enabled,
         )
-        if self._cache_enabled and cache_key in self._search_cache:
-            cached_response = self._search_cache[cache_key]
-            duration_ms = round((time.perf_counter() - method_started_at) * 1000, 2)
-            LOGGER.info(
-                'search_trace marketdata_service_cache_hit query="%s" bounded_limit=%s total=%s duration_ms=%s',
-                cleaned_query,
-                bounded_limit,
-                cached_response.total,
-                duration_ms,
-            )
-            return cached_response
+        if self._cache_enabled:
+            cached_response = self._search_cache.get(cache_key)
+            if cached_response is not None:
+                duration_ms = round((time.perf_counter() - method_started_at) * 1000, 2)
+                LOGGER.info(
+                    'search_trace marketdata_service_cache_hit query="%s" bounded_limit=%s total=%s duration_ms=%s',
+                    cleaned_query,
+                    bounded_limit,
+                    cached_response.total,
+                    duration_ms,
+                )
+                return cached_response
         LOGGER.info(
             'search_trace marketdata_service_cache_miss query="%s" bounded_limit=%s',
             cleaned_query,
@@ -162,7 +177,7 @@ class MarketDataService:
         ]
         response = InstrumentSearchResponse(query=cleaned_query, items=items, total=len(items))
         if self._cache_enabled:
-            self._search_cache[cache_key] = response
+            self._search_cache.set(cache_key, response)
         total_duration_ms = round((time.perf_counter() - method_started_at) * 1000, 2)
         LOGGER.info(
             'search_trace marketdata_service_exit success=true query="%s" bounded_limit=%s total=%s duration_ms=%s',
@@ -302,8 +317,10 @@ class MarketDataService:
 
     def get_instrument_snapshot(self, symbol: str) -> dict[str, Any]:
         normalized = self._normalize_symbol(symbol)
-        if self._cache_enabled and normalized in self._snapshot_cache:
-            return self._snapshot_cache[normalized]
+        if self._cache_enabled:
+            cached = self._snapshot_cache.get(normalized)
+            if cached is not None:
+                return cached
 
         profile = self.get_instrument_profile(normalized)
         price_refresh = self.refresh_instrument_price(normalized)
@@ -319,13 +336,15 @@ class MarketDataService:
             "coverage": "profile+price",
         }
         if self._cache_enabled:
-            self._snapshot_cache[normalized] = payload
+            self._snapshot_cache.set(normalized, payload)
         return payload
 
     def get_instrument_fundamentals(self, symbol: str) -> dict[str, Any]:
         normalized = self._normalize_symbol(symbol)
-        if self._cache_enabled and normalized in self._fundamentals_cache:
-            return self._fundamentals_cache[normalized]
+        if self._cache_enabled:
+            cached = self._fundamentals_cache.get(normalized)
+            if cached is not None:
+                return cached
 
         profile = self.get_instrument_profile(normalized)
         payload = {
@@ -340,13 +359,15 @@ class MarketDataService:
             "source": "profile_cache",
         }
         if self._cache_enabled:
-            self._fundamentals_cache[normalized] = payload
+            self._fundamentals_cache.set(normalized, payload)
         return payload
 
     def get_instrument_metrics(self, symbol: str) -> dict[str, Any]:
         normalized = self._normalize_symbol(symbol)
-        if self._cache_enabled and normalized in self._metrics_cache:
-            return self._metrics_cache[normalized]
+        if self._cache_enabled:
+            cached = self._metrics_cache.get(normalized)
+            if cached is not None:
+                return cached
 
         profile = self.get_instrument_profile(normalized)
         history = self.get_instrument_history(normalized, "1y")
@@ -369,7 +390,7 @@ class MarketDataService:
             "source": "profile+history_cache",
         }
         if self._cache_enabled:
-            self._metrics_cache[normalized] = payload
+            self._metrics_cache.set(normalized, payload)
         return payload
 
     def get_instrument_financials(self, symbol: str, period: str) -> dict[str, Any]:
@@ -377,21 +398,46 @@ class MarketDataService:
         if period not in {"annual", "quarterly"}:
             raise BadRequestError("period must be annual or quarterly")
         financials_period = cast(FinancialsPeriod, period)
-        warnings: list[dict[str, str]] = [
-            {"code": "income_statement_not_integrated", "message": "Income statement is not integrated yet."},
-            {"code": "cash_flow_not_integrated", "message": "Cash flow is not integrated yet."},
-        ]
+        warnings: list[dict[str, str]] = []
         cached = self._financials_repository.get(normalized, financials_period)
         if cached is not None and self._is_financials_fresh(cached.fetched_at):
             return self._financials_document_to_payload(cached, warnings=warnings)
 
+        income_statement_rows: list[dict[str, Any]] = []
+        cash_flow_rows: list[dict[str, Any]] = []
+        income_coverage = "empty"
+        cash_flow_coverage = "empty"
+
+        try:
+            income_statement_rows = self._map_income_statement_rows(
+                normalized,
+                self._yfinance_client.income_statement(normalized, financials_period),
+            )
+            income_coverage = "integrated" if income_statement_rows else "empty"
+        except UpstreamServiceError:
+            income_coverage = "provider_error_fallback"
+            warnings.append({"code": "income_statement_provider_error", "message": "Income statement provider unavailable."})
+
+        try:
+            cash_flow_rows = self._map_cash_flow_rows(
+                normalized,
+                self._yfinance_client.cash_flow_statement(normalized, financials_period),
+            )
+            cash_flow_coverage = "integrated" if cash_flow_rows else "empty"
+        except UpstreamServiceError:
+            cash_flow_coverage = "provider_error_fallback"
+            warnings.append({"code": "cash_flow_provider_error", "message": "Cash flow provider unavailable."})
+
         yfinance_rows: list[BalanceSheetStatement] = []
         yfinance_error: UpstreamServiceError | None = None
+        balance_sheet_coverage = "empty"
         try:
             yfinance_payload = self._yfinance_client.balance_sheet_statement(symbol=normalized, period=financials_period)
             yfinance_rows = self._map_balance_sheet_rows(normalized, yfinance_payload)
+            balance_sheet_coverage = "integrated" if yfinance_rows else "empty"
         except UpstreamServiceError as exc:
             yfinance_error = exc
+            balance_sheet_coverage = "provider_error_fallback"
             LOGGER.warning("yfinance balance sheet failed for %s; using FMP fallback", normalized, exc_info=True)
             warnings.append({"code": "yfinance_balance_sheet_failed", "message": "yfinance failed; trying FMP fallback."})
 
@@ -400,13 +446,25 @@ class MarketDataService:
             document = FinancialsCacheDocument(
                 symbol=normalized,
                 period=financials_period,
-                source="yfinance_balance_sheet_v1",
-                currency=currency,
-                statements=FinancialStatements(balance_sheet=yfinance_rows),
+                source="yfinance_financials_v2",
+                currency=currency or self._detect_statement_currency(income_statement_rows, cash_flow_rows),
+                statements=FinancialStatements(
+                    income_statement=income_statement_rows,
+                    balance_sheet=yfinance_rows,
+                    cash_flow=cash_flow_rows,
+                ),
                 fetched_at=utcnow(),
             )
             self._financials_repository.upsert_document(document)
-            return self._financials_document_to_payload(document, warnings=warnings)
+            return self._financials_document_to_payload(
+                document,
+                warnings=warnings,
+                coverage={
+                    "income_statement": income_coverage,
+                    "balance_sheet": balance_sheet_coverage,
+                    "cash_flow": cash_flow_coverage,
+                },
+            )
 
         if yfinance_error is None:
             LOGGER.info("yfinance balance sheet empty for %s; using FMP fallback", normalized)
@@ -421,17 +479,37 @@ class MarketDataService:
             document = FinancialsCacheDocument(
                 symbol=normalized,
                 period=financials_period,
-                source="fmp_balance_sheet_v1",
-                currency=currency,
-                statements=FinancialStatements(balance_sheet=balance_sheet_rows),
+                source="fmp_balance_sheet_v2",
+                currency=currency or self._detect_statement_currency(income_statement_rows, cash_flow_rows),
+                statements=FinancialStatements(
+                    income_statement=income_statement_rows,
+                    balance_sheet=balance_sheet_rows,
+                    cash_flow=cash_flow_rows,
+                ),
                 fetched_at=utcnow(),
             )
             self._financials_repository.upsert_document(document)
-            return self._financials_document_to_payload(document, warnings=warnings)
+            return self._financials_document_to_payload(
+                document,
+                warnings=warnings,
+                coverage={
+                    "income_statement": income_coverage,
+                    "balance_sheet": "integrated" if balance_sheet_rows else "empty",
+                    "cash_flow": cash_flow_coverage,
+                },
+            )
         except UpstreamServiceError:
             if cached is not None:
                 warnings.append({"code": "provider_error_fallback", "message": "Using stale cached financials due to provider error."})
-                return self._financials_document_to_payload(cached, warnings=warnings)
+                return self._financials_document_to_payload(
+                    cached,
+                    warnings=warnings,
+                    coverage={
+                        "income_statement": "provider_error_fallback" if income_coverage == "provider_error_fallback" else ("integrated" if cached.statements.income_statement else "empty"),
+                        "balance_sheet": "provider_error_fallback",
+                        "cash_flow": "provider_error_fallback" if cash_flow_coverage == "provider_error_fallback" else ("integrated" if cached.statements.cash_flow else "empty"),
+                    },
+                )
             raise
 
     def get_instrument_risk(self, symbol: str, benchmark: str | None) -> dict[str, Any]:
@@ -616,8 +694,10 @@ class MarketDataService:
         return output
 
     def get_benchmark_catalog(self) -> dict[str, Any]:
-        if self._cache_enabled and self._benchmark_catalog_cache is not None:
-            return self._benchmark_catalog_cache
+        if self._cache_enabled:
+            cached_catalog = self._benchmark_catalog_cache.get("catalog")
+            if cached_catalog is not None:
+                return cached_catalog
         catalog = {
             "items": [
                 {"symbol": "SPY", "name": "SPDR S&P 500 ETF"},
@@ -628,7 +708,7 @@ class MarketDataService:
             "source": "marketdata_service_catalog",
         }
         if self._cache_enabled:
-            self._benchmark_catalog_cache = catalog
+            self._benchmark_catalog_cache.set("catalog", catalog)
         return catalog
 
     def search_benchmark_catalog(self, query: str) -> dict[str, Any]:
@@ -1000,35 +1080,160 @@ class MarketDataService:
         document: FinancialsCacheDocument,
         *,
         warnings: list[dict[str, str]] | None = None,
+        coverage: dict[str, str] | None = None,
     ) -> dict[str, Any]:
+        income_statement = sorted(document.statements.income_statement, key=lambda row: row.get("date") or "", reverse=True)
+        cash_flow = sorted(document.statements.cash_flow, key=lambda row: row.get("date") or "", reverse=True)
         normalized_balance_sheet = [
             self._normalize_balance_sheet_item(item.model_dump(by_alias=True))
             for item in sorted(document.statements.balance_sheet, key=lambda row: row.date or "", reverse=True)
         ]
+        effective_coverage = coverage or {
+            "income_statement": "integrated" if income_statement else "empty",
+            "balance_sheet": "integrated" if normalized_balance_sheet else "empty",
+            "cash_flow": "integrated" if cash_flow else "empty",
+        }
+        computed_warnings = list(warnings or [])
+        if effective_coverage["income_statement"] == "empty":
+            computed_warnings.append({"code": "income_statement_empty", "message": "Income statement data is empty."})
+        if effective_coverage["cash_flow"] == "empty":
+            computed_warnings.append({"code": "cash_flow_empty", "message": "Cash flow data is empty."})
+        if effective_coverage["balance_sheet"] == "empty":
+            computed_warnings.append({"code": "balance_sheet_empty", "message": "Balance sheet data is empty."})
+        deduped_warnings: list[dict[str, str]] = []
+        seen_warning_keys: set[tuple[str, str]] = set()
+        for item in computed_warnings:
+            key = (item.get("code", ""), item.get("message", ""))
+            if key in seen_warning_keys:
+                continue
+            seen_warning_keys.add(key)
+            deduped_warnings.append(item)
+        derived = self._derive_financials(
+            symbol=document.symbol,
+            balance_sheet=normalized_balance_sheet,
+            income_statement=income_statement,
+            cash_flow=cash_flow,
+        )
         return {
             "symbol": document.symbol,
             "period": document.period,
             "currency": document.currency,
             "statements": {
-                "income_statement": [],
+                "income_statement": income_statement,
                 "balance_sheet": normalized_balance_sheet,
-                "cash_flow": [],
+                "cash_flow": cash_flow,
             },
-            "derived": {
-                "market_cap": self._extract_market_cap(document.symbol),
-                "beta": self._extract_beta(document.symbol),
-            },
+            "derived": derived,
             "meta": {
-                "warnings": warnings or [],
+                "warnings": deduped_warnings,
                 "source": document.source,
                 "fetched_at": document.fetched_at.isoformat(),
-                "coverage": {
-                    "income_statement": "not_integrated",
-                    "balance_sheet": "integrated",
-                    "cash_flow": "not_integrated",
-                },
+                "coverage": effective_coverage,
             },
         }
+
+    def _derive_financials(
+        self,
+        *,
+        symbol: str,
+        balance_sheet: list[dict[str, Any]],
+        income_statement: list[dict[str, Any]],
+        cash_flow: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        latest_balance = balance_sheet[0] if balance_sheet else {}
+        latest_income = income_statement[0] if income_statement else {}
+        latest_cash_flow = cash_flow[0] if cash_flow else {}
+        latest_date = latest_balance.get("date") or latest_income.get("date") or latest_cash_flow.get("date")
+
+        total_debt = self._coerce_float(latest_balance.get("totalDebt"))
+        if total_debt is None:
+            short_term = self._coerce_float(latest_balance.get("shortTermDebt"))
+            long_term = self._coerce_float(latest_balance.get("longTermDebt"))
+            if short_term is not None and long_term is not None:
+                total_debt = short_term + long_term
+
+        cash_and_equivalents = self._coerce_float(latest_balance.get("cashAndCashEquivalents"))
+        net_debt = (total_debt - cash_and_equivalents) if total_debt is not None and cash_and_equivalents is not None else None
+
+        operating_cash_flow = self._coerce_float(latest_cash_flow.get("operatingCashFlow"))
+        capital_expenditure = self._coerce_float(latest_cash_flow.get("capitalExpenditure"))
+        free_cash_flow = (
+            operating_cash_flow - capital_expenditure
+            if operating_cash_flow is not None and capital_expenditure is not None
+            else None
+        )
+
+        net_income = self._coerce_float(latest_income.get("netIncome"))
+        total_equity = self._coerce_float(latest_balance.get("totalEquity"))
+        total_assets = self._coerce_float(latest_balance.get("totalAssets"))
+        roe = (net_income / total_equity) if net_income is not None and total_equity not in (None, 0.0) else None
+        roa = (net_income / total_assets) if net_income is not None and total_assets not in (None, 0.0) else None
+        debt_to_equity = (total_debt / total_equity) if total_debt is not None and total_equity not in (None, 0.0) else None
+
+        return {
+            "market_cap": self._extract_market_cap(symbol),
+            "beta": self._extract_beta(symbol),
+            "latest_period_date": latest_date,
+            "total_debt": total_debt,
+            "net_debt": net_debt,
+            "free_cash_flow": free_cash_flow,
+            "roe": roe,
+            "roa": roa,
+            "debt_to_equity": debt_to_equity,
+        }
+
+    @staticmethod
+    def _coerce_float(value: Any) -> float | None:
+        if isinstance(value, int | float):
+            return float(value)
+        return None
+
+    @staticmethod
+    def _detect_statement_currency(income_statement: list[dict[str, Any]], cash_flow: list[dict[str, Any]]) -> str | None:
+        for row in income_statement + cash_flow:
+            currency = row.get("reportedCurrency") or row.get("currency")
+            if isinstance(currency, str) and currency.strip():
+                return currency.strip()
+        return None
+
+    @staticmethod
+    def _map_income_statement_rows(symbol: str, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        mapped: list[dict[str, Any]] = []
+        for row in rows:
+            mapped.append(
+                {
+                    "symbol": symbol,
+                    "date": row.get("date"),
+                    "calendarYear": row.get("calendarYear") or row.get("calendar_year"),
+                    "period": row.get("period"),
+                    "revenue": row.get("revenue"),
+                    "operatingIncome": row.get("operatingIncome"),
+                    "netIncome": row.get("netIncome"),
+                }
+            )
+        return mapped
+
+    @staticmethod
+    def _map_cash_flow_rows(symbol: str, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        mapped: list[dict[str, Any]] = []
+        for row in rows:
+            operating_cash_flow = row.get("operatingCashFlow")
+            capital_expenditure = row.get("capitalExpenditure")
+            free_cash_flow = row.get("freeCashFlow")
+            if free_cash_flow is None and isinstance(operating_cash_flow, int | float) and isinstance(capital_expenditure, int | float):
+                free_cash_flow = float(operating_cash_flow) - float(capital_expenditure)
+            mapped.append(
+                {
+                    "symbol": symbol,
+                    "date": row.get("date"),
+                    "calendarYear": row.get("calendarYear") or row.get("calendar_year"),
+                    "period": row.get("period"),
+                    "operatingCashFlow": operating_cash_flow,
+                    "capitalExpenditure": capital_expenditure,
+                    "freeCashFlow": free_cash_flow,
+                }
+            )
+        return mapped
 
     @staticmethod
     def _normalize_balance_sheet_item(row: dict[str, Any]) -> dict[str, Any]:

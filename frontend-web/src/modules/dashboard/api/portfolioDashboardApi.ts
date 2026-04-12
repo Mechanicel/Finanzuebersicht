@@ -2,6 +2,7 @@ import { http } from '@/shared/api/http'
 import type {
   ApiEnvelope,
   PortfolioContributorsReadModel,
+  PortfolioDashboardReadModel,
   PortfolioDataCoverageReadModel,
   PortfolioExposuresReadModel,
   PortfolioHoldingsReadModel,
@@ -12,6 +13,14 @@ import type {
 
 export async function fetchPortfolioSummary(personId: string) {
   return (await http.get<ApiEnvelope<PortfolioSummaryReadModel>>(`/app/persons/${personId}/portfolio-summary`)).data.data
+}
+
+export async function fetchPortfolioDashboard(personId: string, range = '3m') {
+  return (
+    await http.get<ApiEnvelope<PortfolioDashboardReadModel>>(`/app/persons/${personId}/portfolio-dashboard`, {
+      params: { range }
+    })
+  ).data.data
 }
 
 export async function fetchPortfolioPerformance(personId: string) {

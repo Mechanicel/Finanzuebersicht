@@ -832,6 +832,60 @@ async def test_gateway_portfolio_analytics_passthrough(monkeypatch: pytest.Monke
 
 
 @pytest.mark.anyio
+async def test_gateway_portfolio_dashboard_passthrough(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[str, str, dict | None, dict | None]] = []
+    person_id = UUID("00000000-0000-0000-0000-000000000101")
+
+    async def fake_request(self, method: str, url: str, json: dict | None = None, params: dict | None = None):
+        calls.append((method, url, json, params))
+
+        class Response:
+            status_code = 200
+
+            @staticmethod
+            def json() -> dict:
+                return {
+                    "data": {
+                        "person_id": str(person_id),
+                        "as_of": "2026-04-10",
+                        "range": "6m",
+                        "benchmark_symbol": "SPY",
+                        "summary": {
+                            "person_id": str(person_id),
+                            "as_of": "2026-04-10",
+                            "currency": "EUR",
+                            "market_value": 360.0,
+                            "invested_value": 350.0,
+                            "unrealized_pnl": 10.0,
+                            "portfolios_count": 1,
+                            "holdings_count": 2,
+                            "meta": {"loading": False, "error": None},
+                        },
+                        "performance": {"person_id": str(person_id), "range": "6m", "series": [], "summary": {}, "meta": {"loading": False, "error": None}},
+                        "exposures": {"person_id": str(person_id), "by_position": [], "by_sector": [], "by_country": [], "by_currency": [], "meta": {"loading": False, "error": None}},
+                        "holdings": {"person_id": str(person_id), "as_of": "2026-04-10", "currency": "EUR", "items": [], "summary": {"person_id": str(person_id), "as_of": "2026-04-10", "currency": "EUR", "market_value": 360.0, "invested_value": 350.0, "unrealized_pnl": 10.0, "portfolios_count": 1, "holdings_count": 2, "meta": {"loading": False, "error": None}}, "meta": {"loading": False, "error": None}},
+                        "risk": {"person_id": str(person_id), "as_of": "2026-04-10", "meta": {"loading": False, "error": None}},
+                        "coverage": {"person_id": str(person_id), "as_of": "2026-04-10", "total_holdings": 2, "missing_prices": 0, "missing_sectors": 0, "missing_countries": 0, "missing_currencies": 0, "warnings": [], "meta": {"loading": False, "error": None}},
+                        "contributors": {"person_id": str(person_id), "top_contributors": [], "top_detractors": [], "meta": {"loading": False, "error": None}},
+                        "meta": {"loading": False, "error": None, "warnings": []},
+                    }
+                }
+
+            text = ""
+
+        return Response()
+
+    monkeypatch.setattr("httpx.AsyncClient.request", fake_request)
+    service = GatewayService("http://analytics", "http://person", "http://master", "http://account", "http://portfolio", "http://market", 1.0)
+
+    payload = await service.get_portfolio_dashboard(person_id, range_value="6m")
+    assert payload.range == "6m"
+    assert calls[0][0] == "GET"
+    assert calls[0][1].endswith(f"/api/v1/analytics/persons/{person_id}/portfolio-dashboard")
+    assert calls[0][3] == {"range": "6m"}
+
+
+@pytest.mark.anyio
 async def test_gateway_portfolio_analytics_404_is_forwarded(monkeypatch: pytest.MonkeyPatch) -> None:
     async def fake_request(
         self, method: str, url: str, json: dict | None = None, params: dict | None = None

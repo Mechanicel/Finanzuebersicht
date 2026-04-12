@@ -17,6 +17,7 @@ from app.models import (
     MonthlyComparisonReadModel,
     OverviewReadModel,
     PortfolioContributorsReadModel,
+    PortfolioDashboardReadModel,
     PortfolioDataCoverageReadModel,
     PortfolioExposuresReadModel,
     PortfolioHoldingsReadModel,
@@ -167,6 +168,18 @@ def forecast(
 
 
 @router.get(
+    "/analytics/persons/{person_id}/portfolio-dashboard",
+    response_model=ApiResponse[PortfolioDashboardReadModel],
+)
+def portfolio_dashboard(
+    person_id: UUID,
+    service: Annotated[AnalyticsService, Depends(get_analytics_service)],
+    range: str = "3m",
+) -> ApiResponse[PortfolioDashboardReadModel]:
+    return ApiResponse(data=_call_or_404(lambda: service.portfolio_dashboard(person_id, range_value=range)))
+
+
+@router.get(
     "/analytics/persons/{person_id}/portfolio-summary",
     response_model=ApiResponse[PortfolioSummaryReadModel],
 )
@@ -217,8 +230,9 @@ def portfolio_holdings(
 def portfolio_risk(
     person_id: UUID,
     service: Annotated[AnalyticsService, Depends(get_analytics_service)],
+    range: str = "3m",
 ) -> ApiResponse[PortfolioRiskReadModel]:
-    return ApiResponse(data=_call_or_404(lambda: service.portfolio_risk(person_id)))
+    return ApiResponse(data=_call_or_404(lambda: service.portfolio_risk(person_id, range_value=range)))
 
 
 @router.get(
@@ -228,8 +242,9 @@ def portfolio_risk(
 def portfolio_contributors(
     person_id: UUID,
     service: Annotated[AnalyticsService, Depends(get_analytics_service)],
+    range: str = "3m",
 ) -> ApiResponse[PortfolioContributorsReadModel]:
-    return ApiResponse(data=_call_or_404(lambda: service.portfolio_contributors(person_id)))
+    return ApiResponse(data=_call_or_404(lambda: service.portfolio_contributors(person_id, range_value=range)))
 
 
 @router.get(

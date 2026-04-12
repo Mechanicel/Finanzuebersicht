@@ -594,6 +594,15 @@ export interface PortfolioRiskReadModel {
   correlation?: number | null
   beta?: number | null
   tracking_error?: number | null
+  annualized_volatility?: number | null
+  annualized_tracking_error?: number | null
+  sharpe_ratio?: number | null
+  sortino_ratio?: number | null
+  information_ratio?: number | null
+  active_return?: number | null
+  best_day_return?: number | null
+  worst_day_return?: number | null
+  aligned_points?: number | null
   top_position_weight?: number | null
   top3_weight?: number | null
   concentration_note?: string | null
@@ -608,10 +617,20 @@ export interface PortfolioContributorItem {
   unrealized_pnl: number
   contribution_weighted: number
   direction?: string | null
+  contribution_return?: number | null
+  contribution_pct_points?: number | null
+  periods_used?: number
+  history_available?: boolean
 }
 
 export interface PortfolioContributorsReadModel {
   person_id: string
+  as_of?: string
+  range?: string
+  methodology?: string
+  total_contribution_return?: number | null
+  total_contribution_pct_points?: number | null
+  warnings?: string[]
   top_contributors: PortfolioContributorItem[]
   top_detractors: PortfolioContributorItem[]
   meta: { loading?: boolean; error?: string | null; [key: string]: unknown }
@@ -629,6 +648,21 @@ export interface PortfolioDataCoverageReadModel {
   holdings_with_marketdata_warnings?: number
   warnings: string[]
   meta: { loading?: boolean; error?: string | null; [key: string]: unknown }
+}
+
+export interface PortfolioDashboardReadModel {
+  person_id: string
+  as_of: string
+  range: string
+  benchmark_symbol?: string | null
+  summary: PortfolioSummaryReadModel
+  performance: PortfolioPerformanceReadModel
+  exposures: PortfolioExposuresReadModel
+  holdings: PortfolioHoldingsReadModel
+  risk: PortfolioRiskReadModel
+  coverage: PortfolioDataCoverageReadModel
+  contributors: PortfolioContributorsReadModel
+  meta: { loading?: boolean; error?: string | null; warnings?: string[]; [key: string]: unknown }
 }
 
 export interface ApiEnvelope<T> { data: T }
