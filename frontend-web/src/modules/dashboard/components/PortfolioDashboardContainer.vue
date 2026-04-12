@@ -61,7 +61,44 @@
           <span>{{ sectionErrors.holdings }}</span>
           <button class="btn flow-btn btn-small" type="button" @click="void loadHoldings()">Erneut laden</button>
         </div>
-        <PortfolioInstrumentDetailPanel :selected-holding="selectedHolding" />
+        <div class="workspace-right-stack">
+          <PortfolioInstrumentDetailPanel :selected-holding="selectedHolding" />
+          <section v-if="contributors" class="section-state section-state--compact">
+            <div class="contributors-header">
+              <strong>Top Contributors</strong>
+              <span>
+                Contributors: {{ contributorCount }}
+                ·
+                Detractors: {{ detractorCount }}
+              </span>
+            </div>
+            <div v-if="hasContributorRows || hasDetractorRows" class="contributors-grid">
+              <div v-if="hasContributorRows" class="contributors-list-block">
+                <p class="contributors-list-title">Contributors</p>
+                <ul class="contributors-list">
+                  <li v-for="(item, index) in topContributorRows" :key="`contributor-${item.symbol ?? item.display_name ?? index}`">
+                    <span class="contributors-name">{{ item.display_name || item.symbol || 'Unbekannt' }}</span>
+                    <span class="contributors-value">{{ item.contribution_pct_points ?? 0 }} pp</span>
+                  </li>
+                </ul>
+              </div>
+              <div v-if="hasDetractorRows" class="contributors-list-block">
+                <p class="contributors-list-title">Detractors</p>
+                <ul class="contributors-list">
+                  <li v-for="(item, index) in topDetractorRows" :key="`detractor-${item.symbol ?? item.display_name ?? index}`">
+                    <span class="contributors-name">{{ item.display_name || item.symbol || 'Unbekannt' }}</span>
+                    <span class="contributors-value">{{ item.contribution_pct_points ?? 0 }} pp</span>
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </section>
+          <div v-else-if="isSectionLoading.contributors" class="section-state">Contributors werden geladen…</div>
+          <div v-else-if="sectionErrors.contributors" class="section-state section-state--error">
+            <span>{{ sectionErrors.contributors }}</span>
+            <button class="btn flow-btn btn-small" type="button" @click="void loadContributors()">Erneut laden</button>
+          </div>
+        </div>
       </div>
 
       <PortfolioExposuresPanel v-if="exposures" :exposures="exposures" :currency="summary?.currency" />
@@ -71,15 +108,6 @@
         <button class="btn flow-btn btn-small" type="button" @click="void loadExposures()">Erneut laden</button>
       </div>
 
-      <section v-if="contributors" class="section-state section-state--neutral">
-        <strong>Top Contributors</strong>
-        <span>Contributors: {{ contributors.top_contributors.length }} · Detractors: {{ contributors.top_detractors.length }}</span>
-      </section>
-      <div v-else-if="isSectionLoading.contributors" class="section-state">Contributors werden geladen…</div>
-      <div v-else-if="sectionErrors.contributors" class="section-state section-state--error">
-        <span>{{ sectionErrors.contributors }}</span>
-        <button class="btn flow-btn btn-small" type="button" @click="void loadContributors()">Erneut laden</button>
-      </div>
     </template>
   </section>
 </template>
@@ -143,6 +171,12 @@ const selectedHolding = computed<PortfolioHoldingItem | null>(() => {
   if (!selectedSymbol.value) return fallbackHolding(items)
   return items.find((item) => item.symbol === selectedSymbol.value) ?? fallbackHolding(items)
 })
+const topContributorRows = computed(() => (contributors.value?.top_contributors ?? []).slice(0, 5))
+const topDetractorRows = computed(() => (contributors.value?.top_detractors ?? []).slice(0, 5))
+const contributorCount = computed(() => contributors.value?.top_contributors?.length ?? 0)
+const detractorCount = computed(() => contributors.value?.top_detractors?.length ?? 0)
+const hasContributorRows = computed(() => topContributorRows.value.length > 0)
+const hasDetractorRows = computed(() => topDetractorRows.value.length > 0)
 
 function onSelectHolding(item: PortfolioHoldingItem) {
   selectedSymbol.value = item.symbol ?? null
@@ -245,6 +279,12 @@ h2 {
   gap: 0.55rem;
 }
 
+.workspace-right-stack {
+  display: grid;
+  gap: 0.5rem;
+  align-items: start;
+}
+
 .section-state {
   border: 1px solid #cbd5e1;
   border-radius: 10px;
@@ -268,6 +308,67 @@ h2 {
   justify-content: space-between;
 }
 
+.section-state--compact {
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.65rem;
+}
+
+.contributors-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.82rem;
+}
+
+.contributors-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.contributors-list-block {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.contributors-list-title {
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #475569;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.contributors-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.16rem;
+  font-size: 0.8rem;
+}
+
+.contributors-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.3rem;
+}
+
+.contributors-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.contributors-value {
+  font-variant-numeric: tabular-nums;
+  color: #0f172a;
+}
+
 .btn-small {
   font-size: 0.82rem;
   padding: 0.35rem 0.6rem;
@@ -276,6 +377,10 @@ h2 {
 @media (max-width: 900px) {
   .primary-grid,
   .workspace-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .contributors-grid {
     grid-template-columns: 1fr;
   }
 }
