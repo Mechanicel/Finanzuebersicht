@@ -23,34 +23,19 @@ Die kritischsten Probleme betreffen:
 
 ## Kritische Findings (HOCH)
 
-### H-1: Einheitenkonflikt bei Prozent-Werten (Ratio vs. Prozent)
+### H-1: ~~Einheitenkonflikt bei Prozent-Werten (Ratio vs. Prozent)~~ — KEIN BUG (nach Code-Review verifiziert)
 
-**Betroffene Dateien:**
-- `frontend-web/src/modules/dashboard/components/PortfolioSummaryBar.vue:140`
-- `frontend-web/src/modules/dashboard/components/PortfolioHoldingsTable.vue:142`
-- `frontend-web/src/modules/dashboard/components/PortfolioInstrumentDetailPanel.vue:19`
-- `frontend-web/src/modules/dashboard/components/PortfolioPerformancePanel.vue:508`
+**Status:** Nach eingehender Prüfung des Backend-Codes **kein tatsächlicher Bug**.
 
-**Problem:** Felder wie `unrealized_return_pct` und `return_pct` werden mit `formatPercentValue()` formatiert, das den Wert direkt als Prozentzahl anzeigt (z.B. `5.0` -> `5,00 %`). Wenn das Backend diese Werte jedoch als Ratio liefert (z.B. `0.05` fuer 5%), wird `0,05 %` statt `5,00 %` angezeigt.
+Das Backend berechnet `unrealized_return_pct = unrealized_pnl / invested_value * 100` und `return_pct = absolute_change / start_value * 100` — beide Werte sind bereits Prozentzahlen (z.B. 5.0 für 5%). `formatPercentValue()` behandelt sie korrekt. Die Namenskonvention `_pct` bedeutet im Projekt durchgängig "bereits als Prozentzahl", `_ratio` für Dezimalbrüche.
 
-**Auswirkung:** Alle Rendite-Prozentwerte koennten um Faktor 100 falsch angezeigt werden.
+**Empfehlung:** Konvention im Shared-Package als Kommentar dokumentieren, damit zukünftige Entwickler sie nicht in Frage stellen.
 
-**Verbesserungsvorschlag:**
-- Backend-Kontrakt explizit dokumentieren: Sind `_pct`-Felder Ratios oder bereits Prozentwerte?
-- Einheitliche Konvention einfuehren und in den Shared-Models dokumentieren (z.B. alle `_pct`-Felder sind immer Prozentwerte, alle `_ratio`-Felder sind Dezimalbrueche)
-- Alternativ: Im Frontend eine Transformationsschicht einbauen, die API-Werte normalisiert
+### H-2: ~~Residual-Berechnung mischt unterschiedliche Einheiten~~ — KEIN BUG (nach Code-Review verifiziert)
 
-### H-2: Residual-Berechnung mischt unterschiedliche Einheiten
+**Status:** Nach eingehender Prüfung des Backend-Codes **kein tatsächlicher Bug**.
 
-**Datei:** `frontend-web/src/modules/dashboard/model/portfolioAttribution.ts:182-184`
-
-**Problem:** Die Residual-Berechnung subtrahiert `return_pct` von `total_contribution_pct_points`. Wenn `return_pct` ein Ratio ist (z.B. 0.05) und `total_contribution_pct_points` in Prozentpunkten vorliegt (z.B. 4.5), ergibt die Subtraktion `0.05 - 4.5 = -4.45` -- ein sinnloses Ergebnis.
-
-**Auswirkung:** Das angezeigte Residual in der Attribution ist moeglicherweise voellig falsch.
-
-**Verbesserungsvorschlag:**
-- Sicherstellen, dass beide Werte in derselben Einheit vorliegen, bevor sie subtrahiert werden
-- Einheitliche Namenskonvention verwenden: `_pct` fuer Prozentwerte, `_ratio` fuer Dezimalbrueche, `_pct_points` fuer Prozentpunkte
+Beide Werte (`return_pct` und `total_contribution_pct_points`) sind im Backend bereits als Prozentzahlen im ×100-Massstab: `return_pct = absolute_change / start_value * 100` und `total_contribution_pct_points = total_contribution_return * 100`. Die Subtraktion `5.0 - 4.5 = 0.5pp` ist rechnerisch korrekt.
 
 ### H-3: Fehlende Waehrungsumrechnung bei Multi-Currency-Portfolios
 
@@ -283,28 +268,32 @@ Short-Positionen zeigen keinen Balken, obwohl sie in der Liste mit negativem Wer
 
 ### Sofort (vor naechstem Release)
 
-1. **Einheiten-Konvention definieren und durchsetzen** (H-1, H-2, M-8)
-   - Dokumentieren ob `_pct`-Felder Ratios oder Prozentwerte sind
-   - Im Shared-Package eine Konvention festlegen und alle Services/Frontend anpassen
-   - Empfehlung: `_pct` = bereits Prozent (5.0 fuer 5%), `_ratio` = Dezimalbruch (0.05 fuer 5%)
+1. ~~**Einheiten-Konvention definieren**~~ (H-1, H-2) — Nach Code-Review: kein Bug. `_pct` = Prozentzahl (×100), `_ratio` = Dezimalbruch. Konvention bereits konsistent im gesamten Backend.
 
-2. **Volatilitaetsberechnung korrigieren** (H-4)
-   - Sample-Standardabweichung (N-1) verwenden
-   - Alle abgeleiteten Metriken profitieren automatisch
+2. **[BEHOBEN] Volatilitaetsberechnung korrigiert** (H-4)
+   - `services/analytics-service/app/service.py:370` — Bessel-Korrektur (N-1) implementiert
+   - Betrifft: portfolio_volatility, annualized_volatility, tracking_error, downside_vol, Sharpe, Sortino, Information Ratio
 
-3. **Downside-Volatilitaet korrigieren** (M-1)
-   - Standard-Downside-Deviation-Formel implementieren
+3. **[BEHOBEN] Multi-Currency-Warnung implementiert** (H-3)
+   - `shared/src/finanzuebersicht_shared/models.py` — `warnings` Feld in `PortfolioSummaryReadModel`
+   - `services/analytics-service/app/service.py` — Erkennung von Non-EUR-Holdings, Warning `mixed_currency_no_conversion:<currencies>`
+   - `frontend-web/src/shared/model/types.ts` — TypeScript-Typ aktualisiert
+   - `frontend-web/src/modules/dashboard/model/portfolioAlerts.ts` — Alert-Regel `deriveSummaryAlerts` implementiert
+   - Vollstaendige Waehrungsumrechnung bleibt offenes Folge-Ticket (siehe Mittelfristig)
+
+4. **Downside-Volatilitaet korrigieren** (M-1)
+   - Standard-Downside-Deviation-Formel implementieren (`sqrt(sum(min(r,0)^2) / N)` ueber alle Perioden)
 
 ### Kurzfristig
 
-4. **Active Return auf aligned Daten beschraenken** (M-2)
-5. **Return-Datumszuordnung korrigieren** (M-3)
-6. **`hasNumber` vereinheitlichen** (M-6)
-7. **Berechnungs-Tests mit bekannten Werten schreiben** (M-10)
+1. **Active Return auf aligned Daten beschraenken** (M-2)
+2. **Return-Datumszuordnung korrigieren** (M-3)
+3. **`hasNumber` vereinheitlichen** (M-6)
+4. **Berechnungs-Tests mit bekannten Werten schreiben** (M-10)
 
 ### Mittelfristig
 
-8. **Waehrungsumrechnung implementieren** (H-3)
-9. **Dashboard-Models typisieren** (M-5)
-10. **Section-Metadaten durchreichen** (M-4)
-11. **History-Sanitization vereinheitlichen** (M-9)
+1. **Waehrungsumrechnung vollstaendig implementieren** (H-3 — Warnung bereits implementiert)
+2. **Dashboard-Models typisieren** (M-5)
+3. **Section-Metadaten durchreichen** (M-4)
+4. **History-Sanitization vereinheitlichen** (M-9)

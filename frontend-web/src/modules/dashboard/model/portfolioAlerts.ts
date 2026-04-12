@@ -466,6 +466,31 @@ function deriveContributorAlerts(context: PortfolioAlertRuleContext): PortfolioA
   return alerts
 }
 
+function deriveSummaryAlerts(context: PortfolioAlertRuleContext): PortfolioAlert[] {
+  const summary = context.sources.summary
+  if (!summary) return []
+
+  const alerts: PortfolioAlert[] = []
+  const warnings: string[] = Array.isArray(summary.warnings) ? summary.warnings : []
+
+  const mixedCurrencyWarning = warnings.find((w) => w.startsWith('mixed_currency_no_conversion:'))
+  if (mixedCurrencyWarning) {
+    const currencies = mixedCurrencyWarning.split(':')[1] ?? ''
+    alerts.push(
+      alert('summary', {
+        id: 'mixed-currency-no-conversion',
+        severity: 'warnung',
+        priority: 25,
+        title: 'Mehrtwaehrungs-Portfolio ohne Umrechnung',
+        detail: `Holdings in Fremdwaehrung (${currencies}) werden ohne Wechselkursumrechnung summiert. Betraege und Renditen sind moeglicherweise ungenau.`,
+        actionHint: 'Waehrungsumrechnung pruefen'
+      })
+    )
+  }
+
+  return alerts
+}
+
 function deriveSmallPortfolioAlerts(context: PortfolioAlertRuleContext): PortfolioAlert[] {
   if (!isSmallPortfolio(context)) return []
 
@@ -509,6 +534,11 @@ export const PORTFOLIO_ALERT_RULE_DEFINITIONS: PortfolioAlertRuleDefinition[] = 
     id: 'small-portfolio',
     description: 'Adds an information alert for portfolios where concentration breaches would be misleading.',
     derive: deriveSmallPortfolioAlerts
+  },
+  {
+    id: 'summary',
+    description: 'Surfaces warnings from the portfolio summary, e.g. mixed-currency aggregation without conversion.',
+    derive: deriveSummaryAlerts
   }
 ]
 

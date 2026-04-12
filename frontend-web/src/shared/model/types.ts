@@ -512,6 +512,7 @@ export interface PortfolioSummaryReadModel {
   holdings_count: number
   top_position_weight?: number | null
   top3_weight?: number | null
+  warnings?: string[]
   meta: { loading?: boolean; error?: string | null; [key: string]: unknown }
 }
 

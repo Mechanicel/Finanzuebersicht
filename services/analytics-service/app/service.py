@@ -367,7 +367,7 @@ class AnalyticsService:
         if len(values) < 2:
             return None
         avg = sum(values) / len(values)
-        variance = sum((value - avg) ** 2 for value in values) / len(values)
+        variance = sum((value - avg) ** 2 for value in values) / (len(values) - 1)
         return variance ** 0.5
 
     @staticmethod
@@ -1163,7 +1163,19 @@ class AnalyticsService:
         top_position_weight = ordered_weights[0] if ordered_weights else None
         top3_weight = sum(ordered_weights[:3]) if ordered_weights else None
 
-        meta = {"loading": False, "error": ", ".join(warnings) if warnings else None}
+        all_warnings = list(warnings)
+        non_eur_currencies = {
+            item.currency
+            for item in holdings
+            if item.currency and item.currency.upper() != "EUR"
+        }
+        if non_eur_currencies:
+            all_warnings.append(
+                "mixed_currency_no_conversion:"
+                + ",".join(sorted(non_eur_currencies))
+            )
+
+        meta = {"loading": False, "error": ", ".join(all_warnings) if all_warnings else None}
         return PortfolioSummaryReadModel(
             person_id=person_id,
             as_of=datetime.now(UTC).date(),
@@ -1178,6 +1190,7 @@ class AnalyticsService:
             holdings_count=len(holdings),
             top_position_weight=round(top_position_weight, 6) if top_position_weight is not None else None,
             top3_weight=round(top3_weight, 6) if top3_weight is not None else None,
+            warnings=all_warnings,
             meta=meta,
         )
 

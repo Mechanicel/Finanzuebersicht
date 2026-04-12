@@ -74,6 +74,7 @@ class PortfolioSummaryReadModel(BaseModel):
     holdings_count: int
     top_position_weight: float | None = None
     top3_weight: float | None = None
+    warnings: list[str] = Field(default_factory=list)
     meta: LoadingMeta = Field(default_factory=LoadingMeta)
 
 
