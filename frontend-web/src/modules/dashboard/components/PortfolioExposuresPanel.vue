@@ -2,22 +2,24 @@
   <article class="panel">
     <h3>Exposures / Allocation</h3>
 
-    <section v-for="section in sections" :key="section.key" class="exposure-section">
-      <header class="section-header">
-        <h4>{{ section.title }}</h4>
-        <button v-if="section.items.length > 8" type="button" class="toggle" @click="toggleSection(section.key)">
-          {{ expandedSections[section.key] ? 'Weniger anzeigen' : 'Mehr anzeigen' }}
-        </button>
-      </header>
-      <ul v-if="section.items.length > 0">
-        <li v-for="item in visibleItems(section)" :key="`${section.key}-${item.label}`">
-          <span>{{ item.label }}</span>
-          <span class="market-value">{{ formatMoney(item.market_value, currency) }}</span>
-          <strong class="weight">{{ formatPercent(item.weight) }}</strong>
-        </li>
-      </ul>
-      <p v-else class="hint">Keine Daten</p>
-    </section>
+    <div class="sections-grid">
+      <section v-for="section in sections" :key="section.key" class="exposure-section">
+        <header class="section-header">
+          <h4>{{ section.title }}</h4>
+          <button v-if="section.items.length > 8" type="button" class="toggle" @click="toggleSection(section.key)">
+            {{ expandedSections[section.key] ? 'Weniger anzeigen' : 'Mehr anzeigen' }}
+          </button>
+        </header>
+        <ul v-if="section.items.length > 0">
+          <li v-for="item in visibleItems(section)" :key="`${section.key}-${item.label}`">
+            <span>{{ item.label }}</span>
+            <span class="market-value">{{ formatMoney(item.market_value, currency) }}</span>
+            <strong class="weight">{{ formatPercent(item.weight) }}</strong>
+          </li>
+        </ul>
+        <p v-else class="hint">Keine Daten</p>
+      </section>
+    </div>
   </article>
 </template>
 
@@ -72,8 +74,17 @@ h3 {
   margin: 0 0 0.5rem;
 }
 
-.exposure-section + .exposure-section {
-  margin-top: 0.56rem;
+.sections-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.6rem;
+  align-items: start;
+}
+
+.exposure-section {
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 0.45rem 0.5rem;
 }
 
 .section-header {
@@ -84,7 +95,7 @@ h3 {
 }
 
 h4 {
-  margin: 0 0 0.28rem;
+  margin: 0;
   font-size: 0.9rem;
   color: #334155;
 }
@@ -101,18 +112,18 @@ h4 {
 }
 
 ul {
-  margin: 0;
+  margin: 0.2rem 0 0;
   padding: 0;
   list-style: none;
   display: grid;
-  gap: 0.25rem;
+  gap: 0.18rem;
 }
 
 li {
   display: grid;
   grid-template-columns: 1fr auto auto;
   gap: 0.45rem;
-  font-size: 0.82rem;
+  font-size: 0.78rem;
   align-items: baseline;
 }
 
@@ -128,5 +139,17 @@ li {
   margin: 0;
   font-size: 0.85rem;
   color: #64748b;
+}
+
+@media (max-width: 1100px) {
+  .sections-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 700px) {
+  .sections-grid {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

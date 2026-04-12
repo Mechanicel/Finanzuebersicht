@@ -104,7 +104,9 @@ h3 {
 }
 
 .table-wrap {
+  overflow-y: auto;
   overflow-x: auto;
+  max-height: 26rem;
 }
 
 table {
@@ -138,6 +140,10 @@ tbody tr.active {
 th {
   color: #475569;
   font-weight: 700;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #fff;
 }
 
 .positive {
