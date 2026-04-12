@@ -55,9 +55,10 @@ describe('PortfolioHoldingsTable', () => {
 
     await rows[1].trigger('click')
     const emitted = wrapper.emitted('select-holding')
+    const selectedItem = emitted?.[0]?.[0] as { symbol?: string } | undefined
     expect(emitted).toBeTruthy()
-    expect(emitted?.[0]?.[0]?.symbol).toBe('MSFT')
+    expect(selectedItem?.symbol).toBe('MSFT')
     expect(wrapper.text()).toContain('Preis-Fallback')
-    expect(wrapper.text()).toContain('missing_current_price')
+    expect(wrapper.text()).toContain('Aktueller Preis fehlt')
   })
 })

@@ -2,10 +2,15 @@
   <article class="panel">
     <header class="panel-header">
       <div>
-        <h3>Portfolio Performance</h3>
+        <div class="title-row">
+          <h3>Portfolio Performance</h3>
+          <span class="scope-badge">Zeitraum</span>
+        </div>
         <p class="meta">
-          Benchmark:
-          <strong>{{ benchmarkSymbol }}</strong>
+          <span>Stand: <strong>{{ asOfLabel }}</strong></span>
+          <span>Zeitraum: <strong>{{ rangeLabel }}</strong></span>
+          <span>Benchmark: <strong>{{ benchmarkSymbol }}</strong></span>
+          <span v-if="returnBasisLabel">Methodik: <strong>{{ returnBasisLabel }}</strong></span>
         </p>
       </div>
       <div class="legend">
@@ -20,13 +25,13 @@
     </div>
 
     <div class="stats">
-      <p><strong>Start</strong><span>{{ formatMoney(performance.summary.start_value, currency) }}</span></p>
-      <p><strong>Ende</strong><span>{{ formatMoney(performance.summary.end_value, currency) }}</span></p>
+      <p><strong>Startwert</strong><span>{{ formatMoney(performance.summary.start_value, currency) }}</span></p>
+      <p><strong>Endwert</strong><span>{{ formatMoney(performance.summary.end_value, currency) }}</span></p>
       <p>
-        <strong>Veränderung</strong>
+        <strong>Wertveränderung</strong>
         <span :class="changeClass">{{ formatSignedMoney(performance.summary.absolute_change, currency) }}</span>
       </p>
-      <p><strong>Rendite</strong><span>{{ formatPercentValue(performance.summary.return_pct) }}</span></p>
+      <p><strong>Zeitraumrendite</strong><span>{{ formatPercentValue(performance.summary.return_pct) }}</span></p>
     </div>
   </article>
 </template>
@@ -35,7 +40,16 @@
 import { computed } from 'vue'
 import SimpleLineChart from '@/shared/ui/SimpleLineChart.vue'
 import type { PortfolioPerformanceReadModel } from '@/shared/model/types'
-import { formatMoney, formatPercentValue, formatSignedMoney } from '@/modules/dashboard/model/portfolioFormatting'
+import {
+  formatDate,
+  formatMoney,
+  formatNullableText,
+  formatPercentValue,
+  formatRangeLabel,
+  formatSignedMoney,
+  getStringMeta,
+  mapPortfolioMethodology
+} from '@/modules/dashboard/model/portfolioFormatting'
 
 const props = defineProps<{
   performance: PortfolioPerformanceReadModel
@@ -44,7 +58,11 @@ const props = defineProps<{
 
 const currency = computed(() => props.currency ?? 'EUR')
 
-const benchmarkSymbol = computed(() => props.performance.benchmark_symbol ?? 'n/a')
+const benchmarkSymbol = computed(() => formatNullableText(props.performance.benchmark_symbol))
+const rangeLabel = computed(() => formatRangeLabel(props.performance.range, props.performance.range_label))
+const returnBasisLabel = computed(() =>
+  props.performance.summary.return_basis ? mapPortfolioMethodology(props.performance.summary.return_basis) : ''
+)
 
 const portfolioLinePoints = computed(() => {
   const portfolioSeries = props.performance.series.find((series) => series.key === 'portfolio_value') ?? props.performance.series[0]
@@ -53,6 +71,12 @@ const portfolioLinePoints = computed(() => {
   }
   return portfolioSeries.points.map((point) => ({ date: point.x, value: point.y }))
 })
+
+const latestPortfolioDate = computed(() => {
+  const points = portfolioLinePoints.value
+  return points.length > 0 ? points[points.length - 1].date : null
+})
+const asOfLabel = computed(() => formatDate(getStringMeta(props.performance.meta, 'as_of', 'generated_at', 'updated_at') ?? latestPortfolioDate.value))
 
 const benchmarkLinePoints = computed(() => {
   const benchmarkSeries = props.performance.series.find((series) => series.key === 'benchmark_price')
@@ -98,10 +122,29 @@ const changeClass = computed(() => {
   margin: 0;
 }
 
+.title-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.scope-badge {
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  padding: 0.08rem 0.4rem;
+  color: #475569;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
 .meta {
-  margin: 0;
+  margin: 0.2rem 0 0;
   color: #64748b;
   font-size: 0.85rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
 }
 
 .chart-wrap {

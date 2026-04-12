@@ -33,14 +33,14 @@
         </div>
         <div class="right-stack">
           <PortfolioRiskPanel v-if="risk" :risk="risk" />
-          <div v-else-if="isSectionLoading.risk" class="section-state">Risk wird geladen…</div>
+          <div v-else-if="isSectionLoading.risk" class="section-state">Risiko wird geladen…</div>
           <div v-else-if="sectionErrors.risk" class="section-state section-state--error">
             <span>{{ sectionErrors.risk }}</span>
             <button class="btn flow-btn btn-small" type="button" @click="void loadRisk()">Erneut laden</button>
           </div>
 
           <PortfolioCoverageBanner v-if="coverage" :coverage="coverage" />
-          <div v-else-if="isSectionLoading.coverage" class="section-state">Data Coverage wird geladen…</div>
+          <div v-else-if="isSectionLoading.coverage" class="section-state">Datenabdeckung wird geladen…</div>
           <div v-else-if="sectionErrors.coverage" class="section-state section-state--error">
             <span>{{ sectionErrors.coverage }}</span>
             <button class="btn flow-btn btn-small" type="button" @click="void loadCoverage()">Erneut laden</button>
@@ -54,6 +54,7 @@
           :items="holdings.items"
           :currency="summary?.currency"
           :selected-symbol="selectedSymbol"
+          :as-of="holdings.as_of"
           @select-holding="onSelectHolding"
         />
         <div v-else-if="isSectionLoading.holdings" class="section-state">Holdings werden geladen…</div>
@@ -62,38 +63,48 @@
           <button class="btn flow-btn btn-small" type="button" @click="void loadHoldings()">Erneut laden</button>
         </div>
         <div class="workspace-right-stack">
-          <PortfolioInstrumentDetailPanel :selected-holding="selectedHolding" />
+          <PortfolioInstrumentDetailPanel :selected-holding="selectedHolding" :as-of="holdings?.as_of ?? summary?.as_of" />
           <section v-if="contributors" class="section-state section-state--compact">
             <div class="contributors-header">
-              <strong>Top Contributors</strong>
+              <div>
+                <strong>Performance-Beiträge</strong>
+                <p class="contributors-meta">
+                  <strong>Zeitraum</strong>
+                  <span>Stand: {{ contributorAsOfLabel }}</span>
+                  <span>Zeitraum: {{ contributorRangeLabel }}</span>
+                  <span v-if="contributorMethodologyLabel">Methodik: {{ contributorMethodologyLabel }}</span>
+                </p>
+              </div>
               <span>
-                Contributors: {{ contributorCount }}
+                Top-Beiträger: {{ contributorCount }}
                 ·
-                Detractors: {{ detractorCount }}
+                Top-Belaster: {{ detractorCount }}
               </span>
             </div>
+            <p v-if="contributorWarningsLabel" class="contributors-warning">Hinweise: {{ contributorWarningsLabel }}</p>
             <div v-if="hasContributorRows || hasDetractorRows" class="contributors-grid">
               <div v-if="hasContributorRows" class="contributors-list-block">
-                <p class="contributors-list-title">Contributors</p>
+                <p class="contributors-list-title">Top-Beiträger</p>
                 <ul class="contributors-list">
                   <li v-for="(item, index) in topContributorRows" :key="`contributor-${item.symbol ?? item.display_name ?? index}`">
-                    <span class="contributors-name">{{ item.display_name || item.symbol || 'Unbekannt' }}</span>
-                    <span class="contributors-value">{{ item.contribution_pct_points ?? 0 }} pp</span>
+                    <span class="contributors-name">{{ contributorName(item) }}</span>
+                    <span class="contributors-value">{{ formatSignedPercentPoints(item.contribution_pct_points) }}</span>
                   </li>
                 </ul>
               </div>
               <div v-if="hasDetractorRows" class="contributors-list-block">
-                <p class="contributors-list-title">Detractors</p>
+                <p class="contributors-list-title">Top-Belaster</p>
                 <ul class="contributors-list">
                   <li v-for="(item, index) in topDetractorRows" :key="`detractor-${item.symbol ?? item.display_name ?? index}`">
-                    <span class="contributors-name">{{ item.display_name || item.symbol || 'Unbekannt' }}</span>
-                    <span class="contributors-value">{{ item.contribution_pct_points ?? 0 }} pp</span>
+                    <span class="contributors-name">{{ contributorName(item) }}</span>
+                    <span class="contributors-value">{{ formatSignedPercentPoints(item.contribution_pct_points) }}</span>
                   </li>
                 </ul>
               </div>
             </div>
+            <p v-else class="contributors-empty">Keine Beitragsdaten verfügbar.</p>
           </section>
-          <div v-else-if="isSectionLoading.contributors" class="section-state">Contributors werden geladen…</div>
+          <div v-else-if="isSectionLoading.contributors" class="section-state">Performance-Beiträge werden geladen…</div>
           <div v-else-if="sectionErrors.contributors" class="section-state section-state--error">
             <span>{{ sectionErrors.contributors }}</span>
             <button class="btn flow-btn btn-small" type="button" @click="void loadContributors()">Erneut laden</button>
@@ -125,7 +136,16 @@ import PortfolioHoldingsTable from '@/modules/dashboard/components/PortfolioHold
 import PortfolioCoverageBanner from '@/modules/dashboard/components/PortfolioCoverageBanner.vue'
 import PortfolioInstrumentDetailPanel from '@/modules/dashboard/components/PortfolioInstrumentDetailPanel.vue'
 import { usePortfolioDashboard } from '@/modules/dashboard/composables/usePortfolioDashboard'
-import type { PortfolioHoldingItem } from '@/shared/model/types'
+import {
+  formatDate,
+  formatNullableText,
+  formatRangeLabel,
+  formatSignedPercentPoints,
+  getStringMeta,
+  mapPortfolioMethodology,
+  mapPortfolioWarning
+} from '@/modules/dashboard/model/portfolioFormatting'
+import type { PortfolioContributorItem, PortfolioHoldingItem } from '@/shared/model/types'
 
 const props = defineProps<{ personId: string }>()
 
@@ -177,9 +197,36 @@ const contributorCount = computed(() => contributors.value?.top_contributors?.le
 const detractorCount = computed(() => contributors.value?.top_detractors?.length ?? 0)
 const hasContributorRows = computed(() => topContributorRows.value.length > 0)
 const hasDetractorRows = computed(() => topDetractorRows.value.length > 0)
+const contributorAsOfLabel = computed(() =>
+  formatDate(getStringMeta(contributors.value?.meta, 'as_of', 'generated_at', 'updated_at') ?? contributors.value?.as_of ?? summary.value?.as_of)
+)
+const contributorRangeLabel = computed(() =>
+  formatRangeLabel(
+    contributors.value?.range ?? getStringMeta(contributors.value?.meta, 'range') ?? performance.value?.range,
+    contributors.value?.range_label ?? getStringMeta(contributors.value?.meta, 'range_label') ?? performance.value?.range_label
+  )
+)
+const contributorMethodologyLabel = computed(() => {
+  const methodology =
+    contributors.value?.methodology ??
+    getStringMeta(contributors.value?.meta, 'methodology', 'return_basis') ??
+    contributors.value?.return_basis
+  return methodology ? mapPortfolioMethodology(methodology) : ''
+})
+const contributorWarningsLabel = computed(() =>
+  (contributors.value?.warnings ?? [])
+    .filter((warning) => warning.trim().length > 0)
+    .slice(0, 4)
+    .map((warning) => mapPortfolioWarning(warning))
+    .join(', ')
+)
 
 function onSelectHolding(item: PortfolioHoldingItem) {
   selectedSymbol.value = item.symbol ?? null
+}
+
+function contributorName(item: PortfolioContributorItem) {
+  return formatNullableText(item.display_name, '') || formatNullableText(item.symbol)
 }
 
 watch(
@@ -316,10 +363,34 @@ h2 {
 
 .contributors-header {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 0.5rem;
   font-size: 0.82rem;
+}
+
+.contributors-meta {
+  margin: 0.14rem 0 0;
+  color: #64748b;
+  font-size: 0.76rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.contributors-meta strong {
+  color: #334155;
+}
+
+.contributors-warning,
+.contributors-empty {
+  margin: 0;
+  font-size: 0.76rem;
+  color: #92400e;
+}
+
+.contributors-empty {
+  color: #64748b;
 }
 
 .contributors-grid {

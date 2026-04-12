@@ -1,6 +1,9 @@
 <template>
   <article class="panel">
-    <h3>Holdings</h3>
+    <header class="panel-header">
+      <h3>Holdings</h3>
+      <p class="meta"><strong>Snapshot</strong> · Stand: {{ asOfLabel }}</p>
+    </header>
     <div class="table-wrap">
       <table>
         <thead>
@@ -9,8 +12,8 @@
             <th>Name</th>
             <th>Gewicht</th>
             <th>Marktwert</th>
-            <th>P&amp;L</th>
-            <th>P&amp;L %</th>
+            <th>Unreal. P&amp;L</th>
+            <th>Unreal. Rendite</th>
             <th>Sektor</th>
             <th>Land</th>
             <th>Datenstatus</th>
@@ -26,17 +29,17 @@
             :class="{ active: item.symbol && item.symbol === selectedSymbol }"
             @click="onSelect(item)"
           >
-            <td>{{ item.symbol || 'n/a' }}</td>
-            <td>{{ item.display_name || item.portfolio_name || 'n/a' }}</td>
+            <td>{{ formatNullableText(item.symbol) }}</td>
+            <td>{{ holdingName(item) }}</td>
             <td>{{ formatPercent(item.weight) }}</td>
             <td>{{ formatMoney(item.market_value, currency) }}</td>
             <td :class="pnlClass(item.unrealized_pnl)">{{ formatSignedMoney(item.unrealized_pnl, currency) }}</td>
             <td :class="pnlClass(item.unrealized_return_pct)">{{ formatPercentValue(item.unrealized_return_pct) }}</td>
-            <td>{{ item.sector || 'n/a' }}</td>
-            <td>{{ item.country || 'n/a' }}</td>
+            <td>{{ formatNullableText(item.sector) }}</td>
+            <td>{{ formatNullableText(item.country) }}</td>
             <td>
               <span class="status-badge" :class="statusClass(item.data_status)">{{ mapHoldingDataStatus(item.data_status) }}</span>
-              <p v-if="hasWarnings(item.warnings)" class="warning-hint">{{ item.warnings?.join(', ') }}</p>
+              <p v-if="hasWarnings(item.warnings)" class="warning-hint">{{ formatWarnings(item.warnings) }}</p>
             </td>
           </tr>
         </tbody>
@@ -49,25 +52,34 @@
 import { computed } from 'vue'
 import type { PortfolioHoldingItem } from '@/shared/model/types'
 import {
+  formatDate,
   formatMoney,
+  formatNullableText,
   formatPercent,
   formatPercentValue,
   formatSignedMoney,
-  mapHoldingDataStatus
+  mapHoldingDataStatus,
+  mapPortfolioWarning
 } from '@/modules/dashboard/model/portfolioFormatting'
 
 const props = defineProps<{
   items: PortfolioHoldingItem[]
   currency?: string
   selectedSymbol?: string | null
+  asOf?: string | null
 }>()
 const emit = defineEmits<{
   (event: 'select-holding', item: PortfolioHoldingItem): void
 }>()
 
 const currency = computed(() => props.currency ?? 'EUR')
+const asOfLabel = computed(() => formatDate(props.asOf))
 
 const sortedItems = computed(() => [...props.items].sort((left, right) => right.weight - left.weight))
+
+function holdingName(item: PortfolioHoldingItem) {
+  return formatNullableText(item.display_name, '') || formatNullableText(item.portfolio_name)
+}
 
 function onSelect(item: PortfolioHoldingItem) {
   emit('select-holding', item)
@@ -89,6 +101,13 @@ function statusClass(status: string | null | undefined) {
 function hasWarnings(warnings: string[] | null | undefined) {
   return Boolean(warnings?.some((warning) => warning.trim().length > 0))
 }
+
+function formatWarnings(warnings: string[] | null | undefined) {
+  return (warnings ?? [])
+    .filter((warning) => warning.trim().length > 0)
+    .map((warning) => mapPortfolioWarning(warning))
+    .join(', ')
+}
 </script>
 
 <style scoped>
@@ -99,8 +118,18 @@ function hasWarnings(warnings: string[] | null | undefined) {
   background: #fff;
 }
 
-h3 {
+.panel-header {
   margin: 0 0 0.6rem;
+}
+
+h3 {
+  margin: 0;
+}
+
+.meta {
+  margin: 0.22rem 0 0;
+  color: #64748b;
+  font-size: 0.8rem;
 }
 
 .table-wrap {

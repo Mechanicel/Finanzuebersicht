@@ -1,10 +1,20 @@
 <template>
   <article class="panel">
-    <h3>Portfolio Risk</h3>
-    <p class="meta">Benchmark: {{ risk.benchmark_symbol || 'n/a' }}</p>
+    <header class="panel-heading">
+      <div class="title-row">
+        <h3>Portfolio Risk</h3>
+        <span class="scope-badge">Zeitraum + Snapshot</span>
+      </div>
+      <p class="meta">
+        <span>Stand: <strong>{{ asOfLabel }}</strong></span>
+        <span>Zeitraum: <strong>{{ rangeLabel }}</strong></span>
+        <span>Benchmark: <strong>{{ benchmarkSymbol }}</strong></span>
+        <span v-if="methodologyLabel">Methodik: <strong>{{ methodologyLabel }}</strong></span>
+      </p>
+    </header>
 
     <section class="group">
-      <h4>Risikometriken</h4>
+      <h4>Risikometriken <span>Zeitraum</span></h4>
       <ul>
         <li><span>Volatilität</span><strong>{{ formatPercentValue(risk.portfolio_volatility) }}</strong></li>
         <li><span>Max Drawdown</span><strong>{{ formatPercentValue(risk.max_drawdown) }}</strong></li>
@@ -15,9 +25,9 @@
     </section>
 
     <section class="group">
-      <h4>Konzentration</h4>
+      <h4>Konzentration <span>Snapshot</span></h4>
       <ul>
-        <li><span>Top Position</span><strong>{{ formatPercent(risk.top_position_weight) }}</strong></li>
+        <li><span>Top-Position</span><strong>{{ formatPercent(risk.top_position_weight) }}</strong></li>
         <li><span>Top 3</span><strong>{{ formatPercent(risk.top3_weight) }}</strong></li>
         <li><span>Hinweis</span><strong>{{ concentrationNote }}</strong></li>
       </ul>
@@ -28,11 +38,33 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { PortfolioRiskReadModel } from '@/shared/model/types'
-import { formatNumber, formatPercent, formatPercentValue, mapConcentrationNote } from '@/modules/dashboard/model/portfolioFormatting'
+import {
+  formatDate,
+  formatNullableText,
+  formatNumber,
+  formatPercent,
+  formatPercentValue,
+  formatRangeLabel,
+  getStringMeta,
+  mapConcentrationNote,
+  mapPortfolioMethodology
+} from '@/modules/dashboard/model/portfolioFormatting'
 
 const props = defineProps<{
   risk: PortfolioRiskReadModel
 }>()
+
+const asOfLabel = computed(() => formatDate(getStringMeta(props.risk.meta, 'as_of', 'generated_at', 'updated_at') ?? props.risk.as_of))
+const rangeLabel = computed(() =>
+  formatRangeLabel(props.risk.range ?? getStringMeta(props.risk.meta, 'range'), props.risk.range_label ?? getStringMeta(props.risk.meta, 'range_label'))
+)
+const benchmarkSymbol = computed(() => formatNullableText(props.risk.benchmark_symbol))
+const methodologyLabel = computed(() => {
+  const parts = [props.risk.methodology, props.risk.benchmark_relation].filter(
+    (part): part is string => typeof part === 'string' && part.trim().length > 0
+  )
+  return parts.map((part) => mapPortfolioMethodology(part)).join(' · ')
+})
 
 const concentrationNote = computed(() => {
   if (!props.risk.concentration_note || props.risk.concentration_note.trim().length === 0) {
@@ -54,10 +86,37 @@ h3 {
   margin: 0;
 }
 
+.panel-heading {
+  margin-bottom: 0.38rem;
+}
+
+.title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.scope-badge {
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  padding: 0.08rem 0.4rem;
+  color: #475569;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
 .meta {
-  margin: 0.22rem 0 0.38rem;
+  margin: 0.22rem 0 0;
   color: #64748b;
   font-size: 0.8rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.42rem;
+}
+
+.meta strong {
+  color: #334155;
 }
 
 .group + .group {
@@ -70,6 +129,14 @@ h4 {
   color: #475569;
   text-transform: uppercase;
   letter-spacing: 0.04em;
+}
+
+h4 span {
+  margin-left: 0.25rem;
+  color: #64748b;
+  font-size: 0.72rem;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
 ul {

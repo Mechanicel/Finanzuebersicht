@@ -4,20 +4,22 @@
       <div>
         <h3>Instrument-Detail</h3>
         <p v-if="selectedHolding">
-          Aktiv: <strong>{{ selectedHolding.symbol || 'n/a' }}</strong>
-          <span class="muted"> · {{ selectedHolding.display_name || selectedHolding.portfolio_name || 'Ohne Namen' }}</span>
+          Aktiv: <strong>{{ formatNullableText(selectedHolding.symbol) }}</strong>
+          <span class="muted"> · {{ holdingName(selectedHolding) }}</span>
         </p>
         <p v-else class="muted">Bitte eine Holding auswählen.</p>
+        <p class="meta"><strong>Snapshot</strong> · Stand: {{ asOfLabel }}</p>
       </div>
     </header>
 
     <div v-if="selectedHolding" class="holding-context">
       <span>Gewicht: {{ formatPercent(selectedHolding.weight) }}</span>
-      <span>Marktwert: {{ formatMoney(selectedHolding.market_value, selectedHolding.currency || 'EUR') }}</span>
-      <span>P&amp;L: {{ formatSignedMoney(selectedHolding.unrealized_pnl, selectedHolding.currency || 'EUR') }}</span>
-      <span>Sektor: {{ selectedHolding.sector || 'n/a' }}</span>
-      <span>Land: {{ selectedHolding.country || 'n/a' }}</span>
-      <span>Währung: {{ selectedHolding.currency || 'n/a' }}</span>
+      <span>Marktwert: {{ formatMoney(selectedHolding.market_value, holdingCurrency(selectedHolding)) }}</span>
+      <span>Unreal. P&amp;L: {{ formatSignedMoney(selectedHolding.unrealized_pnl, holdingCurrency(selectedHolding)) }}</span>
+      <span>Unreal. Rendite: {{ formatPercentValue(selectedHolding.unrealized_return_pct) }}</span>
+      <span>Sektor: {{ formatNullableText(selectedHolding.sector) }}</span>
+      <span>Land: {{ formatNullableText(selectedHolding.country) }}</span>
+      <span>Währung: {{ formatNullableText(selectedHolding.currency) }}</span>
     </div>
 
     <button
@@ -56,16 +58,33 @@
 </template>
 
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import InstrumentAnalysisTabs from '@/modules/dashboard/components/InstrumentAnalysisTabs.vue'
 import type { PortfolioHoldingItem } from '@/shared/model/types'
-import { formatMoney, formatPercent, formatSignedMoney } from '@/modules/dashboard/model/portfolioFormatting'
+import {
+  formatDate,
+  formatMoney,
+  formatNullableText,
+  formatPercent,
+  formatPercentValue,
+  formatSignedMoney
+} from '@/modules/dashboard/model/portfolioFormatting'
 
 const props = defineProps<{
   selectedHolding: PortfolioHoldingItem | null
+  asOf?: string | null
 }>()
 
 const isAnalysisModalOpen = ref(false)
+const asOfLabel = computed(() => formatDate(props.asOf))
+
+function holdingName(holding: PortfolioHoldingItem): string {
+  return formatNullableText(holding.display_name, '') || formatNullableText(holding.portfolio_name)
+}
+
+function holdingCurrency(holding: PortfolioHoldingItem): string {
+  return holding.currency || 'EUR'
+}
 
 const openAnalysisModal = (): void => {
   if (!props.selectedHolding?.symbol) return
@@ -110,6 +129,11 @@ onBeforeUnmount(() => {
 
 .panel-header p {
   margin: 0.3rem 0 0;
+}
+
+.meta {
+  color: #64748b;
+  font-size: 0.8rem;
 }
 
 .holding-context {

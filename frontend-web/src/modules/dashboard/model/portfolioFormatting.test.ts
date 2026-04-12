@@ -1,15 +1,19 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  formatDate,
   formatMoney,
   formatNullableText,
   formatPercent,
   formatPercentFromRatio,
   formatPercentPoints,
   formatPercentValue,
+  formatRangeLabel,
   formatSignedMoney,
   formatSignedPercentPoints,
-  formatSignedPercentValue
+  formatSignedPercentValue,
+  mapPortfolioMethodology,
+  mapPortfolioWarning
 } from '@/modules/dashboard/model/portfolioFormatting'
 
 describe('portfolioFormatting', () => {
@@ -55,5 +59,13 @@ describe('portfolioFormatting', () => {
     expect(formatNullableText('   ')).toBe('n/a')
     expect(formatNullableText(null)).toBe('n/a')
     expect(formatNullableText(undefined, '—')).toBe('—')
+  })
+
+  it('formats portfolio meta labels', () => {
+    expect(formatDate('2026-04-10')).toBe('10.04.2026')
+    expect(formatRangeLabel('3m')).toBe('3 Monate')
+    expect(formatRangeLabel('3m', 'Letzte 3 Monate')).toBe('Letzte 3 Monate')
+    expect(mapPortfolioMethodology('range_contribution')).toBe('Beitrag zur Zeitraumrendite')
+    expect(mapPortfolioWarning('missing_current_price')).toBe('Aktueller Preis fehlt')
   })
 })

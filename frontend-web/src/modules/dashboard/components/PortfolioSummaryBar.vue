@@ -1,9 +1,16 @@
 <template>
-  <section class="summary-grid">
-    <article class="summary-card" v-for="item in kpis" :key="item.label">
-      <p class="label">{{ item.label }}</p>
-      <p class="value">{{ item.value }}</p>
-    </article>
+  <section class="summary-section">
+    <p class="summary-meta">
+      <strong>Snapshot</strong>
+      <span>Stand: {{ asOfLabel }}</span>
+      <span v-if="returnBasisLabel">Methodik: {{ returnBasisLabel }}</span>
+    </p>
+    <div class="summary-grid">
+      <article class="summary-card" v-for="item in kpis" :key="item.label">
+        <p class="label">{{ item.label }}</p>
+        <p class="value">{{ item.value }}</p>
+      </article>
+    </div>
   </section>
 </template>
 
@@ -15,7 +22,9 @@ import {
   formatNumber,
   formatPercent,
   formatPercentValue,
-  formatSignedMoney
+  formatSignedMoney,
+  formatDate,
+  mapPortfolioMethodology
 } from '@/modules/dashboard/model/portfolioFormatting'
 
 const props = defineProps<{
@@ -27,16 +36,38 @@ const kpis = computed(() => {
   return [
     { label: 'Marktwert', value: formatMoney(props.summary.market_value, currency) },
     { label: 'Investierter Wert', value: formatMoney(props.summary.invested_value, currency) },
-    { label: 'Unrealized P&L', value: formatSignedMoney(props.summary.unrealized_pnl, currency) },
-    { label: 'Rendite', value: formatPercentValue(props.summary.unrealized_return_pct) },
+    { label: 'Unreal. P&L', value: formatSignedMoney(props.summary.unrealized_pnl, currency) },
+    { label: 'Unrealisierte Rendite', value: formatPercentValue(props.summary.unrealized_return_pct) },
     { label: 'Holdings', value: formatNumber(props.summary.holdings_count, 0) },
-    { label: 'Top Position', value: formatPercent(props.summary.top_position_weight) },
+    { label: 'Top-Position', value: formatPercent(props.summary.top_position_weight) },
     { label: 'Top 3 Konzentration', value: formatPercent(props.summary.top3_weight) }
   ]
 })
+
+const asOfLabel = computed(() => formatDate(props.summary.as_of))
+const returnBasisLabel = computed(() => (props.summary.return_basis ? mapPortfolioMethodology(props.summary.return_basis) : ''))
 </script>
 
 <style scoped>
+.summary-section {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.summary-meta {
+  margin: 0;
+  color: #64748b;
+  font-size: 0.8rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  align-items: center;
+}
+
+.summary-meta strong {
+  color: #334155;
+}
+
 .summary-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));

@@ -16,7 +16,7 @@ import { usePortfolioDashboard } from '@/modules/dashboard/composables/usePortfo
 function buildDashboardState(overrides: Record<string, unknown> = {}) {
   return {
     summary: ref(null),
-    dashboardSummary: ref({
+    dashboardSummary: computed(() => ({
       person_id: 'person-1',
       as_of: '2026-04-10',
       currency: 'EUR',
@@ -29,10 +29,11 @@ function buildDashboardState(overrides: Record<string, unknown> = {}) {
       top_position_weight: 0.61,
       top3_weight: 1,
       meta: {}
-    }),
+    })),
     performance: ref({
       person_id: 'person-1',
       range: '3m',
+      range_label: '3 Monate',
       benchmark_symbol: 'SPY',
       series: [
         { key: 'portfolio_value', label: 'Portfolio', points: [{ x: '2026-01-01', y: 340 }, { x: '2026-01-02', y: 365 }] },
@@ -48,6 +49,10 @@ function buildDashboardState(overrides: Record<string, unknown> = {}) {
     risk: ref({
       person_id: 'person-1',
       as_of: '2026-04-10',
+      range: '3m',
+      range_label: '3 Monate',
+      methodology: 'daily_returns_on_range',
+      benchmark_symbol: 'SPY',
       portfolio_volatility: 0.12,
       max_drawdown: -0.2,
       correlation: 0.88,
@@ -84,6 +89,9 @@ function buildDashboardState(overrides: Record<string, unknown> = {}) {
     loadRisk: vi.fn(),
     loadContributors: vi.fn(),
     loadCoverage: vi.fn(),
+    loadInitial: vi.fn(),
+    loadSecondary: vi.fn(),
+    loadBootstrap: vi.fn(),
     hasData: computed(() => true),
     hasCoverageWarnings: computed(() => false),
     topHoldings: computed(() => []),
@@ -134,7 +142,7 @@ describe('PortfolioDashboardContainer', () => {
     expect(wrapper.text()).toContain('Marktwert')
     expect(wrapper.text()).toContain('Holdings')
     expect(wrapper.text()).toContain('Performance wird geladen…')
-    expect(wrapper.text()).toContain('Risk wird geladen…')
+    expect(wrapper.text()).toContain('Risiko wird geladen…')
     expect(wrapper.text()).not.toContain('Portfolio-Dashboard-Daten konnten nicht geladen werden.')
   })
 
@@ -159,7 +167,7 @@ describe('PortfolioDashboardContainer', () => {
   it('shows global error only when no renderable data exists', () => {
     vi.mocked(usePortfolioDashboard).mockReturnValue(
       buildDashboardState({
-        dashboardSummary: ref(null),
+        dashboardSummary: computed(() => null),
         performance: ref(null),
         exposures: ref(null),
         holdings: ref(null),
@@ -181,7 +189,7 @@ describe('PortfolioDashboardContainer', () => {
   it('shows stable empty detail state when no holdings are available', () => {
     vi.mocked(usePortfolioDashboard).mockReturnValue(
       buildDashboardState({
-        dashboardSummary: ref({
+        dashboardSummary: computed(() => ({
           person_id: 'person-1',
           as_of: '2026-04-10',
           currency: 'EUR',
@@ -194,7 +202,7 @@ describe('PortfolioDashboardContainer', () => {
           top_position_weight: null,
           top3_weight: null,
           meta: {}
-        }),
+        })),
         holdings: ref({
           person_id: 'person-1',
           as_of: '2026-04-10',
