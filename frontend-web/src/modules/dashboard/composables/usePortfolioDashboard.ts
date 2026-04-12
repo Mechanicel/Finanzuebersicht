@@ -22,6 +22,27 @@ import type {
 } from '@/shared/model/types'
 
 type MaybeRef<T> = T | Ref<T>
+type SectionKey = keyof typeof loadingStatesDefault
+
+const loadingStatesDefault = {
+  summary: false,
+  performance: false,
+  exposures: false,
+  holdings: false,
+  risk: false,
+  contributors: false,
+  coverage: false
+}
+
+const errorsDefault = {
+  summary: '',
+  performance: '',
+  exposures: '',
+  holdings: '',
+  risk: '',
+  contributors: '',
+  coverage: ''
+}
 
 export function usePortfolioDashboard(personId: MaybeRef<string>) {
   const currentPersonId = () => unref(personId)
@@ -34,26 +55,11 @@ export function usePortfolioDashboard(personId: MaybeRef<string>) {
   const coverage = ref<PortfolioDataCoverageReadModel | null>(null)
 
   const loading = ref(false)
-  const loadingStates = ref({
-    summary: false,
-    performance: false,
-    exposures: false,
-    holdings: false,
-    risk: false,
-    contributors: false,
-    coverage: false
-  })
+  const loadingStates = ref({ ...loadingStatesDefault })
 
   const error = ref('')
-  const errors = ref({
-    summary: '',
-    performance: '',
-    exposures: '',
-    holdings: '',
-    risk: '',
-    contributors: '',
-    coverage: ''
-  })
+  const errors = ref({ ...errorsDefault })
+  const loadVersion = ref(0)
 
   function normalizeError(rawError: unknown, fallbackMessage: string): string {
     return extractApiErrorMessage(rawError, fallbackMessage)
@@ -61,124 +67,196 @@ export function usePortfolioDashboard(personId: MaybeRef<string>) {
 
   function clearErrors() {
     error.value = ''
-    errors.value = {
-      summary: '',
-      performance: '',
-      exposures: '',
-      holdings: '',
-      risk: '',
-      contributors: '',
-      coverage: ''
-    }
+    errors.value = { ...errorsDefault }
   }
 
-  async function loadSummary() {
+  function isCurrentLoad(version: number) {
+    return loadVersion.value === version
+  }
+
+  async function loadSummary(version = loadVersion.value) {
     loadingStates.value.summary = true
     errors.value.summary = ''
     try {
-      summary.value = await fetchPortfolioSummary(currentPersonId())
-      return summary.value
+      const payload = await fetchPortfolioSummary(currentPersonId())
+      if (isCurrentLoad(version)) {
+        summary.value = payload
+      }
+      return payload
     } catch (rawError) {
       const message = normalizeError(rawError, 'Portfolio Summary konnte nicht geladen werden.')
-      errors.value.summary = message
+      if (isCurrentLoad(version)) {
+        errors.value.summary = message
+      }
       throw rawError
     } finally {
-      loadingStates.value.summary = false
+      if (isCurrentLoad(version)) {
+        loadingStates.value.summary = false
+      }
     }
   }
 
-  async function loadPerformance() {
+  async function loadPerformance(version = loadVersion.value) {
     loadingStates.value.performance = true
     errors.value.performance = ''
     try {
-      performance.value = await fetchPortfolioPerformance(currentPersonId())
-      return performance.value
+      const payload = await fetchPortfolioPerformance(currentPersonId())
+      if (isCurrentLoad(version)) {
+        performance.value = payload
+      }
+      return payload
     } catch (rawError) {
       const message = normalizeError(rawError, 'Portfolio Performance konnte nicht geladen werden.')
-      errors.value.performance = message
+      if (isCurrentLoad(version)) {
+        errors.value.performance = message
+      }
       throw rawError
     } finally {
-      loadingStates.value.performance = false
+      if (isCurrentLoad(version)) {
+        loadingStates.value.performance = false
+      }
     }
   }
 
-  async function loadExposures() {
+  async function loadExposures(version = loadVersion.value) {
     loadingStates.value.exposures = true
     errors.value.exposures = ''
     try {
-      exposures.value = await fetchPortfolioExposures(currentPersonId())
-      return exposures.value
+      const payload = await fetchPortfolioExposures(currentPersonId())
+      if (isCurrentLoad(version)) {
+        exposures.value = payload
+      }
+      return payload
     } catch (rawError) {
       const message = normalizeError(rawError, 'Portfolio Exposures konnten nicht geladen werden.')
-      errors.value.exposures = message
+      if (isCurrentLoad(version)) {
+        errors.value.exposures = message
+      }
       throw rawError
     } finally {
-      loadingStates.value.exposures = false
+      if (isCurrentLoad(version)) {
+        loadingStates.value.exposures = false
+      }
     }
   }
 
-  async function loadHoldings() {
+  async function loadHoldings(version = loadVersion.value) {
     loadingStates.value.holdings = true
     errors.value.holdings = ''
     try {
-      holdings.value = await fetchPortfolioHoldings(currentPersonId())
-      return holdings.value
+      const payload = await fetchPortfolioHoldings(currentPersonId())
+      if (isCurrentLoad(version)) {
+        holdings.value = payload
+      }
+      return payload
     } catch (rawError) {
       const message = normalizeError(rawError, 'Portfolio Holdings konnten nicht geladen werden.')
-      errors.value.holdings = message
+      if (isCurrentLoad(version)) {
+        errors.value.holdings = message
+      }
       throw rawError
     } finally {
-      loadingStates.value.holdings = false
+      if (isCurrentLoad(version)) {
+        loadingStates.value.holdings = false
+      }
     }
   }
 
-  async function loadRisk() {
+  async function loadRisk(version = loadVersion.value) {
     loadingStates.value.risk = true
     errors.value.risk = ''
     try {
-      risk.value = await fetchPortfolioRisk(currentPersonId())
-      return risk.value
+      const payload = await fetchPortfolioRisk(currentPersonId())
+      if (isCurrentLoad(version)) {
+        risk.value = payload
+      }
+      return payload
     } catch (rawError) {
       const message = normalizeError(rawError, 'Portfolio Risk konnte nicht geladen werden.')
-      errors.value.risk = message
+      if (isCurrentLoad(version)) {
+        errors.value.risk = message
+      }
       throw rawError
     } finally {
-      loadingStates.value.risk = false
+      if (isCurrentLoad(version)) {
+        loadingStates.value.risk = false
+      }
     }
   }
 
-  async function loadContributors() {
+  async function loadContributors(version = loadVersion.value) {
     loadingStates.value.contributors = true
     errors.value.contributors = ''
     try {
-      contributors.value = await fetchPortfolioContributors(currentPersonId())
-      return contributors.value
+      const payload = await fetchPortfolioContributors(currentPersonId())
+      if (isCurrentLoad(version)) {
+        contributors.value = payload
+      }
+      return payload
     } catch (rawError) {
       const message = normalizeError(rawError, 'Portfolio Contributors konnten nicht geladen werden.')
-      errors.value.contributors = message
+      if (isCurrentLoad(version)) {
+        errors.value.contributors = message
+      }
       throw rawError
     } finally {
-      loadingStates.value.contributors = false
+      if (isCurrentLoad(version)) {
+        loadingStates.value.contributors = false
+      }
     }
   }
 
-  async function loadCoverage() {
+  async function loadCoverage(version = loadVersion.value) {
     loadingStates.value.coverage = true
     errors.value.coverage = ''
     try {
-      coverage.value = await fetchPortfolioDataCoverage(currentPersonId())
-      return coverage.value
+      const payload = await fetchPortfolioDataCoverage(currentPersonId())
+      if (isCurrentLoad(version)) {
+        coverage.value = payload
+      }
+      return payload
     } catch (rawError) {
       const message = normalizeError(rawError, 'Portfolio Data Coverage konnte nicht geladen werden.')
-      errors.value.coverage = message
+      if (isCurrentLoad(version)) {
+        errors.value.coverage = message
+      }
       throw rawError
     } finally {
-      loadingStates.value.coverage = false
+      if (isCurrentLoad(version)) {
+        loadingStates.value.coverage = false
+      }
     }
   }
 
+  async function runSectionLoad<T>(loader: () => Promise<T>) {
+    try {
+      const value = await loader()
+      return { status: 'fulfilled', value } as const
+    } catch (reason) {
+      return { status: 'rejected', reason } as const
+    }
+  }
+
+  async function loadInOrder(version: number) {
+    const results = [] as Array<
+      | { status: 'fulfilled'; value: unknown }
+      | { status: 'rejected'; reason: unknown }
+    >
+
+    results.push(await runSectionLoad(() => loadSummary(version)))
+    results.push(await runSectionLoad(() => loadPerformance(version)))
+    results.push(await runSectionLoad(() => loadHoldings(version)))
+    results.push(await runSectionLoad(() => loadRisk(version)))
+    results.push(await runSectionLoad(() => loadContributors(version)))
+    results.push(await runSectionLoad(() => loadCoverage(version)))
+    results.push(await runSectionLoad(() => loadExposures(version)))
+
+    return results
+  }
+
   async function loadInitial() {
-    return Promise.allSettled([loadBootstrap()])
+    const version = ++loadVersion.value
+    return loadInOrder(version)
   }
 
   async function loadSecondary() {
@@ -186,53 +264,57 @@ export function usePortfolioDashboard(personId: MaybeRef<string>) {
   }
 
   async function loadBootstrap(range = '3m'): Promise<PortfolioDashboardReadModel> {
-    const keys: Array<keyof typeof loadingStates.value> = [
-      'summary',
-      'performance',
-      'exposures',
-      'holdings',
-      'risk',
-      'contributors',
-      'coverage'
-    ]
+    const version = ++loadVersion.value
+    const keys: SectionKey[] = ['summary', 'performance', 'exposures', 'holdings', 'risk', 'contributors', 'coverage']
     keys.forEach((key) => {
       loadingStates.value[key] = true
       errors.value[key] = ''
     })
+
     try {
       const payload = await fetchPortfolioDashboard(currentPersonId(), range)
-      summary.value = payload.summary
-      performance.value = payload.performance
-      exposures.value = payload.exposures
-      holdings.value = payload.holdings
-      risk.value = payload.risk
-      contributors.value = payload.contributors
-      coverage.value = payload.coverage
+      if (isCurrentLoad(version)) {
+        summary.value = payload.summary
+        performance.value = payload.performance
+        exposures.value = payload.exposures
+        holdings.value = payload.holdings
+        risk.value = payload.risk
+        contributors.value = payload.contributors
+        coverage.value = payload.coverage
+      }
       return payload
     } catch (rawError) {
       const message = normalizeError(rawError, 'Portfolio-Dashboard-Daten konnten nicht geladen werden.')
-      keys.forEach((key) => {
-        errors.value[key] = message
-      })
+      if (isCurrentLoad(version)) {
+        keys.forEach((key) => {
+          errors.value[key] = message
+        })
+      }
       throw rawError
     } finally {
-      keys.forEach((key) => {
-        loadingStates.value[key] = false
-      })
+      if (isCurrentLoad(version)) {
+        keys.forEach((key) => {
+          loadingStates.value[key] = false
+        })
+      }
     }
   }
 
   async function loadAll() {
     loading.value = true
     clearErrors()
+    const version = ++loadVersion.value
     try {
-      await loadBootstrap()
-      return [{ status: 'fulfilled', value: null } as const]
-    } catch (rawError) {
-      error.value = normalizeError(rawError, 'Portfolio-Dashboard-Daten konnten nicht vollständig geladen werden.')
-      return [{ status: 'rejected', reason: rawError } as const]
+      const results = await loadInOrder(version)
+      const fulfilledCount = results.filter((result) => result.status === 'fulfilled').length
+      if (fulfilledCount === 0) {
+        error.value = 'Portfolio-Dashboard-Daten konnten nicht vollständig geladen werden.'
+      }
+      return results
     } finally {
-      loading.value = false
+      if (isCurrentLoad(version)) {
+        loading.value = false
+      }
     }
   }
 
