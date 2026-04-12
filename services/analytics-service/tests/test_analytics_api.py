@@ -222,6 +222,8 @@ def test_portfolio_summary_uses_market_value_weights() -> None:
     assert payload["market_value"] == 360.0
     assert payload["invested_value"] == 350.0
     assert payload["unrealized_pnl"] == 10.0
+    assert payload["summary_kind"] == "snapshot"
+    assert payload["return_basis"] == "since_cost_basis"
     assert payload["top_position_weight"] == 0.611111
 
 
@@ -264,7 +266,26 @@ def test_portfolio_performance_summary_is_calculated_from_portfolio_series() -> 
     assert payload["summary"]["end_value"] == 365.0
     assert payload["summary"]["absolute_change"] == 25.0
     assert payload["summary"]["return_pct"] == 7.3529
+    assert payload["summary"]["summary_kind"] == "range"
+    assert payload["summary"]["return_basis"] == "range_start_value"
+    assert payload["range_label"] == "3 months"
     assert payload["benchmark_symbol"] == "SPY"
+
+
+def test_portfolio_semantics_distinguish_snapshot_from_range() -> None:
+    client = _client_with_fake_service()
+    summary = client.get(f"/api/v1/analytics/persons/{PERSON_ID}/portfolio-summary").json()["data"]
+    performance = client.get(f"/api/v1/analytics/persons/{PERSON_ID}/portfolio-performance").json()["data"]
+    contributors = client.get(f"/api/v1/analytics/persons/{PERSON_ID}/portfolio-contributors").json()["data"]
+    risk = client.get(f"/api/v1/analytics/persons/{PERSON_ID}/portfolio-risk").json()["data"]
+
+    assert summary["summary_kind"] == "snapshot"
+    assert summary["return_basis"] == "since_cost_basis"
+    assert performance["summary"]["summary_kind"] == "range"
+    assert performance["summary"]["return_basis"] == "range_start_value"
+    assert contributors["summary_kind"] == "range"
+    assert contributors["return_basis"] == "range_contribution"
+    assert risk["benchmark_relation"] == "relative_to_benchmark"
 
 
 def test_portfolio_risk_computes_volatility_and_max_drawdown() -> None:

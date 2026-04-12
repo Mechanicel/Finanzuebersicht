@@ -501,6 +501,8 @@ export type DashboardMetricsPayload = Record<string, unknown>
 export interface PortfolioSummaryReadModel {
   person_id: string
   as_of: string
+  summary_kind?: 'snapshot'
+  return_basis?: 'since_cost_basis'
   currency: string
   market_value: number
   invested_value: number
@@ -514,6 +516,8 @@ export interface PortfolioSummaryReadModel {
 }
 
 export interface PortfolioPerformanceSummary {
+  summary_kind?: 'range'
+  return_basis?: 'range_start_value'
   start_value?: number | null
   end_value?: number | null
   absolute_change?: number | null
@@ -534,6 +538,7 @@ export interface PortfolioPerformanceSeries {
 export interface PortfolioPerformanceReadModel {
   person_id: string
   range: string
+  range_label?: string | null
   benchmark_symbol?: string | null
   series: PortfolioPerformanceSeries[]
   summary: PortfolioPerformanceSummary
@@ -588,6 +593,10 @@ export interface PortfolioHoldingsReadModel {
 export interface PortfolioRiskReadModel {
   person_id: string
   as_of: string
+  range?: string
+  range_label?: string | null
+  methodology?: 'daily_returns_on_range' | (string & {})
+  benchmark_relation?: 'relative_to_benchmark' | (string & {})
   benchmark_symbol?: string | null
   portfolio_volatility?: number | null
   max_drawdown?: number | null
@@ -627,6 +636,9 @@ export interface PortfolioContributorsReadModel {
   person_id: string
   as_of?: string
   range?: string
+  range_label?: string | null
+  summary_kind?: 'range'
+  return_basis?: 'range_contribution'
   methodology?: string
   total_contribution_return?: number | null
   total_contribution_pct_points?: number | null
