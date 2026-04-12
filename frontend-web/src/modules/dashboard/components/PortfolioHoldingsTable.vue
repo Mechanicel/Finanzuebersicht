@@ -31,7 +31,7 @@
             <td>{{ formatPercent(item.weight) }}</td>
             <td>{{ formatMoney(item.market_value, currency) }}</td>
             <td :class="pnlClass(item.unrealized_pnl)">{{ formatSignedMoney(item.unrealized_pnl, currency) }}</td>
-            <td :class="pnlClass(item.unrealized_return_pct)">{{ formatPercentPoints(item.unrealized_return_pct) }}</td>
+            <td :class="pnlClass(item.unrealized_return_pct)">{{ formatPercentValue(item.unrealized_return_pct) }}</td>
             <td>{{ item.sector || 'n/a' }}</td>
             <td>{{ item.country || 'n/a' }}</td>
             <td>
@@ -51,7 +51,7 @@ import type { PortfolioHoldingItem } from '@/shared/model/types'
 import {
   formatMoney,
   formatPercent,
-  formatPercentPoints,
+  formatPercentValue,
   formatSignedMoney,
   mapHoldingDataStatus
 } from '@/modules/dashboard/model/portfolioFormatting'

@@ -26,7 +26,7 @@
         <strong>Veränderung</strong>
         <span :class="changeClass">{{ formatSignedMoney(performance.summary.absolute_change, currency) }}</span>
       </p>
-      <p><strong>Rendite</strong><span>{{ formatPercentPoints(performance.summary.return_pct) }}</span></p>
+      <p><strong>Rendite</strong><span>{{ formatPercentValue(performance.summary.return_pct) }}</span></p>
     </div>
   </article>
 </template>
@@ -35,7 +35,7 @@
 import { computed } from 'vue'
 import SimpleLineChart from '@/shared/ui/SimpleLineChart.vue'
 import type { PortfolioPerformanceReadModel } from '@/shared/model/types'
-import { formatMoney, formatPercentPoints, formatSignedMoney } from '@/modules/dashboard/model/portfolioFormatting'
+import { formatMoney, formatPercentValue, formatSignedMoney } from '@/modules/dashboard/model/portfolioFormatting'
 
 const props = defineProps<{
   performance: PortfolioPerformanceReadModel
