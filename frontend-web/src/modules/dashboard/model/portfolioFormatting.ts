@@ -1,18 +1,54 @@
+const NA_TEXT = 'n/a'
+
+function isMissingNumber(value: number | null | undefined): boolean {
+  return value == null || Number.isNaN(value)
+}
+
+function formatDecimal(value: number, fractionDigits = 2): string {
+  return new Intl.NumberFormat('de-DE', {
+    maximumFractionDigits: fractionDigits,
+    minimumFractionDigits: fractionDigits
+  }).format(value)
+}
+
+export function formatNullableText(value: string | null | undefined, fallback = NA_TEXT): string {
+  if (value == null) {
+    return fallback
+  }
+
+  const normalized = value.trim()
+  return normalized.length > 0 ? normalized : fallback
+}
+
 export function formatMoney(value: number | null | undefined, currency = 'EUR'): string {
-  if (value == null || Number.isNaN(value)) {
-    return 'n/a'
+  if (isMissingNumber(value)) {
+    return NA_TEXT
   }
 
   return new Intl.NumberFormat('de-DE', {
     style: 'currency',
     currency,
-    maximumFractionDigits: 2
+    maximumFractionDigits: 2,
+    minimumFractionDigits: 2
   }).format(value)
 }
 
-export function formatPercent(value: number | null | undefined, fractionDigits = 2): string {
-  if (value == null || Number.isNaN(value)) {
-    return 'n/a'
+export function formatSignedMoney(value: number | null | undefined, currency = 'EUR'): string {
+  if (isMissingNumber(value)) {
+    return NA_TEXT
+  }
+
+  const absValue = Math.abs(value)
+  const formatted = formatMoney(absValue, currency)
+
+  if (value > 0) return `+${formatted}`
+  if (value < 0) return `-${formatted}`
+  return formatted
+}
+
+export function formatPercentFromRatio(value: number | null | undefined, fractionDigits = 2): string {
+  if (isMissingNumber(value)) {
+    return NA_TEXT
   }
 
   return new Intl.NumberFormat('de-DE', {
@@ -22,36 +58,55 @@ export function formatPercent(value: number | null | undefined, fractionDigits =
   }).format(value)
 }
 
-export function formatPercentPoints(value: number | null | undefined, fractionDigits = 2): string {
-  if (value == null || Number.isNaN(value)) {
-    return 'n/a'
+export function formatPercentValue(value: number | null | undefined, fractionDigits = 2): string {
+  if (isMissingNumber(value)) {
+    return NA_TEXT
   }
 
-  return `${new Intl.NumberFormat('de-DE', {
-    maximumFractionDigits: fractionDigits,
-    minimumFractionDigits: fractionDigits
-  }).format(value)} %`
+  return `${formatDecimal(value, fractionDigits)} %`
 }
 
-export function formatNumber(value: number | null | undefined, fractionDigits = 2): string {
-  if (value == null || Number.isNaN(value)) {
-    return 'n/a'
+export function formatSignedPercentValue(value: number | null | undefined, fractionDigits = 2): string {
+  if (isMissingNumber(value)) {
+    return NA_TEXT
   }
 
-  return new Intl.NumberFormat('de-DE', {
-    maximumFractionDigits: fractionDigits,
-    minimumFractionDigits: fractionDigits
-  }).format(value)
-}
-
-export function formatSignedMoney(value: number | null | undefined, currency = 'EUR'): string {
-  if (value == null || Number.isNaN(value)) {
-    return 'n/a'
-  }
-  const formatted = formatMoney(Math.abs(value), currency)
+  const formatted = formatPercentValue(Math.abs(value), fractionDigits)
   if (value > 0) return `+${formatted}`
   if (value < 0) return `-${formatted}`
   return formatted
+}
+
+export function formatPercentPoints(value: number | null | undefined, fractionDigits = 2): string {
+  if (isMissingNumber(value)) {
+    return NA_TEXT
+  }
+
+  return `${formatDecimal(value, fractionDigits)} pp`
+}
+
+export function formatSignedPercentPoints(value: number | null | undefined, fractionDigits = 2): string {
+  if (isMissingNumber(value)) {
+    return NA_TEXT
+  }
+
+  const formatted = formatPercentPoints(Math.abs(value), fractionDigits)
+  if (value > 0) return `+${formatted}`
+  if (value < 0) return `-${formatted}`
+  return formatted
+}
+
+export function formatNumber(value: number | null | undefined, fractionDigits = 2): string {
+  if (isMissingNumber(value)) {
+    return NA_TEXT
+  }
+
+  return formatDecimal(value, fractionDigits)
+}
+
+// Legacy helper names kept as wrappers for compatibility.
+export function formatPercent(value: number | null | undefined, fractionDigits = 2): string {
+  return formatPercentFromRatio(value, fractionDigits)
 }
 
 export function mapHoldingDataStatus(status: string | null | undefined): string {
@@ -63,7 +118,7 @@ export function mapHoldingDataStatus(status: string | null | undefined): string 
 }
 
 export function mapConcentrationNote(note: string | null | undefined): string {
-  if (!note) return 'n/a'
+  if (!note) return NA_TEXT
   if (note === 'very_high_top3_concentration') return 'Top-3 sehr konzentriert'
   if (note === 'high_top3_concentration') return 'Top-3 hoch konzentriert'
   if (note === 'single_position_dominates') return 'Einzeltitel dominiert'

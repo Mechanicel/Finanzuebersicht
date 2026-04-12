@@ -6,11 +6,11 @@
     <section class="group">
       <h4>Risikometriken</h4>
       <ul>
-        <li><span>Volatilität</span><strong>{{ formatPercentPoints(risk.portfolio_volatility) }}</strong></li>
-        <li><span>Max Drawdown</span><strong>{{ formatPercentPoints(risk.max_drawdown) }}</strong></li>
+        <li><span>Volatilität</span><strong>{{ formatPercentValue(risk.portfolio_volatility) }}</strong></li>
+        <li><span>Max Drawdown</span><strong>{{ formatPercentValue(risk.max_drawdown) }}</strong></li>
         <li><span>Korrelation</span><strong>{{ formatNumber(risk.correlation, 4) }}</strong></li>
         <li><span>Beta</span><strong>{{ formatNumber(risk.beta, 4) }}</strong></li>
-        <li><span>Tracking Error</span><strong>{{ formatPercentPoints(risk.tracking_error) }}</strong></li>
+        <li><span>Tracking Error</span><strong>{{ formatPercentValue(risk.tracking_error) }}</strong></li>
       </ul>
     </section>
 
@@ -28,7 +28,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { PortfolioRiskReadModel } from '@/shared/model/types'
-import { formatNumber, formatPercent, formatPercentPoints, mapConcentrationNote } from '@/modules/dashboard/model/portfolioFormatting'
+import { formatNumber, formatPercent, formatPercentValue, mapConcentrationNote } from '@/modules/dashboard/model/portfolioFormatting'
 
 const props = defineProps<{
   risk: PortfolioRiskReadModel
