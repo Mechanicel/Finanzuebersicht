@@ -22,7 +22,7 @@
         <button class="btn flow-btn btn-small" type="button" @click="void loadSummary()">Erneut laden</button>
       </div>
 
-      <section class="primary-grid">
+      <section class="primary-grid top-row">
         <div>
           <PortfolioPerformancePanel v-if="performance" :performance="performance" :currency="summary?.currency" />
           <div v-else-if="isSectionLoading.performance" class="section-state">Performance wird geladen…</div>
@@ -215,6 +215,8 @@ h2 {
   display: grid;
   grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
   gap: 0.75rem;
+  align-items: start;
+  grid-auto-rows: min-content;
 }
 
 .workspace-grid--single {
@@ -227,6 +229,17 @@ h2 {
   gap: 0.75rem;
 }
 
+.top-row {
+  align-items: start;
+  grid-auto-rows: min-content;
+}
+
+
+.top-row > *,
+.workspace-grid > * {
+  height: auto;
+  align-self: start;
+}
 .right-stack {
   display: grid;
   gap: 0.55rem;
