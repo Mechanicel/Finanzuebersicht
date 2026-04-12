@@ -9,6 +9,7 @@ import {
   formatPercentPoints,
   formatPercentValue,
   formatRangeLabel,
+  formatSignedPercentFromRatio,
   formatSignedMoney,
   formatSignedPercentPoints,
   formatSignedPercentValue,
@@ -20,6 +21,12 @@ describe('portfolioFormatting', () => {
   it('formats ratio values as percent (legacy wrapper + explicit helper)', () => {
     expect(formatPercentFromRatio(0.128)).toBe('12,80 %')
     expect(formatPercent(0.128)).toBe('12,80 %')
+  })
+
+  it('formats signed ratio values as percent', () => {
+    expect(formatSignedPercentFromRatio(0.128)).toBe('+12,80\u00a0%')
+    expect(formatSignedPercentFromRatio(-0.128)).toBe('-12,80\u00a0%')
+    expect(formatSignedPercentFromRatio(0)).toBe('0,00\u00a0%')
   })
 
   it('formats raw percent values and percent points with dedicated units', () => {

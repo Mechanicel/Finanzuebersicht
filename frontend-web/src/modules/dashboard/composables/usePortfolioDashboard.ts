@@ -13,6 +13,7 @@ import {
 import type {
   PortfolioContributorsReadModel,
   PortfolioDashboardReadModel,
+  PortfolioDashboardRange,
   PortfolioDataCoverageReadModel,
   PortfolioExposuresReadModel,
   PortfolioHoldingsReadModel,
@@ -254,16 +255,17 @@ export function usePortfolioDashboard(personId: MaybeRef<string>) {
     return results
   }
 
-  async function loadInitial() {
-    const version = ++loadVersion.value
-    return loadInOrder(version)
+  async function loadInitial(range: PortfolioDashboardRange | string = '3m') {
+    return loadBootstrap(range)
   }
 
   async function loadSecondary() {
     return Promise.allSettled([])
   }
 
-  async function loadBootstrap(range = '3m'): Promise<PortfolioDashboardReadModel> {
+  async function loadBootstrap(range: PortfolioDashboardRange | string = '3m'): Promise<PortfolioDashboardReadModel> {
+    loading.value = true
+    clearErrors()
     const version = ++loadVersion.value
     const keys: SectionKey[] = ['summary', 'performance', 'exposures', 'holdings', 'risk', 'contributors', 'coverage']
     keys.forEach((key) => {
@@ -286,6 +288,7 @@ export function usePortfolioDashboard(personId: MaybeRef<string>) {
     } catch (rawError) {
       const message = normalizeError(rawError, 'Portfolio-Dashboard-Daten konnten nicht geladen werden.')
       if (isCurrentLoad(version)) {
+        error.value = message
         keys.forEach((key) => {
           errors.value[key] = message
         })
@@ -296,26 +299,13 @@ export function usePortfolioDashboard(personId: MaybeRef<string>) {
         keys.forEach((key) => {
           loadingStates.value[key] = false
         })
+        loading.value = false
       }
     }
   }
 
-  async function loadAll() {
-    loading.value = true
-    clearErrors()
-    const version = ++loadVersion.value
-    try {
-      const results = await loadInOrder(version)
-      const fulfilledCount = results.filter((result) => result.status === 'fulfilled').length
-      if (fulfilledCount === 0) {
-        error.value = 'Portfolio-Dashboard-Daten konnten nicht vollständig geladen werden.'
-      }
-      return results
-    } finally {
-      if (isCurrentLoad(version)) {
-        loading.value = false
-      }
-    }
+  async function loadAll(range: PortfolioDashboardRange | string = '3m') {
+    return loadBootstrap(range)
   }
 
   const dashboardSummary = computed(() => holdings.value?.summary ?? summary.value)

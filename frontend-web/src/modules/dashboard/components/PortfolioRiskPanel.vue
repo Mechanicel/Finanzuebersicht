@@ -13,23 +13,59 @@
       </p>
     </header>
 
-    <section class="group">
-      <h4>Risikometriken <span>Zeitraum</span></h4>
-      <ul>
-        <li><span>Volatilität</span><strong>{{ formatPercentValue(risk.portfolio_volatility) }}</strong></li>
-        <li><span>Max Drawdown</span><strong>{{ formatPercentValue(risk.max_drawdown) }}</strong></li>
-        <li><span>Korrelation</span><strong>{{ formatNumber(risk.correlation, 4) }}</strong></li>
-        <li><span>Beta</span><strong>{{ formatNumber(risk.beta, 4) }}</strong></li>
-        <li><span>Tracking Error</span><strong>{{ formatPercentValue(risk.tracking_error) }}</strong></li>
+    <section class="group primary-group">
+      <h4>Kernrisiko <span>primär</span></h4>
+      <div class="primary-grid">
+        <div
+          v-for="metric in primaryRiskMetrics"
+          :key="metric.key"
+          class="primary-metric"
+          :data-testid="`risk-primary-${metric.key}`"
+        >
+          <span>{{ metric.label }}</span>
+          <strong :class="metric.tone">{{ metric.value }}</strong>
+        </div>
+      </div>
+      <ul v-if="coreSecondaryMetrics.length > 0" class="metric-list compact-list">
+        <li v-for="metric in coreSecondaryMetrics" :key="metric.key" :data-testid="`risk-metric-${metric.key}`">
+          <span>{{ metric.label }}</span>
+          <strong :class="metric.tone">{{ metric.value }}</strong>
+        </li>
       </ul>
     </section>
 
     <section class="group">
+      <h4>Benchmark-relativ <span>{{ benchmarkSymbol }}</span></h4>
+      <ul v-if="benchmarkMetrics.length > 0" class="metric-list">
+        <li v-for="metric in benchmarkMetrics" :key="metric.key" :data-testid="`risk-metric-${metric.key}`">
+          <span>{{ metric.label }}</span>
+          <strong :class="metric.tone">{{ metric.value }}</strong>
+        </li>
+      </ul>
+      <p v-else class="empty-line" data-testid="risk-benchmark-empty">Keine Benchmark-Daten verfügbar.</p>
+    </section>
+
+    <section class="group">
       <h4>Konzentration <span>Snapshot</span></h4>
-      <ul>
-        <li><span>Top-Position</span><strong>{{ formatPercent(risk.top_position_weight) }}</strong></li>
-        <li><span>Top 3</span><strong>{{ formatPercent(risk.top3_weight) }}</strong></li>
-        <li><span>Hinweis</span><strong>{{ concentrationNote }}</strong></li>
+      <ul class="metric-list">
+        <li v-for="metric in concentrationMetrics" :key="metric.key" :data-testid="`risk-metric-${metric.key}`">
+          <span>{{ metric.label }}</span>
+          <strong>{{ metric.value }}</strong>
+        </li>
+        <li data-testid="risk-metric-concentration-note">
+          <span>Hinweis</span>
+          <strong>{{ concentrationNote }}</strong>
+        </li>
+      </ul>
+    </section>
+
+    <section v-if="behaviorMetrics.length > 0" class="group">
+      <h4>Performance-Verhalten <span>Tage</span></h4>
+      <ul class="metric-list">
+        <li v-for="metric in behaviorMetrics" :key="metric.key" :data-testid="`risk-metric-${metric.key}`">
+          <span>{{ metric.label }}</span>
+          <strong :class="metric.tone">{{ metric.value }}</strong>
+        </li>
       </ul>
     </section>
   </article>
@@ -43,8 +79,9 @@ import {
   formatNullableText,
   formatNumber,
   formatPercent,
-  formatPercentValue,
   formatRangeLabel,
+  formatSignedPercentFromRatio,
+  formatSignedPercentPoints,
   getStringMeta,
   mapConcentrationNote,
   mapPortfolioMethodology
@@ -53,6 +90,51 @@ import {
 const props = defineProps<{
   risk: PortfolioRiskReadModel
 }>()
+
+type MetricTone = 'positive' | 'negative' | 'neutral'
+
+interface RiskMetric {
+  key: string
+  label: string
+  value: string
+  tone?: MetricTone
+}
+
+function hasMetricValue(value: number | null | undefined): value is number {
+  return value != null && !Number.isNaN(value)
+}
+
+function signedTone(value: number | null | undefined): MetricTone {
+  if (!hasMetricValue(value) || value === 0) {
+    return 'neutral'
+  }
+  return value > 0 ? 'positive' : 'negative'
+}
+
+function optionalMetric(
+  key: string,
+  label: string,
+  value: number | null | undefined,
+  formatter: (value: number) => string,
+  tone: MetricTone = 'neutral'
+): RiskMetric | null {
+  if (!hasMetricValue(value)) {
+    return null
+  }
+  return { key, label, value: formatter(value), tone }
+}
+
+function formatRatioPercent(value: number): string {
+  return formatPercent(value)
+}
+
+function formatSignedRatioPercentPoints(value: number): string {
+  return formatSignedPercentPoints(value * 100)
+}
+
+function presentMetrics(metrics: Array<RiskMetric | null>): RiskMetric[] {
+  return metrics.filter((metric): metric is RiskMetric => metric != null)
+}
 
 const asOfLabel = computed(() => formatDate(getStringMeta(props.risk.meta, 'as_of', 'generated_at', 'updated_at') ?? props.risk.as_of))
 const rangeLabel = computed(() =>
@@ -66,6 +148,65 @@ const methodologyLabel = computed(() => {
   return parts.map((part) => mapPortfolioMethodology(part)).join(' · ')
 })
 
+const primaryRiskMetrics = computed<RiskMetric[]>(() => [
+  {
+    key: 'annualized-volatility',
+    label: 'Ann. Volatilität',
+    value: formatPercent(props.risk.annualized_volatility),
+    tone: 'neutral'
+  },
+  {
+    key: 'max-drawdown',
+    label: 'Max Drawdown',
+    value: formatSignedPercentFromRatio(props.risk.max_drawdown),
+    tone: signedTone(props.risk.max_drawdown)
+  },
+  {
+    key: 'sharpe-ratio',
+    label: 'Sharpe',
+    value: formatNumber(props.risk.sharpe_ratio, 2),
+    tone: signedTone(props.risk.sharpe_ratio)
+  },
+  {
+    key: 'sortino-ratio',
+    label: 'Sortino',
+    value: formatNumber(props.risk.sortino_ratio, 2),
+    tone: signedTone(props.risk.sortino_ratio)
+  }
+])
+
+const coreSecondaryMetrics = computed(() =>
+  presentMetrics([
+    optionalMetric('portfolio-volatility', 'Tagesvolatilität', props.risk.portfolio_volatility, formatRatioPercent)
+  ])
+)
+
+const benchmarkMetrics = computed(() =>
+  presentMetrics([
+    optionalMetric('annualized-tracking-error', 'Ann. Tracking Error', props.risk.annualized_tracking_error, formatRatioPercent),
+    optionalMetric('information-ratio', 'Information Ratio', props.risk.information_ratio, (value) => formatNumber(value, 2), signedTone(props.risk.information_ratio)),
+    optionalMetric('active-return', 'Active Return', props.risk.active_return, formatSignedRatioPercentPoints, signedTone(props.risk.active_return)),
+    optionalMetric('beta', 'Beta', props.risk.beta, (value) => formatNumber(value, 2)),
+    optionalMetric('correlation', 'Korrelation', props.risk.correlation, (value) => formatNumber(value, 2)),
+    optionalMetric('tracking-error', 'Tracking Error', props.risk.tracking_error, formatRatioPercent),
+    optionalMetric('aligned-points', 'Aligned Points', props.risk.aligned_points, (value) => formatNumber(value, 0))
+  ])
+)
+
+const concentrationMetrics = computed(() =>
+  presentMetrics([
+    optionalMetric('top-position-weight', 'Top-Position', props.risk.top_position_weight, formatRatioPercent),
+    optionalMetric('top3-weight', 'Top 3', props.risk.top3_weight, formatRatioPercent)
+  ])
+)
+
+const behaviorMetrics = computed(() =>
+  presentMetrics([
+    optionalMetric('best-day-return', 'Bester Tag', props.risk.best_day_return, formatSignedPercentFromRatio, signedTone(props.risk.best_day_return)),
+    optionalMetric('worst-day-return', 'Schlechtester Tag', props.risk.worst_day_return, formatSignedPercentFromRatio, signedTone(props.risk.worst_day_return))
+  ])
+)
+
 const concentrationNote = computed(() => {
   if (!props.risk.concentration_note || props.risk.concentration_note.trim().length === 0) {
     return 'n/a'
@@ -77,7 +218,7 @@ const concentrationNote = computed(() => {
 <style scoped>
 .panel {
   border: 1px solid #e2e8f0;
-  border-radius: 10px;
+  border-radius: 8px;
   padding: 0.72rem;
   background: #fff;
 }
@@ -87,7 +228,7 @@ h3 {
 }
 
 .panel-heading {
-  margin-bottom: 0.38rem;
+  margin-bottom: 0.45rem;
 }
 
 .title-row {
@@ -120,11 +261,11 @@ h3 {
 }
 
 .group + .group {
-  margin-top: 0.45rem;
+  margin-top: 0.5rem;
 }
 
 h4 {
-  margin: 0 0 0.22rem;
+  margin: 0 0 0.24rem;
   font-size: 0.79rem;
   color: #475569;
   text-transform: uppercase;
@@ -139,26 +280,91 @@ h4 span {
   text-transform: none;
 }
 
-ul {
+.primary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.35rem 0.65rem;
+}
+
+.primary-metric {
+  min-width: 0;
+}
+
+.primary-metric span {
+  display: block;
+  color: #64748b;
+  font-size: 0.73rem;
+  line-height: 1.2;
+}
+
+.primary-metric strong {
+  display: block;
+  margin-top: 0.08rem;
+  color: #0f172a;
+  font-size: 1rem;
+  line-height: 1.18;
+}
+
+.metric-list {
   list-style: none;
   padding: 0;
   margin: 0;
   display: grid;
-  gap: 0.28rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.24rem 0.8rem;
 }
 
-li {
+.compact-list {
+  margin-top: 0.34rem;
+}
+
+.metric-list li {
+  min-width: 0;
   display: flex;
   justify-content: space-between;
-  gap: 0.8rem;
-  font-size: 0.86rem;
+  gap: 0.65rem;
+  font-size: 0.84rem;
+  line-height: 1.25;
 }
 
-span {
+.metric-list span {
+  min-width: 0;
   color: #64748b;
 }
 
 strong {
   color: #0f172a;
+  white-space: nowrap;
+}
+
+strong.positive {
+  color: #166534;
+}
+
+strong.negative {
+  color: #b91c1c;
+}
+
+strong.neutral {
+  color: #0f172a;
+}
+
+.empty-line {
+  margin: 0;
+  color: #64748b;
+  font-size: 0.84rem;
+}
+
+@media (max-width: 720px) {
+  .primary-grid,
+  .metric-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 520px) {
+  .metric-list {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

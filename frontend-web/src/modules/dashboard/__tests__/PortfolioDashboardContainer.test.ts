@@ -6,6 +6,7 @@ import PortfolioDashboardContainer from '@/modules/dashboard/components/Portfoli
 import PortfolioSummaryBar from '@/modules/dashboard/components/PortfolioSummaryBar.vue'
 
 const loadAllMock = vi.fn().mockResolvedValue([])
+const loadBootstrapMock = vi.fn().mockResolvedValue({})
 
 vi.mock('@/modules/dashboard/composables/usePortfolioDashboard', () => ({
   usePortfolioDashboard: vi.fn()
@@ -91,7 +92,7 @@ function buildDashboardState(overrides: Record<string, unknown> = {}) {
     loadCoverage: vi.fn(),
     loadInitial: vi.fn(),
     loadSecondary: vi.fn(),
-    loadBootstrap: vi.fn(),
+    loadBootstrap: loadBootstrapMock,
     hasData: computed(() => true),
     hasCoverageWarnings: computed(() => false),
     topHoldings: computed(() => []),
@@ -104,10 +105,11 @@ describe('PortfolioDashboardContainer', () => {
   beforeEach(() => {
     vi.resetAllMocks()
     loadAllMock.mockResolvedValue([])
+    loadBootstrapMock.mockResolvedValue({})
     vi.mocked(usePortfolioDashboard).mockReturnValue(buildDashboardState())
   })
 
-  it('renders cockpit sections and triggers loadAll on mount', async () => {
+  it('renders cockpit sections and triggers bootstrap load on mount', async () => {
     const wrapper = mount(PortfolioDashboardContainer, {
       props: { personId: 'person-1' }
     })
@@ -120,7 +122,59 @@ describe('PortfolioDashboardContainer', () => {
     expect(wrapper.text()).toContain('Exposures / Allocation')
     expect(wrapper.text()).toContain('Holdings')
     expect(wrapper.text()).toContain('Aktiv: AAPL')
-    expect(loadAllMock).toHaveBeenCalledTimes(1)
+    expect((wrapper.find('[data-testid="portfolio-range-select"]').element as HTMLSelectElement).value).toBe('3m')
+    expect(loadBootstrapMock).toHaveBeenCalledTimes(1)
+    expect(loadBootstrapMock).toHaveBeenCalledWith('3m')
+    expect(loadAllMock).not.toHaveBeenCalled()
+  })
+
+  it('uses an existing performance range as defensive default', () => {
+    vi.mocked(usePortfolioDashboard).mockReturnValue(
+      buildDashboardState({
+        performance: ref({
+          person_id: 'person-1',
+          range: '1y',
+          range_label: '1 Jahr',
+          benchmark_symbol: 'SPY',
+          series: [{ key: 'portfolio_value', label: 'Portfolio', points: [{ x: '2026-01-01', y: 340 }] }],
+          summary: { start_value: 340, end_value: 340, absolute_change: 0, return_pct: 0 },
+          meta: {}
+        })
+      })
+    )
+
+    const wrapper = mount(PortfolioDashboardContainer, {
+      props: { personId: 'person-1' }
+    })
+
+    expect((wrapper.find('[data-testid="portfolio-range-select"]').element as HTMLSelectElement).value).toBe('1y')
+    expect(loadBootstrapMock).toHaveBeenCalledWith('1y')
+  })
+
+  it('reloads dashboard through bootstrap when the range changes', async () => {
+    const wrapper = mount(PortfolioDashboardContainer, {
+      props: { personId: 'person-1' }
+    })
+
+    await wrapper.find('[data-testid="portfolio-range-select"]').setValue('6m')
+
+    expect(loadBootstrapMock).toHaveBeenCalledTimes(2)
+    expect(loadBootstrapMock).toHaveBeenLastCalledWith('6m')
+  })
+
+  it('reloads with the active range', async () => {
+    const wrapper = mount(PortfolioDashboardContainer, {
+      props: { personId: 'person-1' }
+    })
+
+    await wrapper.find('[data-testid="portfolio-range-select"]').setValue('1y')
+    loadBootstrapMock.mockClear()
+
+    await wrapper.find('[data-testid="portfolio-reload-button"]').trigger('click')
+
+    expect(loadBootstrapMock).toHaveBeenCalledTimes(1)
+    expect(loadBootstrapMock).toHaveBeenCalledWith('1y')
+    expect(loadAllMock).not.toHaveBeenCalled()
   })
 
   it('renders loaded sections while later sections are still loading', () => {

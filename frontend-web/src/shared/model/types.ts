@@ -545,6 +545,8 @@ export interface PortfolioPerformanceReadModel {
   meta: { loading?: boolean; error?: string | null; [key: string]: unknown }
 }
 
+export type PortfolioDashboardRange = '1m' | '3m' | '6m' | 'ytd' | '1y' | 'max'
+
 export interface PortfolioExposureSlice {
   label: string
   market_value: number

@@ -5,7 +5,25 @@
         <p class="eyebrow">Portfolio-Cockpit</p>
         <h2>Portfolio Dashboard</h2>
       </div>
-      <button class="btn flow-btn" type="button" @click="void loadAll()" :disabled="isReloading">Neu laden</button>
+      <div class="cockpit-actions">
+        <label class="range-control">
+          <span>Zeitraum</span>
+          <select v-model="selectedRange" data-testid="portfolio-range-select" :disabled="isReloading" @change="void reloadDashboard()">
+            <option v-for="option in rangeOptions" :key="option.value" :value="option.value">
+              {{ option.label }}
+            </option>
+          </select>
+        </label>
+        <button
+          class="btn flow-btn"
+          type="button"
+          data-testid="portfolio-reload-button"
+          @click="void reloadDashboard()"
+          :disabled="isReloading"
+        >
+          Neu laden
+        </button>
+      </div>
     </header>
 
     <LoadingState v-if="showGlobalLoading" />
@@ -19,7 +37,7 @@
       <div v-else-if="isSectionLoading.summary" class="section-state">Summary wird geladen…</div>
       <div v-else-if="sectionErrors.summary" class="section-state section-state--error">
         <span>{{ sectionErrors.summary }}</span>
-        <button class="btn flow-btn btn-small" type="button" @click="void loadSummary()">Erneut laden</button>
+        <button class="btn flow-btn btn-small" type="button" @click="void reloadDashboard()">Erneut laden</button>
       </div>
 
       <section class="primary-grid top-row">
@@ -28,7 +46,7 @@
           <div v-else-if="isSectionLoading.performance" class="section-state">Performance wird geladen…</div>
           <div v-else-if="sectionErrors.performance" class="section-state section-state--error">
             <span>{{ sectionErrors.performance }}</span>
-            <button class="btn flow-btn btn-small" type="button" @click="void loadPerformance()">Erneut laden</button>
+            <button class="btn flow-btn btn-small" type="button" @click="void reloadDashboard()">Erneut laden</button>
           </div>
         </div>
         <div class="right-stack">
@@ -36,14 +54,14 @@
           <div v-else-if="isSectionLoading.risk" class="section-state">Risiko wird geladen…</div>
           <div v-else-if="sectionErrors.risk" class="section-state section-state--error">
             <span>{{ sectionErrors.risk }}</span>
-            <button class="btn flow-btn btn-small" type="button" @click="void loadRisk()">Erneut laden</button>
+            <button class="btn flow-btn btn-small" type="button" @click="void reloadDashboard()">Erneut laden</button>
           </div>
 
           <PortfolioCoverageBanner v-if="coverage" :coverage="coverage" />
           <div v-else-if="isSectionLoading.coverage" class="section-state">Datenabdeckung wird geladen…</div>
           <div v-else-if="sectionErrors.coverage" class="section-state section-state--error">
             <span>{{ sectionErrors.coverage }}</span>
-            <button class="btn flow-btn btn-small" type="button" @click="void loadCoverage()">Erneut laden</button>
+            <button class="btn flow-btn btn-small" type="button" @click="void reloadDashboard()">Erneut laden</button>
           </div>
         </div>
       </section>
@@ -60,7 +78,7 @@
         <div v-else-if="isSectionLoading.holdings" class="section-state">Holdings werden geladen…</div>
         <div v-else-if="sectionErrors.holdings" class="section-state section-state--error">
           <span>{{ sectionErrors.holdings }}</span>
-          <button class="btn flow-btn btn-small" type="button" @click="void loadHoldings()">Erneut laden</button>
+          <button class="btn flow-btn btn-small" type="button" @click="void reloadDashboard()">Erneut laden</button>
         </div>
         <div class="workspace-right-stack">
           <PortfolioInstrumentDetailPanel :selected-holding="selectedHolding" :as-of="holdings?.as_of ?? summary?.as_of" />
@@ -107,7 +125,7 @@
           <div v-else-if="isSectionLoading.contributors" class="section-state">Performance-Beiträge werden geladen…</div>
           <div v-else-if="sectionErrors.contributors" class="section-state section-state--error">
             <span>{{ sectionErrors.contributors }}</span>
-            <button class="btn flow-btn btn-small" type="button" @click="void loadContributors()">Erneut laden</button>
+            <button class="btn flow-btn btn-small" type="button" @click="void reloadDashboard()">Erneut laden</button>
           </div>
         </div>
       </div>
@@ -116,7 +134,7 @@
       <div v-else-if="isSectionLoading.exposures" class="section-state">Exposures werden geladen…</div>
       <div v-else-if="sectionErrors.exposures" class="section-state section-state--error">
         <span>{{ sectionErrors.exposures }}</span>
-        <button class="btn flow-btn btn-small" type="button" @click="void loadExposures()">Erneut laden</button>
+        <button class="btn flow-btn btn-small" type="button" @click="void reloadDashboard()">Erneut laden</button>
       </div>
 
     </template>
@@ -145,7 +163,7 @@ import {
   mapPortfolioMethodology,
   mapPortfolioWarning
 } from '@/modules/dashboard/model/portfolioFormatting'
-import type { PortfolioContributorItem, PortfolioHoldingItem } from '@/shared/model/types'
+import type { PortfolioContributorItem, PortfolioDashboardRange, PortfolioHoldingItem } from '@/shared/model/types'
 
 const props = defineProps<{ personId: string }>()
 
@@ -160,25 +178,36 @@ const risk = computed(() => portfolioDashboard.risk.value)
 const coverage = computed(() => portfolioDashboard.coverage.value)
 const contributors = computed(() => portfolioDashboard.contributors.value)
 
-const isReloading = computed(() => portfolioDashboard.loading.value)
 const error = computed(() => portfolioDashboard.error.value)
 const isEmpty = computed(() => portfolioDashboard.isEmpty.value)
 const isSectionLoading = computed(() => portfolioDashboard.loadingStates.value)
 const sectionErrors = computed(() => portfolioDashboard.errors.value)
 
-const loadAll = portfolioDashboard.loadAll
-const loadSummary = portfolioDashboard.loadSummary
-const loadPerformance = portfolioDashboard.loadPerformance
-const loadExposures = portfolioDashboard.loadExposures
-const loadHoldings = portfolioDashboard.loadHoldings
-const loadRisk = portfolioDashboard.loadRisk
-const loadContributors = portfolioDashboard.loadContributors
-const loadCoverage = portfolioDashboard.loadCoverage
+const loadBootstrap = portfolioDashboard.loadBootstrap
+
+const supportedRanges = ['1m', '3m', '6m', 'ytd', '1y', 'max'] as const
+const rangeOptions: Array<{ value: PortfolioDashboardRange; label: string }> = [
+  { value: '1m', label: '1 Monat' },
+  { value: '3m', label: '3 Monate' },
+  { value: '6m', label: '6 Monate' },
+  { value: 'ytd', label: 'Jahr bis heute' },
+  { value: '1y', label: '1 Jahr' },
+  { value: 'max', label: 'Max' }
+]
+
+function normalizeDashboardRange(value: string | null | undefined): PortfolioDashboardRange {
+  return supportedRanges.includes(value as PortfolioDashboardRange) ? (value as PortfolioDashboardRange) : '3m'
+}
+
+const selectedRange = ref<PortfolioDashboardRange>(
+  normalizeDashboardRange(performance.value?.range ?? contributors.value?.range ?? '3m')
+)
 
 const hasAnyRenderableSection = computed(
   () => !!summary.value || !!performance.value || !!holdings.value || !!risk.value || !!coverage.value || !!exposures.value || !!contributors.value
 )
 const hasAnySectionLoading = computed(() => Object.values(isSectionLoading.value).some(Boolean))
+const isReloading = computed(() => portfolioDashboard.loading.value || hasAnySectionLoading.value)
 const hasAnySectionError = computed(() => Object.values(sectionErrors.value).some((value) => Boolean(value)))
 const showGlobalLoading = computed(() => !hasAnyRenderableSection.value && (isReloading.value || hasAnySectionLoading.value))
 const globalErrorMessage = computed(() => error.value || 'Portfolio-Dashboard-Daten konnten nicht geladen werden.')
@@ -229,6 +258,16 @@ function contributorName(item: PortfolioContributorItem) {
   return formatNullableText(item.display_name, '') || formatNullableText(item.symbol)
 }
 
+async function reloadDashboard() {
+  if (!props.personId) return
+
+  try {
+    await loadBootstrap(selectedRange.value)
+  } catch {
+    // Section and global error state is set by usePortfolioDashboard.
+  }
+}
+
 watch(
   () => holdings.value?.items,
   (items) => {
@@ -248,7 +287,7 @@ watch(
   personIdRef,
   (newPersonId) => {
     if (newPersonId) {
-      void loadAll()
+      void reloadDashboard()
     }
   },
   { immediate: false }
@@ -256,7 +295,7 @@ watch(
 
 onMounted(() => {
   if (props.personId) {
-    void loadAll()
+    void reloadDashboard()
   }
 })
 </script>
@@ -276,6 +315,37 @@ onMounted(() => {
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
+}
+
+.cockpit-actions {
+  display: flex;
+  align-items: end;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.range-control {
+  display: grid;
+  gap: 0.16rem;
+  color: #64748b;
+  font-size: 0.76rem;
+  font-weight: 600;
+}
+
+.range-control select {
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #0f172a;
+  font-size: 0.84rem;
+  padding: 0.38rem 0.55rem;
+  min-width: 8.5rem;
+}
+
+.range-control select:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
 }
 
 .eyebrow {
@@ -446,6 +516,16 @@ h2 {
 }
 
 @media (max-width: 900px) {
+  .cockpit-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .cockpit-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
   .primary-grid,
   .workspace-grid {
     grid-template-columns: 1fr;

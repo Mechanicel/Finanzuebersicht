@@ -124,6 +124,17 @@ export function formatPercentFromRatio(value: number | null | undefined, fractio
   }).format(value)
 }
 
+export function formatSignedPercentFromRatio(value: number | null | undefined, fractionDigits = 2): string {
+  if (!hasNumber(value)) {
+    return NA_TEXT
+  }
+
+  const formatted = formatPercentFromRatio(Math.abs(value), fractionDigits)
+  if (value > 0) return `+${formatted}`
+  if (value < 0) return `-${formatted}`
+  return formatted
+}
+
 export function formatPercentValue(value: number | null | undefined, fractionDigits = 2): string {
   if (!hasNumber(value)) {
     return NA_TEXT

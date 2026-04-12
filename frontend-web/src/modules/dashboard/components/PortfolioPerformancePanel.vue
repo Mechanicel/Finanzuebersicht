@@ -13,16 +13,30 @@
           <span v-if="returnBasisLabel">Methodik: <strong>{{ returnBasisLabel }}</strong></span>
         </p>
       </div>
-      <div class="legend">
-        <span class="legend-item portfolio">Portfolio</span>
-        <span class="legend-item benchmark">Benchmark</span>
+      <div class="panel-tools">
+        <div class="view-toggle" role="group" aria-label="Performance-Darstellung">
+          <button type="button" :class="{ active: chartMode === 'absolute' }" @click="chartMode = 'absolute'">Absolut</button>
+          <button
+            type="button"
+            :class="{ active: chartMode === 'normalized' }"
+            :disabled="!canUseNormalized"
+            @click="chartMode = 'normalized'"
+          >
+            Normalisiert
+          </button>
+        </div>
+        <div class="legend">
+          <span class="legend-item portfolio">Portfolio</span>
+          <span class="legend-item benchmark">Benchmark</span>
+        </div>
       </div>
     </header>
 
     <div class="chart-wrap">
-      <SimpleLineChart v-if="portfolioLinePoints.length > 0" :points="portfolioLinePoints" :datasets="lineDatasets" />
+      <SimpleLineChart v-if="activePortfolioLinePoints.length > 0" :points="activePortfolioLinePoints" :datasets="lineDatasets" />
       <p v-else class="hint">Keine Portfolio-Serie verfügbar.</p>
     </div>
+    <p v-if="isBenchmarkSeriesMissing" class="hint hint--compact">Benchmark-Serie nicht verfügbar.</p>
 
     <div class="stats">
       <p><strong>Startwert</strong><span>{{ formatMoney(performance.summary.start_value, currency) }}</span></p>
@@ -32,12 +46,13 @@
         <span :class="changeClass">{{ formatSignedMoney(performance.summary.absolute_change, currency) }}</span>
       </p>
       <p><strong>Zeitraumrendite</strong><span>{{ formatPercentValue(performance.summary.return_pct) }}</span></p>
+      <p><strong>Max Drawdown</strong><span>{{ formatPercentValue(maxDrawdownPct) }}</span></p>
     </div>
   </article>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import SimpleLineChart from '@/shared/ui/SimpleLineChart.vue'
 import type { PortfolioPerformanceReadModel } from '@/shared/model/types'
 import {
@@ -51,12 +66,16 @@ import {
   mapPortfolioMethodology
 } from '@/modules/dashboard/model/portfolioFormatting'
 
+type ChartMode = 'absolute' | 'normalized'
+type ChartPoint = { date: string; value: number }
+
 const props = defineProps<{
   performance: PortfolioPerformanceReadModel
   currency?: string
 }>()
 
 const currency = computed(() => props.currency ?? 'EUR')
+const chartMode = ref<ChartMode>('absolute')
 
 const benchmarkSymbol = computed(() => formatNullableText(props.performance.benchmark_symbol))
 const rangeLabel = computed(() => formatRangeLabel(props.performance.range, props.performance.range_label))
@@ -86,12 +105,57 @@ const benchmarkLinePoints = computed(() => {
   return benchmarkSeries.points.map((point) => ({ date: point.x, value: point.y }))
 })
 
+function normalizeToIndex(points: ChartPoint[]): ChartPoint[] {
+  const startValue = points[0]?.value
+  if (typeof startValue !== 'number' || !Number.isFinite(startValue) || startValue === 0) {
+    return []
+  }
+
+  return points.map((point) => ({
+    date: point.date,
+    value: (point.value / startValue) * 100
+  }))
+}
+
+const normalizedPortfolioLinePoints = computed(() => normalizeToIndex(portfolioLinePoints.value))
+const normalizedBenchmarkLinePoints = computed(() => normalizeToIndex(benchmarkLinePoints.value))
+const canUseNormalized = computed(() => normalizedPortfolioLinePoints.value.length > 0)
+const activePortfolioLinePoints = computed(() =>
+  chartMode.value === 'normalized' ? normalizedPortfolioLinePoints.value : portfolioLinePoints.value
+)
+const activeBenchmarkLinePoints = computed(() =>
+  chartMode.value === 'normalized' ? normalizedBenchmarkLinePoints.value : benchmarkLinePoints.value
+)
+
+const isBenchmarkSeriesMissing = computed(() => Boolean(props.performance.benchmark_symbol) && benchmarkLinePoints.value.length === 0)
+
 const lineDatasets = computed(() => {
-  const datasets = [{ label: 'Portfolio', points: portfolioLinePoints.value, borderColor: '#2563eb' }]
-  if (benchmarkLinePoints.value.length > 0) {
-    datasets.push({ label: 'Benchmark', points: benchmarkLinePoints.value, borderColor: '#67a4a5' })
+  const suffix = chartMode.value === 'normalized' ? ' (Index 100)' : ''
+  const datasets = [{ label: `Portfolio${suffix}`, points: activePortfolioLinePoints.value, borderColor: '#2563eb' }]
+  if (activeBenchmarkLinePoints.value.length > 0) {
+    datasets.push({ label: `Benchmark${suffix}`, points: activeBenchmarkLinePoints.value, borderColor: '#67a4a5' })
   }
   return datasets
+})
+
+const maxDrawdownPct = computed(() => {
+  if (portfolioLinePoints.value.length < 2) {
+    return null
+  }
+
+  let peak = portfolioLinePoints.value[0].value
+  let maxDrawdown = 0
+
+  portfolioLinePoints.value.forEach((point) => {
+    if (point.value > peak) {
+      peak = point.value
+    }
+    if (peak > 0) {
+      maxDrawdown = Math.min(maxDrawdown, ((point.value - peak) / peak) * 100)
+    }
+  })
+
+  return maxDrawdown
 })
 
 const changeClass = computed(() => {
@@ -101,6 +165,16 @@ const changeClass = computed(() => {
   if (change < 0) return 'negative'
   return 'neutral'
 })
+
+watch(
+  canUseNormalized,
+  (canNormalize) => {
+    if (!canNormalize && chartMode.value === 'normalized') {
+      chartMode.value = 'absolute'
+    }
+  },
+  { immediate: true }
+)
 </script>
 
 <style scoped>
@@ -116,6 +190,12 @@ const changeClass = computed(() => {
   justify-content: space-between;
   align-items: flex-start;
   gap: 1rem;
+}
+
+.panel-tools {
+  display: grid;
+  justify-items: end;
+  gap: 0.35rem;
 }
 
 .panel-header h3 {
@@ -157,10 +237,15 @@ const changeClass = computed(() => {
   margin-top: 0.5rem;
 }
 
+.hint--compact {
+  margin: 0.2rem 0 0;
+  font-size: 0.78rem;
+}
+
 .stats {
   margin-top: 0.55rem;
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
   gap: 0.35rem;
 }
 
@@ -188,6 +273,39 @@ const changeClass = computed(() => {
   display: flex;
   gap: 0.5rem;
   align-items: center;
+}
+
+.view-toggle {
+  display: inline-flex;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #ffffff;
+}
+
+.view-toggle button {
+  border: 0;
+  border-right: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #475569;
+  cursor: pointer;
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 0.22rem 0.45rem;
+}
+
+.view-toggle button:last-child {
+  border-right: 0;
+}
+
+.view-toggle button.active {
+  background: #e0f2fe;
+  color: #0369a1;
+}
+
+.view-toggle button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .legend-item {
@@ -220,8 +338,12 @@ const changeClass = computed(() => {
 }
 
 @media (max-width: 900px) {
-  .stats {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .panel-header {
+    display: grid;
+  }
+
+  .panel-tools {
+    justify-items: start;
   }
 }
 </style>

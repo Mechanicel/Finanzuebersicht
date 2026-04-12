@@ -1,6 +1,8 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 
-const getMock = vi.fn()
+const { getMock } = vi.hoisted(() => ({
+  getMock: vi.fn()
+}))
 
 vi.mock('@/shared/api/http', () => ({
   http: {
@@ -44,5 +46,13 @@ describe('portfolioDashboardApi', () => {
     expect(getMock).toHaveBeenNthCalledWith(6, '/app/persons/person-1/portfolio-risk')
     expect(getMock).toHaveBeenNthCalledWith(7, '/app/persons/person-1/portfolio-contributors')
     expect(getMock).toHaveBeenNthCalledWith(8, '/app/persons/person-1/portfolio-data-coverage')
+  })
+
+  it('passes an explicit dashboard range to the bootstrap endpoint', async () => {
+    getMock.mockResolvedValue({ data: { data: { ok: true } } })
+
+    await fetchPortfolioDashboard('person-1', '1y')
+
+    expect(getMock).toHaveBeenCalledWith('/app/persons/person-1/portfolio-dashboard', { params: { range: '1y' } })
   })
 })
