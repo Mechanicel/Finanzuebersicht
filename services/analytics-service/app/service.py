@@ -104,8 +104,10 @@ class PortfolioHistoryContext:
     holdings: list[PortfolioHoldingSnapshot]
     snapshot_warnings: list[str]
     portfolio_points: list[ChartPoint]
+    twrr_return_points: list[ChartPoint]
     history_warnings: list[str]
     benchmark_points: list[ChartPoint]
+    fx_points: list[ChartPoint]
     history_by_symbol: dict[str, list[ChartPoint]]
 
 
@@ -138,6 +140,7 @@ class PortfolioDashboardCacheEntry:
 
 class AnalyticsService:
     DEFAULT_BENCHMARK_SYMBOL = "SPY"
+    FX_SYMBOL = "EURUSD=X"  # EUR/USD rate: USD per 1 EUR. Used to convert USD benchmark returns to EUR.
     KNOWN_PERSONS_CACHE_MAX_SIZE = 2048
     KNOWN_PERSONS_CACHE_TTL_SECONDS = 3600
     UNKNOWN_PERSONS_CACHE_MAX_SIZE = 2048
@@ -385,6 +388,26 @@ class AnalyticsService:
         return variance ** 0.5
 
     @staticmethod
+    def _twrr_total_return(twrr_return_points: list[ChartPoint]) -> float | None:
+        """Chain TWRR daily returns into a total period return.  Returns a ratio (0.05 = 5 %)."""
+        if not twrr_return_points:
+            return None
+        cumulative = 1.0
+        for point in twrr_return_points:
+            cumulative *= 1.0 + point.y
+        return cumulative - 1.0
+
+    @staticmethod
+    def _build_twrr_index(base_date: str, twrr_return_points: list[ChartPoint]) -> list[ChartPoint]:
+        """Build a TWRR index series starting at 100.0 for use in max-drawdown calculation."""
+        index = 100.0
+        result = [ChartPoint(x=base_date, y=100.0)]
+        for point in twrr_return_points:
+            index *= 1.0 + point.y
+            result.append(ChartPoint(x=point.x, y=index))
+        return result
+
+    @staticmethod
     def _max_drawdown(points: list[ChartPoint]) -> float | None:
         if not points:
             return None
@@ -411,6 +434,31 @@ class AnalyticsService:
         elif top_position_weight is not None and top_position_weight >= 0.5:
             concentration_note = "single_position_dominates"
         return top_position_weight, top3_weight, concentration_note
+
+    @staticmethod
+    def _apply_fx_to_return_points(
+        usd_return_points: list[ChartPoint],
+        fx_return_points: list[ChartPoint],
+    ) -> list[ChartPoint]:
+        """Convert USD-denominated daily returns to EUR perspective using EURUSD=X daily returns.
+
+        Both series must use the same date convention (x=prev_day).
+        For each matched day: r_eur = (1 + r_usd) / (1 + r_fx) - 1
+        where r_fx = daily EURUSD return (positive r_fx means EUR strengthened → USD-priced assets worth less in EUR).
+        Days without FX data are passed through unchanged (USD return used as-is).
+        """
+        if not fx_return_points:
+            return usd_return_points
+        fx_by_date: dict[str, float] = {pt.x: pt.y for pt in fx_return_points}
+        eur_return_points: list[ChartPoint] = []
+        for point in usd_return_points:
+            r_fx = fx_by_date.get(point.x)
+            if r_fx is None or r_fx <= -1.0:
+                eur_return_points.append(point)
+                continue
+            r_eur = (1.0 + point.y) / (1.0 + r_fx) - 1.0
+            eur_return_points.append(ChartPoint(x=point.x, y=r_eur))
+        return eur_return_points
 
     @staticmethod
     def _align_return_series(left: list[ChartPoint], right: list[ChartPoint]) -> tuple[list[float], list[float]]:
@@ -443,7 +491,14 @@ class AnalyticsService:
         self,
         holdings: list[PortfolioHoldingSnapshot],
         histories: dict[str, list[dict]],
-    ) -> tuple[list[ChartPoint], list[str]]:
+    ) -> tuple[list[ChartPoint], list[ChartPoint], list[str]]:
+        """Build absolute portfolio value series and TWRR-adjusted daily return series.
+
+        Returns:
+            portfolio_points: Absolute portfolio value per day (includes cash inflows; use for charts).
+            twrr_return_points: TWRR daily returns excluding cash inflow effects (use for risk metrics).
+            warnings: Diagnostic messages.
+        """
         warnings: list[str] = []
 
         holdings_by_symbol: dict[str, list[PortfolioHoldingSnapshot]] = defaultdict(list)
@@ -476,26 +531,35 @@ class AnalyticsService:
             history_by_symbol[symbol] = points_by_day
             date_grid.update(points_by_day)
 
-        last_close_by_symbol: dict[str, float] = {}
-        points: list[ChartPoint] = []
-        for day in sorted(date_grid):
-            day_value = 0.0
-            has_contribution = False
+        ordered_days = sorted(date_grid)
+
+        # Pre-compute carry-forward effective close prices for every symbol on every day.
+        # This avoids repeated scanning and ensures consistent last-known-price logic.
+        effective_close: dict[str, dict[str, float]] = {}
+        for symbol, points_by_day in history_by_symbol.items():
+            last: float | None = None
+            sym_eff: dict[str, float] = {}
+            for day in ordered_days:
+                close = points_by_day.get(day)
+                if close is not None:
+                    last = close
+                if last is not None:
+                    sym_eff[day] = last
+            effective_close[symbol] = sym_eff
+
+        portfolio_points: list[ChartPoint] = []
+        twrr_return_points: list[ChartPoint] = []
+
+        for idx, day in enumerate(ordered_days):
             point_date = self._as_date(day)
 
+            # --- Absolute portfolio value (includes all holdings bought on or before today) ---
+            day_value = 0.0
+            has_contribution = False
             for symbol, symbol_holdings in holdings_by_symbol.items():
-                points_by_day = history_by_symbol.get(symbol)
-                if points_by_day is None:
-                    continue
-
-                close = points_by_day.get(day)
-                if close is not None and close > 0:
-                    last_close_by_symbol[symbol] = close
-
-                last_close = last_close_by_symbol.get(symbol)
+                last_close = effective_close.get(symbol, {}).get(day)
                 if last_close is None:
                     continue
-
                 for item in symbol_holdings:
                     if item.buy_date is not None and (
                         point_date is None or point_date < item.buy_date
@@ -505,9 +569,39 @@ class AnalyticsService:
                     has_contribution = True
 
             if has_contribution:
-                points.append(ChartPoint(x=day, y=round(day_value, 2)))
+                portfolio_points.append(ChartPoint(x=day, y=round(day_value, 2)))
 
-        return points, list(dict.fromkeys(warnings))
+            # --- TWRR return for transition from previous day to today ---
+            # Key: only holdings held on the PREVIOUS day are counted.
+            # New purchases today (buy_date == today) are excluded from this return,
+            # which eliminates the cash-inflow inflation of the return series.
+            if idx == 0:
+                continue
+
+            prev_day = ordered_days[idx - 1]
+            prev_date = self._as_date(prev_day)
+            v_prev = 0.0
+            v_curr_same = 0.0
+            any_prev_holding = False
+
+            for symbol, symbol_holdings in holdings_by_symbol.items():
+                prev_close = effective_close.get(symbol, {}).get(prev_day)
+                if prev_close is None:
+                    continue  # Symbol not tracked on previous day; skip
+                curr_close = effective_close.get(symbol, {}).get(day)
+
+                for item in symbol_holdings:
+                    # Exclude holdings first added on today — they represent a cash inflow.
+                    if item.buy_date is not None and prev_date is not None and prev_date < item.buy_date:
+                        continue
+                    v_prev += prev_close * item.quantity
+                    v_curr_same += (curr_close if curr_close is not None else prev_close) * item.quantity
+                    any_prev_holding = True
+
+            if any_prev_holding and v_prev > 0:
+                twrr_return_points.append(ChartPoint(x=prev_day, y=(v_curr_same / v_prev) - 1.0))
+
+        return portfolio_points, twrr_return_points, list(dict.fromkeys(warnings))
 
     def _sanitize_history_points(self, symbol: str, points: list[dict]) -> tuple[list[dict], list[str]]:
         warnings: list[str] = []
@@ -746,7 +840,7 @@ class AnalyticsService:
             _, holdings, snapshot_warnings = self._get_portfolio_holdings_snapshot(person_id)
             with httpx.Client(timeout=self._timeout) as client:
                 symbols = [item.symbol for item in holdings if item.symbol]
-                batch_symbols = list(dict.fromkeys(symbols + [self.DEFAULT_BENCHMARK_SYMBOL]))
+                batch_symbols = list(dict.fromkeys(symbols + [self.DEFAULT_BENCHMARK_SYMBOL, self.FX_SYMBOL]))
                 batch_history_items = self._load_batch_history(batch_symbols, client=client, range_value=range_value)
                 raw_history_by_symbol: dict[str, list[dict]] = {}
                 history_warnings: list[str] = []
@@ -761,15 +855,26 @@ class AnalyticsService:
                     raw_history_by_symbol[symbol] = points
                     if not points:
                         history_warnings.append(f"missing_history:{symbol}")
-                portfolio_points, series_warnings = self._build_portfolio_history_from_snapshots(holdings, raw_history_by_symbol)
+                portfolio_points, twrr_return_points, series_warnings = self._build_portfolio_history_from_snapshots(holdings, raw_history_by_symbol)
                 history_warnings.extend(series_warnings)
                 benchmark_points_raw = raw_history_by_symbol.get(self.DEFAULT_BENCHMARK_SYMBOL, [])
+                fx_points_raw = raw_history_by_symbol.get(self.FX_SYMBOL, [])
+                if not fx_points_raw:
+                    history_warnings.append("fx_eurusd_missing_using_usd_benchmark")
 
             benchmark_points = sorted(
                 [
-                    ChartPoint(x=str(point.get("date", "")), y=round(self._as_float(point.get("close")), 2))
+                    ChartPoint(x=str(point.get("date", "")), y=round(self._as_float(point.get("close")), 6))
                     for point in benchmark_points_raw
                     if str(point.get("date", "")).strip()
+                ],
+                key=lambda point: point.x,
+            )
+            fx_points = sorted(
+                [
+                    ChartPoint(x=str(point.get("date", "")), y=round(self._as_float(point.get("close")), 6))
+                    for point in fx_points_raw
+                    if str(point.get("date", "")).strip() and self._as_float(point.get("close")) > 0
                 ],
                 key=lambda point: point.x,
             )
@@ -787,8 +892,10 @@ class AnalyticsService:
                 holdings=holdings,
                 snapshot_warnings=snapshot_warnings,
                 portfolio_points=portfolio_points,
+                twrr_return_points=twrr_return_points,
                 history_warnings=history_warnings,
                 benchmark_points=benchmark_points,
+                fx_points=fx_points,
                 history_by_symbol=history_by_symbol,
             )
             stale_at = datetime.now(UTC) + timedelta(seconds=self._portfolio_snapshot_cache_ttl_seconds)
@@ -1288,11 +1395,11 @@ class AnalyticsService:
         start_value = portfolio_points[0].y if portfolio_points else None
         end_value = portfolio_points[-1].y if portfolio_points else None
         absolute_change = (end_value - start_value) if start_value is not None and end_value is not None else None
-        return_pct = (
-            (absolute_change / start_value * 100)
-            if absolute_change is not None and start_value is not None and start_value > 0
-            else None
-        )
+
+        # Use TWRR-based return to exclude cash inflow effects.
+        twrr_ratio = self._twrr_total_return(history_context.twrr_return_points)
+        return_pct = round(twrr_ratio * 100, 4) if twrr_ratio is not None else None
+
         return PortfolioPerformanceReadModel(
             person_id=person_id,
             range=range_value,
@@ -1301,11 +1408,11 @@ class AnalyticsService:
             series=series,
             summary=PortfolioPerformanceSummary(
                 summary_kind="range",
-                return_basis="range_start_value",
+                return_basis="twrr",
                 start_value=round(start_value, 2) if start_value is not None else None,
                 end_value=round(end_value, 2) if end_value is not None else None,
                 absolute_change=round(absolute_change, 2) if absolute_change is not None else None,
-                return_pct=round(return_pct, 4) if return_pct is not None else None,
+                return_pct=return_pct,
             ),
             meta={"loading": False, "error": ", ".join(list(dict.fromkeys(warnings + history_warnings))) or None},
         )
@@ -1385,17 +1492,29 @@ class AnalyticsService:
         portfolio_points = history_context.portfolio_points
         top_position_weight, top3_weight, concentration_note = self._concentration_metrics(holdings)
 
-        portfolio_return_points = self._portfolio_return_points(portfolio_points)
+        # Use TWRR returns to eliminate cash-inflow bias from all risk metrics.
+        portfolio_return_points = history_context.twrr_return_points
         portfolio_returns = [point.y for point in portfolio_return_points]
         portfolio_volatility = self._volatility(portfolio_returns)
         annualized_volatility = (portfolio_volatility * sqrt(252)) if portfolio_volatility is not None else None
-        max_drawdown = self._max_drawdown(portfolio_points)
+
+        # Max drawdown on TWRR index so that cash inflows don't inflate the running peak.
+        if portfolio_points and portfolio_return_points:
+            twrr_index = self._build_twrr_index(portfolio_points[0].x, portfolio_return_points)
+            max_drawdown = self._max_drawdown(twrr_index)
+        else:
+            max_drawdown = self._max_drawdown(portfolio_points)
+
         best_day_return = max(portfolio_returns) if portfolio_returns else None
         worst_day_return = min(portfolio_returns) if portfolio_returns else None
         mean_portfolio_return = (sum(portfolio_returns) / len(portfolio_returns)) if portfolio_returns else None
 
         benchmark_points = history_context.benchmark_points
-        benchmark_return_points = self._portfolio_return_points(sorted(benchmark_points, key=lambda point: point.x))
+        benchmark_return_points_usd = self._portfolio_return_points(sorted(benchmark_points, key=lambda point: point.x))
+        # Convert SPY USD returns to EUR perspective using daily EURUSD=X returns.
+        # This eliminates FX-driven divergence between the EUR-denominated TWRR and the USD benchmark.
+        fx_return_points = self._portfolio_return_points(history_context.fx_points)
+        benchmark_return_points = self._apply_fx_to_return_points(benchmark_return_points_usd, fx_return_points)
         aligned_portfolio_returns, aligned_benchmark_returns = self._align_return_series(
             portfolio_return_points,
             benchmark_return_points,
@@ -1636,7 +1755,9 @@ class AnalyticsService:
             reverse=True,
         )
         total_contribution_pct_points = round(sum(item.contribution_pct_points for item in by_position), 6)
-        portfolio_return_pct = self._portfolio_range_return_pct(history_context.portfolio_points)
+        # Use TWRR-based total return so that cash inflows are excluded from the benchmark.
+        twrr_ratio = self._twrr_total_return(history_context.twrr_return_points)
+        portfolio_return_pct = round(twrr_ratio * 100, 4) if twrr_ratio is not None else None
         residual_pct_points = (
             round(portfolio_return_pct - total_contribution_pct_points, 6)
             if portfolio_return_pct is not None

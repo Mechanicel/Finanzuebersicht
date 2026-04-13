@@ -3,7 +3,8 @@
     "allow": [
       "Bash(uv run:*)",
       "Bash(npx tsc:*)",
-      "Bash(node_modules/.bin/tsc --noEmit)"
+      "Bash(node_modules/.bin/tsc --noEmit)",
+      "Bash(python:*)"
     ]
   }
 }
