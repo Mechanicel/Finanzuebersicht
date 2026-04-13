@@ -356,6 +356,18 @@ async def delete_account(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+@router.get(
+    "/app/persons/{person_id}/accounts/{account_id}/portfolio",
+    response_model=ApiResponse[PortfolioReadModel],
+)
+async def depot_account_portfolio(
+    person_id: UUID,
+    account_id: UUID,
+    service: Annotated[GatewayService, Depends(get_gateway_service)],
+) -> ApiResponse[PortfolioReadModel]:
+    return ApiResponse(data=await service.get_depot_portfolio(person_id, account_id))
+
+
 @router.get("/app/persons/{person_id}/portfolios", response_model=ApiResponse[PortfolioListReadModel])
 async def portfolios(
     person_id: UUID, service: Annotated[GatewayService, Depends(get_gateway_service)]

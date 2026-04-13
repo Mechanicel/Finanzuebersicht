@@ -42,6 +42,7 @@
         <DepotHoldingsManager
           v-else-if="activeDepotTab === 'bestandteile'"
           :person-id="personId"
+          :account-id="account.account_id"
           :depot-label="account.label"
           :title="`Depot-Bestandteile für ${account.label}`"
           view-mode="holdings"
@@ -50,6 +51,7 @@
         <DepotHoldingsManager
           v-else
           :person-id="personId"
+          :account-id="account.account_id"
           :depot-label="account.label"
           :title="`Werte hinzufügen für ${account.label}`"
           view-mode="add"

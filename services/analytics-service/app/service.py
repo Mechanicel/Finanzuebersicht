@@ -11,7 +11,6 @@ from uuid import UUID
 
 import httpx
 
-from app.ttl_lru_cache import TtlLruCache
 from app.models import (
     AllocationReadModel,
     AllocationSlice,
@@ -27,6 +26,7 @@ from app.models import (
     MetricsReadModel,
     MonthlyComparisonItem,
     MonthlyComparisonReadModel,
+    OverviewReadModel,
     PortfolioAttributionItem,
     PortfolioAttributionReadModel,
     PortfolioAttributionSummary,
@@ -42,10 +42,10 @@ from app.models import (
     PortfolioPerformanceSummary,
     PortfolioRiskReadModel,
     PortfolioSummaryReadModel,
-    OverviewReadModel,
     SummaryItem,
     TimeseriesReadModel,
 )
+from app.ttl_lru_cache import TtlLruCache
 
 
 @dataclass(slots=True)
@@ -88,6 +88,7 @@ class PortfolioHoldingSnapshot:
     sector: str | None = None
     country: str | None = None
     currency: str | None = None
+    buy_date: date | None = None
     data_status: str = "ok"
     warnings: list[str] = field(default_factory=list)
 
@@ -322,6 +323,19 @@ class AnalyticsService:
                 return 0.0
         return 0.0
 
+    @staticmethod
+    def _as_date(value: object) -> date | None:
+        if isinstance(value, datetime):
+            return value.date()
+        if isinstance(value, date):
+            return value
+        if isinstance(value, str):
+            try:
+                return date.fromisoformat(value.strip())
+            except ValueError:
+                return None
+        return None
+
     def _build_timeseries(self, holdings: list[dict], symbol_histories: dict[str, list[dict]]) -> list[ChartPoint]:
         totals_by_day: dict[str, float] = defaultdict(float)
         for holding in holdings:
@@ -431,24 +445,68 @@ class AnalyticsService:
         histories: dict[str, list[dict]],
     ) -> tuple[list[ChartPoint], list[str]]:
         warnings: list[str] = []
-        totals_by_day: dict[str, float] = defaultdict(float)
-        for item in holdings:
-            if not item.symbol:
-                continue
-            symbol_history = histories.get(item.symbol, [])
-            if not symbol_history:
-                warnings.append(f"missing_history:{item.symbol}")
-            if symbol_history:
-                for point in symbol_history:
-                    day = str(point.get("date", "")).strip()
-                    close = self._as_float(point.get("close"))
-                    if day:
-                        totals_by_day[day] += close * item.quantity
-            else:
-                warnings.append(f"history_fallback_to_market_value:{item.symbol}")
 
-        ordered_days = sorted(totals_by_day)
-        points = [ChartPoint(x=day, y=round(totals_by_day[day], 2)) for day in ordered_days]
+        holdings_by_symbol: dict[str, list[PortfolioHoldingSnapshot]] = defaultdict(list)
+        for item in holdings:
+            if not item.symbol or item.quantity <= 0:
+                continue
+            holdings_by_symbol[item.symbol].append(item)
+
+        history_by_symbol: dict[str, dict[str, float]] = {}
+        date_grid: set[str] = set()
+        for symbol in holdings_by_symbol:
+            symbol_history = histories.get(symbol, [])
+            if not symbol_history:
+                warnings.append(f"missing_history:{symbol}")
+                warnings.append(f"symbol_excluded_from_portfolio_history:{symbol}")
+                continue
+
+            points_by_day: dict[str, float] = {}
+            for point in symbol_history:
+                day = str(point.get("date", "")).strip()
+                close = self._as_float(point.get("close"))
+                if day and close > 0:
+                    points_by_day[day] = close
+
+            if not points_by_day:
+                warnings.append(f"missing_history:{symbol}")
+                warnings.append(f"symbol_excluded_from_portfolio_history:{symbol}")
+                continue
+
+            history_by_symbol[symbol] = points_by_day
+            date_grid.update(points_by_day)
+
+        last_close_by_symbol: dict[str, float] = {}
+        points: list[ChartPoint] = []
+        for day in sorted(date_grid):
+            day_value = 0.0
+            has_contribution = False
+            point_date = self._as_date(day)
+
+            for symbol, symbol_holdings in holdings_by_symbol.items():
+                points_by_day = history_by_symbol.get(symbol)
+                if points_by_day is None:
+                    continue
+
+                close = points_by_day.get(day)
+                if close is not None and close > 0:
+                    last_close_by_symbol[symbol] = close
+
+                last_close = last_close_by_symbol.get(symbol)
+                if last_close is None:
+                    continue
+
+                for item in symbol_holdings:
+                    if item.buy_date is not None and (
+                        point_date is None or point_date < item.buy_date
+                    ):
+                        continue
+                    day_value += last_close * item.quantity
+                    has_contribution = True
+
+            if has_contribution:
+                points.append(ChartPoint(x=day, y=round(day_value, 2)))
+
         return points, list(dict.fromkeys(warnings))
 
     def _sanitize_history_points(self, symbol: str, points: list[dict]) -> tuple[list[dict], list[str]]:
@@ -616,6 +674,7 @@ class AnalyticsService:
                         sector=sector,
                         country=country,
                         currency=currency,
+                        buy_date=self._as_date(holding.get("buy_date")),
                         data_status=data_status,
                         warnings=item_warnings,
                     )

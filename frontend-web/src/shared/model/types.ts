@@ -149,6 +149,7 @@ export interface AccountReadModel {
   interest_rate?: string | null
   payout_account_iban?: string | null
   settlement_account_iban?: string | null
+  portfolio_id?: string | null
 }
 
 
@@ -165,6 +166,7 @@ export interface AccountCreatePayload {
   interest_rate?: string | null
   payout_account_iban?: string | null
   settlement_account_iban?: string | null
+  portfolio_id?: string | null
 }
 
 export interface AccountUpdatePayload {
@@ -180,6 +182,7 @@ export interface AccountUpdatePayload {
   interest_rate?: string | null
   payout_account_iban?: string | null
   settlement_account_iban?: string | null
+  portfolio_id?: string | null
 }
 
 export interface PortfolioReadModel {

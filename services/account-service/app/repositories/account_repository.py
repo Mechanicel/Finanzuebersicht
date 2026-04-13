@@ -137,6 +137,7 @@ class MongoAccountRepository(AccountRepository):
             ),
             "payout_account_iban": account.payout_account_iban,
             "settlement_account_iban": account.settlement_account_iban,
+            "portfolio_id": str(account.portfolio_id) if account.portfolio_id is not None else None,
         }
 
     @staticmethod

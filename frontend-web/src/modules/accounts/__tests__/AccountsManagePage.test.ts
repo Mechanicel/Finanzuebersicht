@@ -18,7 +18,6 @@ vi.mock('@/shared/api/client', () => ({
     person: vi.fn(),
     accounts: vi.fn(),
     banks: vi.fn(),
-    portfolios: vi.fn(),
     portfolio: vi.fn()
   }
 }))
@@ -41,7 +40,12 @@ const bankResponse = {
   total: 1
 }
 
-function buildAccount(label: string, accountType: 'girokonto' | 'depot' = 'girokonto', accountId = 'account-1') {
+function buildAccount(
+  label: string,
+  accountType: 'girokonto' | 'depot' = 'girokonto',
+  accountId = 'account-1',
+  portfolioId: string | null = null
+) {
   return {
     account_id: accountId,
     person_id: 'person-1',
@@ -50,6 +54,7 @@ function buildAccount(label: string, accountType: 'girokonto' | 'depot' = 'girok
     label,
     balance: '100.00',
     currency: 'EUR',
+    portfolio_id: portfolioId,
     iban: accountId === 'account-1' ? 'DE111' : 'DE222',
     created_at: '2026-03-01',
     updated_at: '2026-03-01'
@@ -69,7 +74,6 @@ describe('AccountsView list flow', () => {
     vi.clearAllMocks()
     vi.mocked(apiClient.person).mockResolvedValue(personResponse)
     vi.mocked(apiClient.banks).mockResolvedValue(bankResponse)
-    vi.mocked(apiClient.portfolios).mockResolvedValue({ items: [], total: 0 })
     vi.mocked(apiClient.portfolio).mockResolvedValue({
       portfolio_id: 'portfolio-1',
       person_id: 'person-1',
@@ -99,11 +103,7 @@ describe('AccountsView list flow', () => {
   })
 
   it('navigates depot rows directly to bestandteile section', async () => {
-    vi.mocked(apiClient.accounts).mockResolvedValue([buildAccount('Depot Langfrist', 'depot', 'account-2')])
-    vi.mocked(apiClient.portfolios).mockResolvedValue({
-      items: [{ portfolio_id: 'portfolio-1', person_id: 'person-1', display_name: 'Depot Langfrist', created_at: 'x', updated_at: 'x' }],
-      total: 1
-    })
+    vi.mocked(apiClient.accounts).mockResolvedValue([buildAccount('Depot Langfrist', 'depot', 'account-2', 'portfolio-1')])
     const wrapper = mount(AccountsView, { global: { stubs: { RouterLink: { template: '<a><slot /></a>' } } } })
     await flushUi()
 
@@ -134,7 +134,6 @@ describe('AccountsView list flow', () => {
 
   it('renders depot summary card without IBAN and with empty holdings message', async () => {
     vi.mocked(apiClient.accounts).mockResolvedValue([buildAccount('Depot Langfrist', 'depot', 'account-2')])
-    vi.mocked(apiClient.portfolios).mockResolvedValue({ items: [], total: 0 })
     const wrapper = mount(AccountsView, { global: { stubs: { RouterLink: { template: '<a><slot /></a>' } } } })
     await flushUi()
 

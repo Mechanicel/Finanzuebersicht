@@ -12,11 +12,13 @@ if str(SHARED_SRC) not in sys.path:
 
 SERVICE_ROOT = Path(__file__).resolve().parents[1]
 
-if "app" in sys.modules:
-    del sys.modules["app"]
+for module_name in list(sys.modules):
+    if module_name == "app" or module_name.startswith("app."):
+        del sys.modules[module_name]
 
-if str(SERVICE_ROOT) not in sys.path:
-    sys.path.insert(0, str(SERVICE_ROOT))
+while str(SERVICE_ROOT) in sys.path:
+    sys.path.remove(str(SERVICE_ROOT))
+sys.path.insert(0, str(SERVICE_ROOT))
 
 from fastapi import HTTPException
 
@@ -291,6 +293,15 @@ class StubGatewayService:
             "status": "not_implemented_yet",
             "accepted": False,
             "detail": "Technischer Refresh-Flow vorbereitet. Marktpreislogik folgt in einem späteren Schritt.",
+        }
+
+    async def get_depot_portfolio(self, person_id: UUID, account_id: UUID) -> dict:
+        return {
+            "portfolio_id": "20000000-0000-0000-0000-000000000001",
+            "person_id": str(person_id),
+            "display_name": "Core",
+            "created_at": "2026-03-01T00:00:00+00:00",
+            "updated_at": "2026-03-01T00:00:00+00:00",
         }
 
     async def get_analytics_overview(self, person_id: UUID) -> dict:
@@ -712,6 +723,12 @@ def test_app_endpoints_for_vue_pages() -> None:
             f"/api/v1/app/persons/{PERSON_ID}/accounts/10000000-0000-0000-0000-000000000001"
         ).status_code
         == 204
+    )
+    assert (
+        client.get(
+            f"/api/v1/app/persons/{PERSON_ID}/accounts/10000000-0000-0000-0000-000000000001/portfolio"
+        ).status_code
+        == 200
     )
     assert client.get(f"/api/v1/app/persons/{PERSON_ID}/portfolios").status_code == 200
     assert client.post(

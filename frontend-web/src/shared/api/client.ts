@@ -6,6 +6,7 @@ import { fetchAccounts, createAccount, updateAccount, deleteAccount } from '@/mo
 import {
   fetchPortfolios,
   createPortfolio,
+  fetchDepotAccountPortfolio,
   fetchPortfolio,
   addHolding,
   refreshHoldingPrices,
@@ -38,6 +39,7 @@ export const apiClient = {
   deleteAccount,
   portfolios: fetchPortfolios,
   createPortfolio,
+  depotAccountPortfolio: fetchDepotAccountPortfolio,
   portfolio: fetchPortfolio,
   addHolding,
   refreshHoldingPrices,

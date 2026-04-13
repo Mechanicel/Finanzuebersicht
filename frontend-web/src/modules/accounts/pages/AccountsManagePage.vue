@@ -54,6 +54,15 @@
                 </div>
                 <span class="row-action-hint" aria-hidden="true">→</span>
               </template>
+              <template v-else>
+                <div class="account-item-header">
+                  <div>
+                    <strong>{{ account.label }}</strong>
+                    <p class="muted">{{ accountTypeLabels[account.account_type] }} · {{ bankName(account.bank_id) }}</p>
+                  </div>
+                  <span class="row-action-hint" aria-hidden="true">→</span>
+                </div>
+              </template>
               <dl class="account-details">
                 <div><dt>Saldo</dt><dd>{{ account.balance }} {{ account.currency }}</dd></div>
                 <template v-if="account.account_type === 'depot'">
@@ -90,7 +99,7 @@ import LoadingState from '@/shared/ui/LoadingState.vue'
 import { accountTypeLabels } from '@/modules/accounts/model/accountForm'
 import type { DepotAccountSummary } from '@/modules/accounts/model/depotAccountSummary'
 import { extractApiErrorMessage } from '@/shared/api/extractApiErrorMessage'
-import type { AccountReadModel, BankReadModel, PersonReadModel, PortfolioDetailReadModel, PortfolioReadModel } from '@/shared/model/types'
+import type { AccountReadModel, BankReadModel, PersonReadModel, PortfolioDetailReadModel } from '@/shared/model/types'
 
 const route = useRoute()
 const router = useRouter()
@@ -200,13 +209,6 @@ function openDetails(account: AccountReadModel) {
   void router.push(detailTarget)
 }
 
-function resolvePortfolioByAccountLabel(
-  account: AccountReadModel,
-  portfoliosByDisplayName: Map<string, PortfolioReadModel>
-): PortfolioReadModel | null {
-  return portfoliosByDisplayName.get(account.label) ?? null
-}
-
 async function buildDepotSummaries(accountList: AccountReadModel[]): Promise<Record<string, DepotAccountSummary>> {
   const depotAccounts = accountList.filter((account) => isDepotAccount(account))
   if (!depotAccounts.length || !personId.value) {
@@ -214,37 +216,32 @@ async function buildDepotSummaries(accountList: AccountReadModel[]): Promise<Rec
   }
 
   try {
-    const portfolioList = await apiClient.portfolios(personId.value)
-    const portfoliosByDisplayName = new Map(portfolioList.items.map((portfolio) => [portfolio.display_name, portfolio]))
-    const portfolioByAccountId = new Map<string, PortfolioReadModel>()
-
-    for (const account of depotAccounts) {
-      const matchedPortfolio = resolvePortfolioByAccountLabel(account, portfoliosByDisplayName)
-      if (matchedPortfolio) {
-        portfolioByAccountId.set(account.account_id, matchedPortfolio)
-      }
-    }
+    const portfolioByAccountId = new Map(
+      depotAccounts
+        .filter((account) => typeof account.portfolio_id === 'string' && account.portfolio_id.length > 0)
+        .map((account) => [account.account_id, account.portfolio_id as string])
+    )
 
     const detailSettled = await Promise.allSettled(
-      Array.from(portfolioByAccountId.values()).map((portfolio) => apiClient.portfolio(portfolio.portfolio_id))
+      Array.from(portfolioByAccountId.values()).map((portfolioId) => apiClient.portfolio(portfolioId))
     )
     const detailByPortfolioId = new Map<string, PortfolioDetailReadModel>()
-    Array.from(portfolioByAccountId.values()).forEach((portfolio, index) => {
+    Array.from(portfolioByAccountId.values()).forEach((portfolioId, index) => {
       const detailResult = detailSettled[index]
       if (detailResult.status === 'fulfilled') {
-        detailByPortfolioId.set(portfolio.portfolio_id, detailResult.value)
+        detailByPortfolioId.set(portfolioId, detailResult.value)
       }
     })
 
     return Object.fromEntries(
       depotAccounts.map((account) => {
         const fallback = createFallbackDepotSummary(account)
-        const matchedPortfolio = portfolioByAccountId.get(account.account_id)
-        if (!matchedPortfolio) {
+        const portfolioId = portfolioByAccountId.get(account.account_id)
+        if (!portfolioId) {
           return [account.account_id, fallback] as const
         }
 
-        const portfolioDetail = detailByPortfolioId.get(matchedPortfolio.portfolio_id)
+        const portfolioDetail = detailByPortfolioId.get(portfolioId)
         if (!portfolioDetail) {
           return [account.account_id, fallback] as const
         }
@@ -262,7 +259,7 @@ async function buildDepotSummaries(accountList: AccountReadModel[]): Promise<Rec
             accountLabel: account.label,
             bankName: bankName(account.bank_id),
             depotNumber: account.depot_number ?? null,
-            portfolioId: matchedPortfolio.portfolio_id,
+            portfolioId,
             hasPortfolio: true,
             holdingsCount: holdings.length,
             investedTotal: holdings.reduce((sum, holding) => sum + holding.quantity * holding.acquisition_price, 0),

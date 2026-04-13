@@ -31,6 +31,7 @@ class PersonAccount(BaseModel):
     interest_rate: Decimal | None = Field(default=None, max_digits=7, decimal_places=4)
     payout_account_iban: str | None = None
     settlement_account_iban: str | None = None
+    portfolio_id: UUID | None = None
 
 
 class PersonAccountCreate(BaseModel):
@@ -46,6 +47,7 @@ class PersonAccountCreate(BaseModel):
     interest_rate: Decimal | None = Field(default=None, max_digits=7, decimal_places=4)
     payout_account_iban: str | None = None
     settlement_account_iban: str | None = None
+    portfolio_id: UUID | None = None
 
 
 class PersonAccountUpdate(BaseModel):
@@ -61,6 +63,7 @@ class PersonAccountUpdate(BaseModel):
     interest_rate: Decimal | None = Field(default=None, max_digits=7, decimal_places=4)
     payout_account_iban: str | None = None
     settlement_account_iban: str | None = None
+    portfolio_id: UUID | None = None
 
     @model_validator(mode="after")
     def require_any_field(self) -> PersonAccountUpdate:

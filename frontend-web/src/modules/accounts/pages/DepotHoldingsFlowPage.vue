@@ -12,13 +12,13 @@
       </div>
     </div>
 
-    <p v-if="!personId || !depotLabel" class="context-hint">
+    <p v-if="!personId || !accountId || !depotLabel" class="context-hint">
       Kein vollständiger Kontext für die Depotverwaltung vorhanden. Bitte starte den Flow über „Konto hinzufügen“
       oder „Konten ansehen & bearbeiten“.
     </p>
 
     <template v-else>
-      <DepotHoldingsManager :person-id="personId" :depot-label="depotLabel" title="Depot-Positionen" />
+      <DepotHoldingsManager :person-id="personId" :account-id="accountId" :depot-label="depotLabel" title="Depot-Positionen" />
     </template>
   </section>
 </template>
@@ -32,6 +32,7 @@ const route = useRoute()
 const router = useRouter()
 
 const personId = computed(() => (typeof route.query.personId === 'string' ? route.query.personId : ''))
+const accountId = computed(() => (typeof route.query.accountId === 'string' ? route.query.accountId : ''))
 const depotLabel = computed(() => (typeof route.query.depotLabel === 'string' ? route.query.depotLabel : ''))
 const origin = computed(() => (typeof route.query.origin === 'string' ? route.query.origin : 'create'))
 

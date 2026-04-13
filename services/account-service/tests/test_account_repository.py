@@ -37,6 +37,7 @@ def _account(*, account_id: str, person_id: str, label: str, created_at: str) ->
         currency="EUR",
         created_at=created_at,
         updated_at=created_at,
+        portfolio_id=UUID("20000000-0000-0000-0000-000000000001"),
     )
 
 
@@ -63,6 +64,7 @@ def test_mongo_repository_persists_across_instances() -> None:
     loaded = repo_b.get_person_account(person_id, account_id)
     assert loaded is not None
     assert loaded.label == "Depot A"
+    assert loaded.portfolio_id == UUID("20000000-0000-0000-0000-000000000001")
 
 
 def test_mongo_repository_update_and_sort_order() -> None:

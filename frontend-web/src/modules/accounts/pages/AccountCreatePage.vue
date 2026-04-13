@@ -148,9 +148,9 @@ async function submitCreate() {
 
   try {
     const savedLabel = createForm.value.label.trim()
-    await apiClient.createAccount(personId.value, toCreatePayload(createForm.value))
+    const createdAccount = await apiClient.createAccount(personId.value, toCreatePayload(createForm.value))
     if (createForm.value.account_type === 'depot') {
-      await router.push(`/accounts/depot-holdings?personId=${personId.value}&depotLabel=${encodeURIComponent(savedLabel)}&origin=create`)
+      await router.push(`/accounts/depot-holdings?personId=${personId.value}&accountId=${createdAccount.account_id}&depotLabel=${encodeURIComponent(savedLabel)}&origin=create`)
       return
     }
     await router.push(`/persons/${personId.value}`)

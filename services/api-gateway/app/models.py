@@ -253,6 +253,7 @@ class AccountReadModel(BaseModel):
     interest_rate: str | None = None
     payout_account_iban: str | None = None
     settlement_account_iban: str | None = None
+    portfolio_id: UUID | None = None
 
 
 class AccountCreatePayload(BaseModel):
@@ -268,6 +269,7 @@ class AccountCreatePayload(BaseModel):
     interest_rate: str | None = None
     payout_account_iban: str | None = None
     settlement_account_iban: str | None = None
+    portfolio_id: UUID | None = None
 
 
 class AccountUpdatePayload(BaseModel):
@@ -283,6 +285,7 @@ class AccountUpdatePayload(BaseModel):
     interest_rate: str | None = None
     payout_account_iban: str | None = None
     settlement_account_iban: str | None = None
+    portfolio_id: UUID | None = None
 
 
 class PortfolioCreatePayload(BaseModel):

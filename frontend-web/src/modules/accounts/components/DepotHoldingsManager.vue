@@ -236,7 +236,6 @@ import type {
   InstrumentSearchItem,
   MarketdataProfile,
   PortfolioDetailReadModel,
-  PortfolioReadModel
 } from '@/shared/model/types'
 import ErrorState from '@/shared/ui/ErrorState.vue'
 import LoadingState from '@/shared/ui/LoadingState.vue'
@@ -244,14 +243,13 @@ import EmptyState from '@/shared/ui/EmptyState.vue'
 import PortfolioValueChart from '@/shared/ui/PortfolioValueChart.vue'
 
 const props = withDefaults(
-  defineProps<{ personId: string; depotLabel: string; title?: string; viewMode?: 'all' | 'holdings' | 'add' }>(),
+  defineProps<{ personId: string; accountId: string; depotLabel: string; title?: string; viewMode?: 'all' | 'holdings' | 'add' }>(),
   { viewMode: 'all' }
 )
 
 const title = computed(() => props.title ?? 'Depot-Positionen')
 const showAddSection = computed(() => props.viewMode === 'all' || props.viewMode === 'add')
 const showHoldingsSection = computed(() => props.viewMode === 'all' || props.viewMode === 'holdings')
-const portfolios = ref<PortfolioReadModel[]>([])
 const selectedPortfolioId = ref('')
 const portfolioDetail = ref<PortfolioDetailReadModel | null>(null)
 const loading = ref(false)
@@ -313,7 +311,7 @@ const selectedSymbolFromRoute = computed(() => (typeof route.query.symbol === 's
 const selectedDetailSymbol = ref('')
 const isSearchView = computed(() => !selectedDetailSymbol.value)
 const detailHeading = computed(() => selectedProfile.value?.company_name || selectedDetailSymbol.value)
-const stateKey = computed(() => `${props.personId}::${props.depotLabel}`)
+const stateKey = computed(() => `${props.personId}::${props.accountId}`)
 const searchHint = computed(() => {
   if (!searchQuery.value.length) return 'Suche startet beim Tippen.'
   if (searchQuery.value.length < MIN_SEARCH_LENGTH) return `Bitte mindestens ${MIN_SEARCH_LENGTH} Zeichen eingeben.`
@@ -444,18 +442,16 @@ async function showSuccessFeedback(message: string) {
 }
 
 async function resolvePortfolio() {
-  const list = await apiClient.portfolios(props.personId)
-  portfolios.value = list.items
-  let match = list.items.find((item) => item.display_name === props.depotLabel)
-  if (!match && props.depotLabel.trim()) {
-    match = await apiClient.createPortfolio(props.personId, { display_name: props.depotLabel.trim() })
-    portfolios.value = [...list.items, match]
+  if (!props.accountId) {
+    selectedPortfolioId.value = ''
+    return
   }
-  selectedPortfolioId.value = match?.portfolio_id ?? list.items[0]?.portfolio_id ?? ''
+  const portfolio = await apiClient.depotAccountPortfolio(props.personId, props.accountId)
+  selectedPortfolioId.value = portfolio.portfolio_id
 }
 
 async function load() {
-  if (!props.personId) return
+  if (!props.personId || !props.accountId) return
   loading.value = true
   errorMessage.value = null
   try {
@@ -846,7 +842,7 @@ async function onPortfolioChartRangeChange(nextRange: InstrumentHistoryRange) {
   await loadPortfolioChartData()
 }
 
-watch(() => [props.personId, props.depotLabel], () => { void load() })
+watch(() => [props.personId, props.accountId], () => { void load() })
 watch(searchQuery, () => {
   searchError.value = null
   scheduleSearch()

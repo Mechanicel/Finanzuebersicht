@@ -4,6 +4,7 @@ from __future__ import annotations
 import sys
 import threading
 import time
+from datetime import date
 from pathlib import Path
 from uuid import UUID
 
@@ -20,7 +21,7 @@ if str(SERVICE_ROOT) not in sys.path:
 
 from app.dependencies import get_analytics_service
 from app.main import app
-from app.service import AnalyticsService
+from app.service import AnalyticsService, PortfolioHoldingSnapshot
 from app.ttl_lru_cache import TtlLruCache
 from finanzuebersicht_shared.testing import assert_standard_health_payload, create_test_client
 
@@ -64,8 +65,18 @@ class FakeAnalyticsService(AnalyticsService):
         if url.endswith("/portfolios/p-1"):
             return {
                 "holdings": [
-                    {"symbol": "AAPL", "quantity": 2, "acquisition_price": 100},
-                    {"symbol": "MSFT", "quantity": 1, "acquisition_price": 150},
+                    {
+                        "symbol": "AAPL",
+                        "quantity": 2,
+                        "acquisition_price": 100,
+                        "buy_date": "2026-01-01",
+                    },
+                    {
+                        "symbol": "MSFT",
+                        "quantity": 1,
+                        "acquisition_price": 150,
+                        "buy_date": "2026-01-01",
+                    },
                 ]
             }
 
@@ -150,6 +161,28 @@ class FakeAnalyticsService(AnalyticsService):
 def _client_with_fake_service():
     app.dependency_overrides[get_analytics_service] = lambda: FakeAnalyticsService()
     return create_test_client(app)
+
+
+def _holding_snapshot(
+    symbol: str,
+    quantity: float,
+    buy_date: date | None = None,
+) -> PortfolioHoldingSnapshot:
+    return PortfolioHoldingSnapshot(
+        portfolio_id="p-1",
+        portfolio_name="Depot",
+        holding_id=f"h-{symbol}",
+        symbol=symbol,
+        display_name=symbol,
+        quantity=quantity,
+        acquisition_price=100.0,
+        current_price=100.0,
+        invested_value=quantity * 100.0,
+        market_value=quantity * 100.0,
+        unrealized_pnl=0.0,
+        unrealized_return_pct=0.0,
+        buy_date=buy_date,
+    )
 
 
 def teardown_function() -> None:
@@ -271,6 +304,134 @@ def test_portfolio_performance_summary_is_calculated_from_portfolio_series() -> 
     assert payload["summary"]["return_basis"] == "range_start_value"
     assert payload["range_label"] == "3 months"
     assert payload["benchmark_symbol"] == "SPY"
+
+
+def test_portfolio_snapshot_carries_buy_date_from_portfolio_service() -> None:
+    service = FakeAnalyticsService()
+    _, snapshots, _ = service._build_portfolio_holdings_snapshot(UUID(PERSON_ID))
+
+    assert [item.buy_date for item in snapshots] == [date(2026, 1, 1), date(2026, 1, 1)]
+
+
+def test_portfolio_history_respects_holding_buy_date() -> None:
+    service = FakeAnalyticsService()
+    holdings = [
+        _holding_snapshot("BASE", 1, buy_date=date(2025, 1, 1)),
+        _holding_snapshot("NEW", 10, buy_date=date(2026, 1, 3)),
+    ]
+    histories = {
+        "BASE": [
+            {"date": "2026-01-01", "close": 100},
+            {"date": "2026-01-02", "close": 100},
+            {"date": "2026-01-03", "close": 100},
+        ],
+        "NEW": [
+            {"date": "2026-01-01", "close": 50},
+            {"date": "2026-01-02", "close": 50},
+            {"date": "2026-01-03", "close": 50},
+        ],
+    }
+
+    points, warnings = service._build_portfolio_history_from_snapshots(holdings, histories)
+
+    assert warnings == []
+    assert [(point.x, point.y) for point in points] == [
+        ("2026-01-01", 100.0),
+        ("2026-01-02", 100.0),
+        ("2026-01-03", 600.0),
+    ]
+
+
+def test_portfolio_history_forward_fills_missing_symbol_day_without_artificial_drawdown() -> None:
+    service = FakeAnalyticsService()
+    holdings = [
+        _holding_snapshot("BIG", 100),
+        _holding_snapshot("SMALL", 1),
+    ]
+    histories = {
+        "BIG": [
+            {"date": "2026-01-01", "close": 100},
+            {"date": "2026-01-03", "close": 101},
+        ],
+        "SMALL": [
+            {"date": "2026-01-01", "close": 100},
+            {"date": "2026-01-02", "close": 100},
+            {"date": "2026-01-03", "close": 100},
+        ],
+    }
+
+    points, warnings = service._build_portfolio_history_from_snapshots(holdings, histories)
+    returns = service._portfolio_returns(points)
+
+    assert warnings == []
+    assert [(point.x, point.y) for point in points] == [
+        ("2026-01-01", 10100.0),
+        ("2026-01-02", 10100.0),
+        ("2026-01-03", 10200.0),
+    ]
+    assert service._max_drawdown(points) == 0.0
+    assert min(returns) >= 0.0
+    assert max(returns) < 0.01
+
+
+def test_portfolio_history_outlier_filter_does_not_create_mega_rebound() -> None:
+    service = FakeAnalyticsService()
+    holdings = [
+        _holding_snapshot("BIG", 100),
+        _holding_snapshot("SMALL", 1),
+    ]
+    sanitized_big, sanitize_warnings = service._sanitize_history_points(
+        "BIG",
+        [
+            {"date": "2026-01-01", "close": 100},
+            {"date": "2026-01-02", "close": 10000},
+            {"date": "2026-01-03", "close": 101},
+        ],
+    )
+    histories = {
+        "BIG": sanitized_big,
+        "SMALL": [
+            {"date": "2026-01-01", "close": 100},
+            {"date": "2026-01-02", "close": 100},
+            {"date": "2026-01-03", "close": 100},
+        ],
+    }
+
+    points, history_warnings = service._build_portfolio_history_from_snapshots(holdings, histories)
+    returns = service._portfolio_returns(points)
+
+    assert sanitize_warnings == ["history_outlier_filtered:BIG"]
+    assert history_warnings == []
+    assert [(point.x, point.y) for point in points] == [
+        ("2026-01-01", 10100.0),
+        ("2026-01-02", 10100.0),
+        ("2026-01-03", 10200.0),
+    ]
+    assert service._max_drawdown(points) == 0.0
+    assert max(returns) < 0.01
+
+
+def test_portfolio_history_excludes_symbol_without_history_with_warning() -> None:
+    service = FakeAnalyticsService()
+    holdings = [
+        _holding_snapshot("AAPL", 2),
+        _holding_snapshot("NOHISTORY", 500),
+    ]
+    histories = {
+        "AAPL": [
+            {"date": "2026-01-01", "close": 100},
+            {"date": "2026-01-02", "close": 101},
+        ],
+    }
+
+    points, warnings = service._build_portfolio_history_from_snapshots(holdings, histories)
+
+    assert [(point.x, point.y) for point in points] == [
+        ("2026-01-01", 200.0),
+        ("2026-01-02", 202.0),
+    ]
+    assert "missing_history:NOHISTORY" in warnings
+    assert "symbol_excluded_from_portfolio_history:NOHISTORY" in warnings
 
 
 def test_portfolio_semantics_distinguish_snapshot_from_range() -> None:
@@ -530,7 +691,7 @@ def test_portfolio_performance_and_risk_payloads_stay_stable() -> None:
     assert perf["benchmark_symbol"] == "SPY"
 
     risk = risk_response.json()["data"]
-    assert risk["portfolio_volatility"] == 0.000163
+    assert risk["portfolio_volatility"] == 0.000199
     assert risk["max_drawdown"] == 0.0
     assert risk["correlation"] is None
     assert risk["beta"] is None

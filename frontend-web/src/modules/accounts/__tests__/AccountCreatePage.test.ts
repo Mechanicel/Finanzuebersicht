@@ -49,7 +49,17 @@ describe('AccountsCreateView', () => {
       items: [{ bank_id: 'bank-1', name: 'Testbank', bic: 'TESTDEFFXXX', blz: '10000000', country_code: 'DE' }],
       total: 1
     })
-    vi.mocked(apiClient.createAccount).mockResolvedValue({} as never)
+    vi.mocked(apiClient.createAccount).mockResolvedValue({
+      account_id: 'account-created',
+      person_id: 'person-1',
+      bank_id: 'bank-1',
+      account_type: 'depot',
+      label: 'Depot Langfrist',
+      balance: '1000.00',
+      currency: 'EUR',
+      created_at: '2026-03-01',
+      updated_at: '2026-03-01',
+    } as never)
   })
 
   it('navigates back to person hub after successful normal account creation', async () => {
@@ -84,7 +94,7 @@ describe('AccountsCreateView', () => {
     await flushUi()
 
     expect(apiClient.createAccount).toHaveBeenCalledWith('person-1', expect.objectContaining({ account_type: 'depot' }))
-    expect(pushMock).toHaveBeenCalledWith('/accounts/depot-holdings?personId=person-1&depotLabel=Depot%20Langfrist&origin=create')
+    expect(pushMock).toHaveBeenCalledWith('/accounts/depot-holdings?personId=person-1&accountId=account-created&depotLabel=Depot%20Langfrist&origin=create')
     expect(wrapper.text()).not.toContain('Depot-Flow abschließen')
   })
 })

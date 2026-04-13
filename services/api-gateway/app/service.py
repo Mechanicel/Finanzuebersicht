@@ -6,7 +6,7 @@ import time
 from uuid import UUID
 
 import httpx
-from fastapi import HTTPException
+from fastapi import HTTPException, status
 
 from app.circuit_breaker import CircuitBreaker, CircuitOpenError
 from app.models import (
@@ -316,6 +316,38 @@ class GatewayService:
             "POST", f"/api/v1/portfolios/{portfolio_id}/holdings/refresh-current-prices"
         )
         return HoldingsRefreshStubReadModel.model_validate(data)
+
+    async def get_depot_portfolio(self, person_id: UUID, account_id: UUID) -> PortfolioReadModel:
+        account = await self.get_account(person_id, account_id)
+        if account.account_type != "depot":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Portfolio-Zuordnung ist nur fuer Depotkonten verfuegbar",
+            )
+
+        if account.portfolio_id is not None:
+            portfolio = PortfolioReadModel.model_validate(
+                await self._request_portfolio_service(
+                    "GET", f"/api/v1/portfolios/{account.portfolio_id}"
+                )
+            )
+            if portfolio.person_id != person_id:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Depotkonto verweist auf ein Portfolio einer anderen Person",
+                )
+            return portfolio
+
+        portfolio = await self.create_portfolio(
+            person_id,
+            PortfolioCreatePayload(display_name=account.label),
+        )
+        await self.update_account(
+            person_id,
+            account_id,
+            AccountUpdatePayload(portfolio_id=portfolio.portfolio_id),
+        )
+        return portfolio
 
     # ------------------------------------------------------------------
     # Marketdata

@@ -24,6 +24,10 @@ export async function createPortfolio(personId: string, payload: PortfolioCreate
   return (await http.post<ApiEnvelope<PortfolioReadModel>>(`/app/persons/${personId}/portfolios`, payload)).data.data
 }
 
+export async function fetchDepotAccountPortfolio(personId: string, accountId: string) {
+  return (await http.get<ApiEnvelope<PortfolioReadModel>>(`/app/persons/${personId}/accounts/${accountId}/portfolio`)).data.data
+}
+
 export async function fetchPortfolio(portfolioId: string) {
   return (await http.get<ApiEnvelope<PortfolioDetailReadModel>>(`/app/portfolios/${portfolioId}`)).data.data
 }

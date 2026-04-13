@@ -34,6 +34,7 @@ def test_account_endpoints_crud_flow() -> None:
             "balance": "14500.34",
             "currency": "EUR",
             "depot_number": "DEP-11",
+            "portfolio_id": "20000000-0000-0000-0000-000000000001",
         },
     )
     assert create_response.status_code == 201
@@ -41,6 +42,7 @@ def test_account_endpoints_crud_flow() -> None:
     account_id = created_payload["account_id"]
     assert created_payload["person_id"] == person_id
     assert created_payload["balance"] == "14500.34"
+    assert created_payload["portfolio_id"] == "20000000-0000-0000-0000-000000000001"
 
     list_response = client.get(f"/api/v1/persons/{person_id}/accounts")
     assert list_response.status_code == 200
