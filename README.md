@@ -1,95 +1,78 @@
-# Finanzübersicht
+# Finanzübersicht Monorepo (Vue + FastAPI + Microservices)
 
-## Projektüberblick
-Monorepo mit zwei Services:
+Dieses Repository enthält ausschließlich die Zielarchitektur mit **Vue-Frontend**, **FastAPI-API-Gateway** und fachlichen Microservices.
 
-- **`FrontendService/`**: Desktop-UI (customtkinter) für Personen, Banken, Konten, Kontostände und Depotdaten.
-- **`markedataservice/`**: Flask-API für Kurs- und Unternehmensdaten.
+## Stack
 
-Zusätzlich orchestriert `orchestrator.py` den lokalen Start von MongoDB (Docker), markedataservice und Frontend.
+- Frontend: **Vue 3 + TypeScript + Vite** (`frontend-web/`)
+- API Edge/BFF: **api-gateway** (`services/api-gateway`)
+- Backend Services (FastAPI):
+  - `masterdata-service`
+  - `person-service`
+  - `account-service`
+  - `portfolio-service`
+  - `marketdata-service`
+  - `analytics-service`
+- Shared Python Package: `shared/`
 
-## Persistenz & Konfiguration
-- **Produktive Persistenz läuft vollständig über MongoDB.**
-- JSON-Dateien werden nur noch als einmalige **Seed-/Migrationsartefakte** genutzt (bei leeren Collections).
-- Alle Konfigurationen laufen zentral über Root-`.env` und `finanzuebersicht_shared`.
+## Repository-Struktur
 
-Wichtige MongoDB-Parameter:
-- `MONGO_URI` (optionaler Override)
-- `MONGO_HOST`
-- `MONGO_PORT`
-- `MONGO_DB_NAME`
-- `MONGO_USERNAME`
-- `MONGO_PASSWORD`
-- `MONGO_AUTH_SOURCE`
-- `MONGO_PERSON_COLLECTION`
-- `MONGO_BANK_COLLECTION`
-- `MONGO_ACCOUNT_TYPE_COLLECTION`
-- `MONGO_MARKETDATA_COLLECTION`
+- `frontend-web/` – Web-Frontend inkl. Router, API-Client, Views, Components
+- `services/` – FastAPI-Microservices
+- `docs/architecture/` – finale Architektur- und Betriebsdokumentation
+- `scripts/dev.py` – zentraler Dev-Entrypoint (CLI)
+- `.run/` – IntelliJ/PyCharm Run-Konfigurationen (einzeln + Compound)
 
-## MongoDB-Authentifizierung
-- MongoDB wird lokal mit aktivierter Authentifizierung gestartet (Docker Compose).
-- `MONGO_URI` bleibt als optionaler Override unterstützt.
-- Ist `MONGO_URI` nicht gesetzt, wird die Verbindungs-URI zentral in `finanzuebersicht_shared` aus `MONGO_HOST`, `MONGO_PORT`, `MONGO_DB_NAME`, `MONGO_USERNAME`, `MONGO_PASSWORD` und `MONGO_AUTH_SOURCE` aufgebaut.
+## Lokaler Start
 
-## Lokales Setup (Neu-Developer-Flow)
-1. Env-Datei anlegen:
-   ```bash
-   cp .env.example .env
-   ```
-2. MongoDB via Docker starten:
-   ```bash
-   docker compose up -d mongodb
-   ```
-3. Dependencies installieren:
-   ```bash
-   uv sync
-   uv sync --project FrontendService
-   uv sync --project markedataservice
-   ```
-4. Gesamtsystem starten:
-   ```bash
-   uv run finanzuebersicht
-   ```
+### 1) Setup
 
-Alternativ per Script:
 ```bash
-./start.sh
+make setup
 ```
 
-## Einzelstart der Services
-### Frontend
+### 2) Full-Stack starten (zentral)
+
 ```bash
-uv run --project FrontendService frontendservice
+make dev
 ```
 
-### markedataservice
+### 3) Einzelstarts
+
 ```bash
-uv run --project markedataservice markedataservice
+make dev-backend
+make dev-frontend
+uv run python scripts/dev.py run-service api-gateway
 ```
 
-## Seed-Artefakte (nur Migration)
-- `FrontendService/seeds/personen.json`
-- `FrontendService/seeds/banken.json`
-- `FrontendService/seeds/kontotypen.json`
+Weitere Details: `docs/architecture/local-development.md`.
 
-Diese Dateien sind keine produktive Laufzeit-Persistenz.
+Hinweis zu Mongo:
+- `person-service` benötigt MongoDB für persistente CRUD-Daten.
+- `marketdata-service` kann auch ohne MongoDB laufen; Mongo wird dort nur für persistente Selection-/Hydration-Caches verwendet.
 
-## Logging
-- Frontend: `logs/frontend.log`
-- Marktdatenservice: `logs/markedataservice.log`
-- Orchestrator: `logs/orchestrator.log`
+## Lokale Integrationsdefaults
 
-## Smoke-Test (MongoDB)
-Minimaler Persistenztest für Markt-Cache-Collection:
+- Frontend API-Basis: `http://127.0.0.1:8000/api/v1` (`frontend-web/src/api/http.ts`)
+- API-Gateway: Port `8000`
+- Person-Service: Port `8002` (entspricht `scripts/dev.py`)
+- Lokale CORS-Origins: `http://127.0.0.1:5173`, `http://localhost:5173`
+- Überschreibung der erlaubten Origins über `CORS_ALLOW_ORIGINS` (CSV), z. B.:
+
 ```bash
-uv run --project markedataservice python tests/smoke_marketdata_mongo.py
+CORS_ALLOW_ORIGINS="http://127.0.0.1:5173,http://localhost:5173"
 ```
 
-## PyCharm Run-Konfigurationen (versioniert)
-Im Repo sind projektweite Run-Konfigurationen unter `.run/` abgelegt.
-Sie erscheinen in PyCharm als teilbare Konfigurationen und können im **Services**-Tab ausgeführt werden.
+## Hinweis für Windows/PowerShell
 
-- `FrontendService`: `uv run --project FrontendService frontendservice`
-- `markedataservice`: `uv run --project markedataservice markedataservice`
-- `Orchestrator`: `uv run python orchestrator.py`
-- `All Services`: Compound-Start von `FrontendService` + `markedataservice` (ohne `Orchestrator`, damit keine Doppelstarts entstehen)
+`scripts/dev.py` startet das Frontend auf Windows automatisch mit:
+
+```powershell
+cmd /c "npm install && npm run dev"
+```
+
+Auf macOS/Linux bleibt der Start:
+
+```bash
+bash -lc "npm install && npm run dev"
+```

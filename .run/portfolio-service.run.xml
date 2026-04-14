@@ -1,0 +1,7 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="portfolio-service" type="ShConfigurationType" factoryName="Shell Script">
+    <option name="SCRIPT_TEXT" value="uv run python scripts/dev.py run-service portfolio-service" />
+    <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
+    <option name="EXECUTE_IN_TERMINAL" value="true" />
+  </configuration>
+</component>

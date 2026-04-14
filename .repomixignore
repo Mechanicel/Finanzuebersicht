@@ -1,0 +1,7 @@
+# .repomixignore
+uv.lock
+package-lock.json
+*.test.ts
+__pycache__
+.idea
+docs/

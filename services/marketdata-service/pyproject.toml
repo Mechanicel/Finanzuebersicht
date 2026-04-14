@@ -1,0 +1,21 @@
+[project]
+name = "finanzuebersicht-marketdata-service"
+version = "0.1.0"
+description = "FastAPI service: marketdata-service"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.115,<1",
+  "uvicorn[standard]>=0.30,<1",
+  "pydantic>=2.7,<3",
+  "finanzuebersicht-shared",
+  "pymongo>=4.8,<5",
+  "requests>=2.32,<3",
+  "yfinance>=0.2,<1",
+]
+
+[build-system]
+requires = ["hatchling>=1.24"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
