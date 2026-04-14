@@ -278,3 +278,24 @@ class PortfolioDashboardReadModel(BaseModel):
     contributors: PortfolioContributorsReadModel
     attribution: PortfolioAttributionReadModel | None = None
     meta: PortfolioDashboardMetaReadModel = Field(default_factory=PortfolioDashboardMetaReadModel)
+
+
+# ---------------------------------------------------------------------------
+# Smart Benchmark models
+# Shared between analytics-service (produces) and api-gateway (consumes).
+# ---------------------------------------------------------------------------
+
+class BenchmarkComponent(BaseModel):
+    ticker: str
+    name: str | None = None
+    weight: float  # 0–100, components must sum to 100
+
+
+class BenchmarkConfig(BaseModel):
+    components: list[BenchmarkComponent] = Field(default_factory=list)
+
+
+class BenchmarkSuggestionReadModel(BaseModel):
+    person_id: UUID
+    components: list[BenchmarkComponent] = Field(default_factory=list)
+    reasoning: str = ""

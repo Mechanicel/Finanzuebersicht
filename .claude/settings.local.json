@@ -15,7 +15,8 @@
       "Bash(curl -s \"http://localhost:8006/api/v1/analytics/persons/1adbdf1f-ed89-48cb-8ffc-5cf950dfd52d/portfolio-risk?range=3m\")",
       "Bash(curl -s \"http://localhost:8005/api/v1/marketdata/instruments/EURUSD=X/snapshot\")",
       "Bash(curl -s \"http://localhost:8005/api/v1/marketdata/instruments/EURUSD%3DX/refresh\" -X POST)",
-      "Bash(curl -s \"http://localhost:8005/api/v1/marketdata/instruments/EURUSD%3DX/history?range=3m\")"
+      "Bash(curl -s \"http://localhost:8005/api/v1/marketdata/instruments/EURUSD%3DX/history?range=3m\")",
+      "Bash(npx vue-tsc:*)"
     ]
   }
 }

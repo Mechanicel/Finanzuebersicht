@@ -125,3 +125,24 @@ class HoldingsRefreshStubResponse(BaseModel):
     status: str
     accepted: bool
     detail: str
+
+
+class BenchmarkComponentPayload(BaseModel):
+    ticker: str = Field(min_length=1, max_length=20)
+    name: str | None = Field(default=None, max_length=200)
+    weight: float = Field(gt=0, le=100)
+
+    @field_validator("ticker")
+    @classmethod
+    def normalize_ticker(cls, v: str) -> str:
+        return v.strip().upper()
+
+
+class BenchmarkConfigPayload(BaseModel):
+    components: list[BenchmarkComponentPayload] = Field(default_factory=list)
+
+
+class BenchmarkConfigReadModel(BaseModel):
+    person_id: UUID
+    components: list[BenchmarkComponentPayload] = Field(default_factory=list)
+    updated_at: datetime | None = None

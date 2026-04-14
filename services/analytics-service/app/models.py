@@ -9,6 +9,9 @@ from pydantic import BaseModel, Field
 # Portfolio analytics models are canonical in finanzuebersicht_shared so that
 # api-gateway can consume them without maintaining a parallel copy.
 from finanzuebersicht_shared.models import (
+    BenchmarkComponent,
+    BenchmarkConfig,
+    BenchmarkSuggestionReadModel,
     ChartPoint,
     ChartSeries,
     LoadingMeta,
@@ -33,6 +36,9 @@ from finanzuebersicht_shared.models import (
 
 __all__ = [
     # re-exported from shared
+    "BenchmarkComponent",
+    "BenchmarkConfig",
+    "BenchmarkSuggestionReadModel",
     "ChartPoint",
     "ChartSeries",
     "LoadingMeta",

@@ -120,7 +120,12 @@
               class="dashboard-area dashboard-area--risk"
               data-testid="dashboard-area-risk"
             >
-              <PortfolioRiskPanel v-if="risk" :risk="risk" />
+              <PortfolioRiskPanel
+                v-if="risk"
+                :risk="risk"
+                :person-id="props.personId"
+                @benchmark-changed="void portfolioDashboard.loadRisk()"
+              />
               <div v-else-if="isSectionLoading.risk" class="section-state">Risiko wird geladen…</div>
               <div v-else-if="sectionErrors.risk" class="section-state section-state--error">
                 <span>{{ sectionErrors.risk }}</span>

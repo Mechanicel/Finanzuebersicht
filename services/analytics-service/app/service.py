@@ -14,6 +14,8 @@ LOGGER = logging.getLogger(__name__)
 
 import httpx
 
+from finanzuebersicht_shared.models import BenchmarkComponent, BenchmarkSuggestionReadModel
+
 from app.models import (
     AllocationReadModel,
     AllocationSlice,
@@ -112,6 +114,8 @@ class PortfolioHistoryContext:
     benchmark_points: list[ChartPoint]
     fx_points: list[ChartPoint]
     history_by_symbol: dict[str, list[ChartPoint]]
+    composite_benchmark_return_points: list[ChartPoint] = field(default_factory=list)
+    benchmark_label: str = ""
 
 
 @dataclass(slots=True)
@@ -144,6 +148,43 @@ class PortfolioDashboardCacheEntry:
 class AnalyticsService:
     DEFAULT_BENCHMARK_SYMBOL = "SPY"
     FX_SYMBOL = "EURUSD=X"  # EUR/USD rate: USD per 1 EUR. Used to convert USD benchmark returns to EUR.
+
+    # Country (lowercase) → (ETF ticker, display name) for auto-suggest
+    COUNTRY_ETF_MAP: dict[str, tuple[str, str]] = {
+        "germany": ("EXS1.DE", "iShares Core DAX"),
+        "de": ("EXS1.DE", "iShares Core DAX"),
+        "united states": ("CSPX.L", "iShares Core S&P 500"),
+        "us": ("CSPX.L", "iShares Core S&P 500"),
+        "usa": ("CSPX.L", "iShares Core S&P 500"),
+        "australia": ("IOZ.AX", "iShares Core S&P/ASX 200"),
+        "au": ("IOZ.AX", "iShares Core S&P/ASX 200"),
+        "united kingdom": ("VUKE.L", "Vanguard FTSE 100"),
+        "gb": ("VUKE.L", "Vanguard FTSE 100"),
+        "uk": ("VUKE.L", "Vanguard FTSE 100"),
+        "japan": ("CSJP.L", "iShares Core MSCI Japan"),
+        "jp": ("CSJP.L", "iShares Core MSCI Japan"),
+        "france": ("EXSA.DE", "iShares Core MSCI Europe"),
+        "netherlands": ("EXSA.DE", "iShares Core MSCI Europe"),
+        "switzerland": ("EXSA.DE", "iShares Core MSCI Europe"),
+        "spain": ("EXSA.DE", "iShares Core MSCI Europe"),
+        "italy": ("EXSA.DE", "iShares Core MSCI Europe"),
+        "sweden": ("EXSA.DE", "iShares Core MSCI Europe"),
+        "norway": ("EXSA.DE", "iShares Core MSCI Europe"),
+        "finland": ("EXSA.DE", "iShares Core MSCI Europe"),
+        "denmark": ("EXSA.DE", "iShares Core MSCI Europe"),
+        "china": ("HMCH.L", "HSBC MSCI China"),
+        "cn": ("HMCH.L", "HSBC MSCI China"),
+        "india": ("NDIA.L", "iShares MSCI India"),
+        "in": ("NDIA.L", "iShares MSCI India"),
+        "south korea": ("CSKR.L", "iShares Core MSCI Korea"),
+        "kr": ("CSKR.L", "iShares Core MSCI Korea"),
+        "canada": ("CSCA.L", "iShares Core S&P/TSX Capped Composite"),
+        "ca": ("CSCA.L", "iShares Core S&P/TSX Capped Composite"),
+    }
+    GLOBAL_FALLBACK_TICKER = "IWDA.L"
+    GLOBAL_FALLBACK_NAME = "iShares Core MSCI World"
+    SUGGEST_MIN_WEIGHT_PCT = 5.0
+
     KNOWN_PERSONS_CACHE_MAX_SIZE = 2048
     KNOWN_PERSONS_CACHE_TTL_SECONDS = 3600
     UNKNOWN_PERSONS_CACHE_MAX_SIZE = 2048
@@ -381,6 +422,79 @@ class AnalyticsService:
             if prev > 0:
                 return_points.append(ChartPoint(x=points[idx - 1].x, y=(curr - prev) / prev))
         return return_points
+
+    def _load_benchmark_config(self, person_id: UUID, client: httpx.Client | None = None) -> dict | None:
+        """Fetch custom benchmark config from portfolio-service. Returns None if not configured."""
+        try:
+            payload = self._request_json(
+                f"{self._portfolio_base_url}/api/v1/persons/{person_id}/benchmark-config",
+                client=client,
+            )
+            if isinstance(payload, dict) and payload.get("components"):
+                return payload
+            return None
+        except Exception as exc:
+            LOGGER.warning("Could not load benchmark config for %s: %s", person_id, exc)
+            return None
+
+    @staticmethod
+    def _build_composite_benchmark_returns(
+        components: list[dict],  # [{ticker, weight}, ...]
+        history_by_symbol: dict[str, list[ChartPoint]],
+        fx_return_points: list[ChartPoint],
+    ) -> tuple[list[ChartPoint], str]:
+        """
+        Compute weighted daily EUR-converted returns from multiple ETF components.
+        Returns (composite_return_points, benchmark_label).
+        """
+        fx_map: dict[str, float] = {p.x: p.y for p in fx_return_points}
+
+        # Build return series for each component that has data
+        component_series: list[tuple[float, dict[str, float]]] = []
+        label_parts: list[str] = []
+        for comp in components:
+            ticker = str(comp.get("ticker", "")).upper().strip()
+            weight_pct = float(comp.get("weight", 0.0))
+            if not ticker or weight_pct <= 0:
+                continue
+            points = history_by_symbol.get(ticker, [])
+            if len(points) < 2:
+                LOGGER.warning("Composite benchmark: no history for component %s", ticker)
+                continue
+            daily_returns = AnalyticsService._portfolio_return_points(sorted(points, key=lambda p: p.x))
+            return_map: dict[str, float] = {}
+            for pt in daily_returns:
+                r_usd = pt.y
+                r_fx = fx_map.get(pt.x, 0.0)
+                # Convert to EUR perspective (same formula as _apply_fx_to_return_points)
+                denom = 1.0 + r_fx
+                r_eur = (1.0 + r_usd) / denom - 1.0 if denom != 0.0 else r_usd
+                return_map[pt.x] = r_eur
+            component_series.append((weight_pct / 100.0, return_map))
+            name = str(comp.get("name") or ticker)
+            label_parts.append(f"{name} {weight_pct:.0f}%")
+
+        if not component_series:
+            return [], ""
+
+        # Gather all dates present in any component
+        all_dates = set()
+        for _, rm in component_series:
+            all_dates.update(rm.keys())
+
+        composite_points: list[ChartPoint] = []
+        for date_str in sorted(all_dates):
+            available = [(w, rm[date_str]) for w, rm in component_series if date_str in rm]
+            if not available:
+                continue
+            total_w = sum(w for w, _ in available)
+            if total_w < 0.5:  # Skip days where >50% of weight has missing data
+                continue
+            composite_return = sum(w * r for w, r in available) / total_w
+            composite_points.append(ChartPoint(x=date_str, y=composite_return))
+
+        label = " + ".join(label_parts)
+        return composite_points, label
 
     @staticmethod
     def _volatility(values: list[float]) -> float | None:
@@ -842,8 +956,18 @@ class AnalyticsService:
         try:
             _, holdings, snapshot_warnings = self._get_portfolio_holdings_snapshot(person_id)
             with httpx.Client(timeout=self._timeout) as client:
+                benchmark_config = self._load_benchmark_config(person_id, client=client)
+                component_tickers: list[str] = []
+                if benchmark_config and benchmark_config.get("components"):
+                    component_tickers = [
+                        str(c.get("ticker", "")).upper().strip()
+                        for c in benchmark_config["components"]
+                        if str(c.get("ticker", "")).upper().strip()
+                    ]
+
                 symbols = [item.symbol for item in holdings if item.symbol]
-                batch_symbols = list(dict.fromkeys(symbols + [self.DEFAULT_BENCHMARK_SYMBOL, self.FX_SYMBOL]))
+                extra_symbols = list(dict.fromkeys(component_tickers + [self.DEFAULT_BENCHMARK_SYMBOL, self.FX_SYMBOL]))
+                batch_symbols = list(dict.fromkeys(symbols + extra_symbols))
                 batch_history_items = self._load_batch_history(batch_symbols, client=client, range_value=range_value)
                 raw_history_by_symbol: dict[str, list[dict]] = {}
                 history_warnings: list[str] = []
@@ -891,6 +1015,20 @@ class AnalyticsService:
                     ],
                     key=lambda point: point.x,
                 )
+
+            # Build composite benchmark returns if a custom config is set
+            composite_return_points: list[ChartPoint] = []
+            benchmark_label = ""
+            if benchmark_config and benchmark_config.get("components"):
+                fx_return_points_for_composite = self._portfolio_return_points(fx_points)
+                composite_return_points, benchmark_label = self._build_composite_benchmark_returns(
+                    components=benchmark_config["components"],
+                    history_by_symbol=history_by_symbol,
+                    fx_return_points=fx_return_points_for_composite,
+                )
+                if not composite_return_points:
+                    history_warnings.append("composite_benchmark_no_data_using_default")
+
             context = PortfolioHistoryContext(
                 holdings=holdings,
                 snapshot_warnings=snapshot_warnings,
@@ -900,6 +1038,8 @@ class AnalyticsService:
                 benchmark_points=benchmark_points,
                 fx_points=fx_points,
                 history_by_symbol=history_by_symbol,
+                composite_benchmark_return_points=composite_return_points,
+                benchmark_label=benchmark_label,
             )
             stale_at = datetime.now(UTC) + timedelta(seconds=self._portfolio_snapshot_cache_ttl_seconds)
             with self._portfolio_history_lock:
@@ -1615,12 +1755,18 @@ class AnalyticsService:
         worst_day_return = min(portfolio_returns) if portfolio_returns else None
         mean_portfolio_return = (sum(portfolio_returns) / len(portfolio_returns)) if portfolio_returns else None
 
-        benchmark_points = history_context.benchmark_points
-        benchmark_return_points_usd = self._portfolio_return_points(sorted(benchmark_points, key=lambda point: point.x))
-        # Convert SPY USD returns to EUR perspective using daily EURUSD=X returns.
-        # This eliminates FX-driven divergence between the EUR-denominated TWRR and the USD benchmark.
-        fx_return_points = self._portfolio_return_points(history_context.fx_points)
-        benchmark_return_points = self._apply_fx_to_return_points(benchmark_return_points_usd, fx_return_points)
+        # Use composite benchmark if configured; otherwise fall back to SPY with FX conversion.
+        composite_return_points = history_context.composite_benchmark_return_points
+        if composite_return_points:
+            benchmark_return_points = composite_return_points
+            benchmark_symbol_label = history_context.benchmark_label or "Composite"
+        else:
+            benchmark_points = history_context.benchmark_points
+            benchmark_return_points_usd = self._portfolio_return_points(sorted(benchmark_points, key=lambda point: point.x))
+            # Convert SPY USD returns to EUR perspective using daily EURUSD=X returns.
+            fx_return_points = self._portfolio_return_points(history_context.fx_points)
+            benchmark_return_points = self._apply_fx_to_return_points(benchmark_return_points_usd, fx_return_points)
+            benchmark_symbol_label = self.DEFAULT_BENCHMARK_SYMBOL
         aligned_portfolio_returns, aligned_benchmark_returns = self._align_return_series(
             portfolio_return_points,
             benchmark_return_points,
@@ -1673,13 +1819,15 @@ class AnalyticsService:
             history_warnings.append("insufficient_benchmark_overlap")
 
         # ── DIAGNOSTIC LOG ─────────────────────────────────────────────────────
+        _diag_bm_usd = locals().get("benchmark_return_points_usd", [])
+        _diag_fx_pts = locals().get("fx_return_points", [])
         self._log_risk_diagnostics(
             range_value=range_value,
             portfolio_return_points=portfolio_return_points,
             benchmark_points=history_context.benchmark_points,
-            benchmark_return_points_usd=benchmark_return_points_usd,
+            benchmark_return_points_usd=_diag_bm_usd,
             fx_points=history_context.fx_points,
-            fx_return_points=fx_return_points,
+            fx_return_points=_diag_fx_pts,
             benchmark_return_points_eur=benchmark_return_points,
             aligned_portfolio_returns=aligned_portfolio_returns,
             aligned_benchmark_returns=aligned_benchmark_returns,
@@ -1694,7 +1842,7 @@ class AnalyticsService:
             range_label=self._range_label(range_value),
             methodology="daily_returns_on_range",
             benchmark_relation="relative_to_benchmark",
-            benchmark_symbol=self.DEFAULT_BENCHMARK_SYMBOL if aligned_benchmark_returns else None,
+            benchmark_symbol=benchmark_symbol_label if aligned_benchmark_returns else None,
             portfolio_volatility=round(portfolio_volatility, 6) if portfolio_volatility is not None else None,
             max_drawdown=round(max_drawdown, 6) if max_drawdown is not None else None,
             correlation=round(correlation, 6) if correlation is not None else None,
@@ -2046,6 +2194,70 @@ class AnalyticsService:
             holdings_with_marketdata_warnings=counters["holdings_with_marketdata_warnings"],
             warnings=coverage_warnings,
             meta={"loading": False, "error": None},
+        )
+
+    def suggest_benchmark(self, person_id: UUID) -> BenchmarkSuggestionReadModel:
+        """
+        Auto-suggest a benchmark composition based on the portfolio's country exposures.
+        Maps each country to a representative index ETF and aggregates weights.
+        """
+        _, holdings, _ = self._get_portfolio_holdings_snapshot(person_id)
+        by_country = self._aggregate_exposure(holdings, lambda item: item.country or "UNKNOWN")
+
+        etf_weights: dict[str, tuple[str, float]] = {}  # ticker → (name, cumulated_weight_pct)
+        unmapped_weight_pct = 0.0
+
+        for slice_ in by_country:
+            country_key = slice_.label.lower()
+            if country_key == "unknown":
+                unmapped_weight_pct += slice_.weight * 100.0
+                continue
+            etf_info = self.COUNTRY_ETF_MAP.get(country_key)
+            if etf_info is None:
+                unmapped_weight_pct += slice_.weight * 100.0
+                continue
+            ticker, name = etf_info
+            existing_name, existing_weight = etf_weights.get(ticker, (name, 0.0))
+            etf_weights[ticker] = (existing_name, existing_weight + slice_.weight * 100.0)
+
+        # Include MSCI World for any unmapped weight >= threshold
+        if unmapped_weight_pct >= self.SUGGEST_MIN_WEIGHT_PCT:
+            existing_name, existing_weight = etf_weights.get(
+                self.GLOBAL_FALLBACK_TICKER, (self.GLOBAL_FALLBACK_NAME, 0.0)
+            )
+            etf_weights[self.GLOBAL_FALLBACK_TICKER] = (existing_name, existing_weight + unmapped_weight_pct)
+
+        # Filter and normalize
+        filtered = {k: v for k, v in etf_weights.items() if v[1] >= self.SUGGEST_MIN_WEIGHT_PCT}
+        if not filtered:
+            filtered = {self.GLOBAL_FALLBACK_TICKER: (self.GLOBAL_FALLBACK_NAME, 100.0)}
+
+        total = sum(w for _, w in filtered.values())
+        components = [
+            BenchmarkComponent(
+                ticker=ticker,
+                name=name,
+                weight=round(w / total * 100.0, 2),
+            )
+            for ticker, (name, w) in sorted(filtered.items(), key=lambda x: x[1][1], reverse=True)
+        ]
+
+        # Build explanation
+        country_parts = [
+            f"{s.label} ({round(s.weight * 100, 1)}%)"
+            for s in by_country[:5]
+            if s.label.lower() != "unknown"
+        ]
+        reasoning = (
+            f"Basierend auf den Länder-Expositionen des Portfolios "
+            f"({', '.join(country_parts) if country_parts else 'keine bekannten Länder'}). "
+            f"{'Unbekannte Länder (' + str(round(unmapped_weight_pct, 1)) + '%) werden durch MSCI World abgedeckt.' if unmapped_weight_pct >= self.SUGGEST_MIN_WEIGHT_PCT else ''}"
+        ).strip()
+
+        return BenchmarkSuggestionReadModel(
+            person_id=person_id,
+            components=components,
+            reasoning=reasoning,
         )
 
     @staticmethod
