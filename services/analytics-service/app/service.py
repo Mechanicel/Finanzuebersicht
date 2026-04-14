@@ -954,9 +954,14 @@ class AnalyticsService:
             return inflight.result()
 
         try:
-            _, holdings, snapshot_warnings = self._get_portfolio_holdings_snapshot(person_id)
+            # Fetch benchmark config in parallel with the (potentially slow) holdings snapshot.
+            # _load_benchmark_config creates its own httpx.Client when called without one.
+            with ThreadPoolExecutor(max_workers=2) as _par_exec:
+                _snapshot_fut = _par_exec.submit(self._get_portfolio_holdings_snapshot, person_id)
+                _bench_fut = _par_exec.submit(self._load_benchmark_config, person_id)
+                _, holdings, snapshot_warnings = _snapshot_fut.result()
+                benchmark_config = _bench_fut.result()
             with httpx.Client(timeout=self._timeout) as client:
-                benchmark_config = self._load_benchmark_config(person_id, client=client)
                 component_tickers: list[str] = []
                 if benchmark_config and benchmark_config.get("components"):
                     component_tickers = [

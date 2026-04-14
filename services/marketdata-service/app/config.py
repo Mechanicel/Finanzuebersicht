@@ -17,7 +17,7 @@ class Settings(ServiceSettings):
     fmp_request_retries: int = 2
     fmp_request_backoff_factor: float = 0.3
 
-    marketdata_profile_cache_ttl_seconds: int = 300
+    marketdata_profile_cache_ttl_seconds: int = 86400
     marketdata_financials_cache_ttl_seconds: int = Field(
         default=3600,
         alias="MARKETDATA_FINANCIALS_CACHE_TTL_SECONDS",

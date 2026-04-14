@@ -32,7 +32,9 @@ class FMPClient:
             status_forcelist=(429, 500, 502, 503, 504),
             allowed_methods=frozenset({"GET"}),
         )
-        adapter = HTTPAdapter(max_retries=retry)
+        # pool_maxsize raised to 30 to handle concurrent per-holding profile fetches
+        # without "Connection pool is full" warnings on large portfolios.
+        adapter = HTTPAdapter(max_retries=retry, pool_connections=1, pool_maxsize=30)
         self._session = requests.Session()
         self._session.mount("http://", adapter)
         self._session.mount("https://", adapter)

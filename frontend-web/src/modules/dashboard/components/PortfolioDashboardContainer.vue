@@ -215,7 +215,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, watch, toRef, ref } from 'vue'
+import { computed, watch, toRef, ref } from 'vue'
 import EmptyState from '@/shared/ui/EmptyState.vue'
 import ErrorState from '@/shared/ui/ErrorState.vue'
 import LoadingState from '@/shared/ui/LoadingState.vue'
@@ -360,6 +360,8 @@ function contributorName(item: PortfolioContributorItem) {
 
 async function reloadDashboard() {
   if (!props.personId) return
+  // Guard against concurrent loads (e.g. watch + route re-render both firing)
+  if (portfolioDashboard.loading.value) return
 
   try {
     await loadBootstrap(selectedRange.value)
@@ -383,6 +385,8 @@ watch(
   { immediate: true }
 )
 
+// Single trigger: fires immediately on mount (replaces onMounted) and on subsequent personId changes.
+// immediate: true ensures exactly one load fires at mount time without duplicating the onMounted trigger.
 watch(
   personIdRef,
   (newPersonId) => {
@@ -390,14 +394,8 @@ watch(
       void reloadDashboard()
     }
   },
-  { immediate: false }
+  { immediate: true }
 )
-
-onMounted(() => {
-  if (props.personId) {
-    void reloadDashboard()
-  }
-})
 </script>
 
 <style scoped>
