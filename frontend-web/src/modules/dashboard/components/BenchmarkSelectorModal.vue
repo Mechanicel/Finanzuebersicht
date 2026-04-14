@@ -64,62 +64,114 @@
       <!-- ── Custom Tab ───────────────────────────────────────────── -->
       <section v-if="activeTab === 'custom'" class="tab-panel">
         <p class="hint">
-          Wähle bis zu 5 ETF-Ticker und gib Gewichte ein (Summe muss 100 % ergeben).
+          Suche nach ETFs oder Indizes und gib Gewichte ein (Summe muss 100&nbsp;% ergeben, max. 5 Komponenten).
         </p>
 
-        <div class="component-editor">
+        <!-- Search input + dropdown -->
+        <div v-if="editComponents.length < 5" class="search-block" ref="searchBlockRef">
+          <div class="search-input-wrap">
+            <input
+              ref="searchInputRef"
+              v-model.trim="searchQuery"
+              class="input search-input"
+              placeholder="ETF / Index suchen (z. B. MSCI World, DAX, S&P 500)"
+              autocomplete="off"
+              @input="onSearchInput"
+              @keydown.escape="closeDropdown"
+              @keydown.arrow-down.prevent="moveDropdownFocus(1)"
+              @keydown.arrow-up.prevent="moveDropdownFocus(-1)"
+              @keydown.enter.prevent="selectFocusedResult"
+            />
+            <span v-if="searching" class="search-spinner" aria-hidden="true">⏳</span>
+          </div>
+
+          <p v-if="searchHint" class="search-hint">{{ searchHint }}</p>
+
+          <ul
+            v-if="showDropdown"
+            class="search-dropdown"
+            role="listbox"
+            aria-label="Suchergebnisse"
+          >
+            <li v-if="searchError" class="dropdown-item dropdown-item--error">
+              {{ searchError }}
+            </li>
+            <li v-else-if="searchResults.length === 0 && !searching" class="dropdown-item dropdown-item--empty">
+              Keine Treffer gefunden.
+            </li>
+            <li
+              v-for="(item, idx) in searchResults"
+              :key="item.symbol"
+              class="dropdown-item"
+              :class="{ 'dropdown-item--focused': dropdownFocusIndex === idx }"
+              role="option"
+              :aria-selected="dropdownFocusIndex === idx"
+              @click="selectResult(item)"
+              @mouseenter="dropdownFocusIndex = idx"
+            >
+              <div class="result-row">
+                <strong class="result-symbol">{{ item.symbol }}</strong>
+                <span class="result-name">{{ item.display_name || item.company_name || '' }}</span>
+              </div>
+              <div class="result-meta">
+                <small v-if="item.currency">{{ item.currency }}</small>
+                <small v-if="item.exchange">{{ item.exchange }}</small>
+                <small v-if="item.exchange_full_name" class="result-exchange-full">{{ item.exchange_full_name }}</small>
+              </div>
+            </li>
+          </ul>
+        </div>
+
+        <!-- Added components list -->
+        <div v-if="editComponents.length > 0" class="component-list">
           <div
             v-for="(comp, idx) in editComponents"
             :key="idx"
-            class="component-row"
+            class="component-entry"
           >
-            <input
-              v-model="comp.ticker"
-              class="input-ticker"
-              placeholder="Ticker (z. B. IWDA.L)"
-              maxlength="20"
-              @input="comp.ticker = comp.ticker.toUpperCase()"
-            />
-            <input
-              v-model="comp.name"
-              class="input-name"
-              placeholder="Name (optional)"
-              maxlength="100"
-            />
-            <input
-              v-model.number="comp.weight"
-              class="input-weight"
-              type="number"
-              min="0.1"
-              max="100"
-              step="0.1"
-              placeholder="%"
-            />
-            <button class="btn-remove" title="Entfernen" @click="removeComponent(idx)">✕</button>
+            <div class="component-entry-info">
+              <span class="ticker-badge">{{ comp.ticker }}</span>
+              <span class="component-name">{{ comp.name || comp.ticker }}</span>
+            </div>
+            <div class="component-entry-controls">
+              <div class="weight-input-wrap">
+                <input
+                  v-model.number="comp.weight"
+                  class="input weight-input"
+                  type="number"
+                  min="0.1"
+                  max="100"
+                  step="0.1"
+                  :placeholder="'%'"
+                  aria-label="`Gewicht für ${comp.ticker}`"
+                />
+                <span class="weight-unit">%</span>
+              </div>
+              <button class="btn-remove" title="Entfernen" @click="removeComponent(idx)">✕</button>
+            </div>
           </div>
         </div>
 
-        <button
-          v-if="editComponents.length < 5"
-          class="btn btn-secondary btn-add"
-          @click="addComponent"
-        >
-          + Komponente hinzufügen
-        </button>
+        <p v-else class="empty-components-hint">
+          Suche nach einem ETF oder Index, um ihn als Benchmark-Komponente hinzuzufügen.
+        </p>
 
-        <div class="weight-summary" :class="{ error: weightError }">
-          Summe: <strong>{{ totalWeight.toFixed(1) }}%</strong>
-          <span v-if="weightError" class="weight-error-msg"> — muss 100% ergeben</span>
+        <!-- Weight summary -->
+        <div v-if="editComponents.length > 0" class="weight-summary" :class="{ error: weightError }">
+          <span>Summe: <strong>{{ totalWeight.toFixed(1) }}%</strong></span>
+          <span v-if="weightError" class="weight-error-msg">— muss 100% ergeben</span>
+          <span v-else-if="totalWeight === 100" class="weight-ok-msg">✓</span>
         </div>
 
         <div v-if="saveError" class="error-hint">{{ saveError }}</div>
 
         <div class="action-row">
           <button
+            v-if="editComponents.length > 0"
             class="btn btn-secondary"
-            @click="resetToDefault"
+            @click="resetComponents"
           >
-            Standard (SPY)
+            Zurücksetzen
           </button>
           <button
             class="btn btn-primary"
@@ -135,8 +187,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
-import type { BenchmarkComponent } from '@/shared/model/types'
+import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import type { BenchmarkComponent, InstrumentSearchItem } from '@/shared/model/types'
+import { searchInstruments } from '@/modules/portfolio/api/portfolioApi'
 import { fetchBenchmarkConfig, fetchBenchmarkSuggestion, saveBenchmarkConfig } from '../api/portfolioDashboardApi'
 
 const props = defineProps<{ personId: string }>()
@@ -161,34 +214,139 @@ async function loadSuggestion() {
   }
 }
 
-// ── Custom tab state ──────────────────────────────────────────────────────
+// ── Search state ──────────────────────────────────────────────────────────
+const MIN_SEARCH_LENGTH = 2
+const SEARCH_DEBOUNCE_MS = 400
+
+const searchInputRef = ref<HTMLInputElement | null>(null)
+const searchBlockRef = ref<HTMLElement | null>(null)
+const searchQuery = ref('')
+const searching = ref(false)
+const searchResults = ref<InstrumentSearchItem[]>([])
+const searchError = ref<string | null>(null)
+const showDropdown = ref(false)
+const dropdownFocusIndex = ref(-1)
+
+let searchDebounceHandle: ReturnType<typeof setTimeout> | null = null
+let activeSearchRequestId = 0
+
+const searchHint = computed(() => {
+  if (searchQuery.value.length === 0) return null
+  if (searchQuery.value.length < MIN_SEARCH_LENGTH) {
+    return `Mindestens ${MIN_SEARCH_LENGTH} Zeichen eingeben…`
+  }
+  return null
+})
+
+function onSearchInput() {
+  searchError.value = null
+  dropdownFocusIndex.value = -1
+
+  if (searchDebounceHandle) clearTimeout(searchDebounceHandle)
+
+  if (searchQuery.value.length < MIN_SEARCH_LENGTH) {
+    showDropdown.value = false
+    searchResults.value = []
+    return
+  }
+
+  const requestId = ++activeSearchRequestId
+  searchDebounceHandle = setTimeout(() => {
+    void runSearch(requestId)
+  }, SEARCH_DEBOUNCE_MS)
+}
+
+async function runSearch(requestId: number) {
+  if (searchQuery.value.length < MIN_SEARCH_LENGTH) return
+  searching.value = true
+  showDropdown.value = true
+  try {
+    const result = await searchInstruments(searchQuery.value, 10)
+    if (requestId !== activeSearchRequestId) return  // Stale response
+    searchResults.value = result.items
+    searchError.value = null
+  } catch {
+    if (requestId !== activeSearchRequestId) return
+    searchError.value = 'Suche fehlgeschlagen. Bitte erneut versuchen.'
+    searchResults.value = []
+  } finally {
+    if (requestId === activeSearchRequestId) {
+      searching.value = false
+    }
+  }
+}
+
+function closeDropdown() {
+  showDropdown.value = false
+  dropdownFocusIndex.value = -1
+}
+
+function moveDropdownFocus(delta: number) {
+  if (!showDropdown.value || searchResults.value.length === 0) return
+  const next = dropdownFocusIndex.value + delta
+  dropdownFocusIndex.value = Math.max(0, Math.min(searchResults.value.length - 1, next))
+}
+
+function selectFocusedResult() {
+  if (dropdownFocusIndex.value >= 0 && dropdownFocusIndex.value < searchResults.value.length) {
+    selectResult(searchResults.value[dropdownFocusIndex.value])
+  }
+}
+
+function selectResult(item: InstrumentSearchItem) {
+  // Avoid duplicates
+  if (editComponents.value.some(c => c.ticker === item.symbol)) {
+    closeDropdown()
+    searchQuery.value = ''
+    return
+  }
+  editComponents.value.push({
+    ticker: item.symbol,
+    name: item.display_name || item.company_name || item.symbol,
+    weight: editComponents.value.length === 0 ? 100 : 0,
+  })
+  searchQuery.value = ''
+  searchResults.value = []
+  closeDropdown()
+  if (searchDebounceHandle) clearTimeout(searchDebounceHandle)
+}
+
+// Close dropdown when clicking outside
+function onDocumentClick(event: MouseEvent) {
+  if (searchBlockRef.value && !searchBlockRef.value.contains(event.target as Node)) {
+    closeDropdown()
+  }
+}
+
+// ── Custom component list state ───────────────────────────────────────────
 interface EditComponent {
   ticker: string
   name: string
   weight: number
 }
 
-const editComponents = ref<EditComponent[]>([{ ticker: '', name: '', weight: 100 }])
+const editComponents = ref<EditComponent[]>([])
 const saving = ref(false)
 const saveError = ref<string | null>(null)
 
-const totalWeight = computed(() => editComponents.value.reduce((sum, c) => sum + (c.weight || 0), 0))
-const weightError = computed(() => editComponents.value.length > 0 && Math.abs(totalWeight.value - 100) > 0.05)
-const canSave = computed(
-  () => editComponents.value.length > 0
-    && editComponents.value.every(c => c.ticker.trim().length > 0 && c.weight > 0)
-    && !weightError.value
+const totalWeight = computed(() =>
+  editComponents.value.reduce((sum, c) => sum + (Number(c.weight) || 0), 0)
 )
-
-function addComponent() {
-  editComponents.value.push({ ticker: '', name: '', weight: 0 })
-}
+const weightError = computed(() =>
+  editComponents.value.length > 0 && Math.abs(totalWeight.value - 100) > 0.05
+)
+const canSave = computed(
+  () =>
+    editComponents.value.length > 0 &&
+    editComponents.value.every(c => c.ticker.trim().length > 0 && Number(c.weight) > 0) &&
+    !weightError.value
+)
 
 function removeComponent(idx: number) {
   editComponents.value.splice(idx, 1)
 }
 
-function resetToDefault() {
+function resetComponents() {
   editComponents.value = []
   saveError.value = null
 }
@@ -202,6 +360,8 @@ async function loadExistingConfig() {
         name: c.name ?? '',
         weight: c.weight,
       }))
+      // If there's already a custom config, start on the custom tab
+      activeTab.value = 'custom'
     }
   } catch {
     // Ignore — use default empty state
@@ -217,7 +377,7 @@ async function saveCustom() {
       components: editComponents.value.map(c => ({
         ticker: c.ticker.trim().toUpperCase(),
         name: c.name.trim() || null,
-        weight: c.weight,
+        weight: Number(c.weight),
       })),
     })
     emit('saved')
@@ -243,7 +403,17 @@ async function applyAndSave(components: BenchmarkComponent[]) {
 }
 
 onMounted(async () => {
+  document.addEventListener('click', onDocumentClick, true)
   await Promise.all([loadSuggestion(), loadExistingConfig()])
+  await nextTick()
+  if (activeTab.value === 'custom') {
+    searchInputRef.value?.focus()
+  }
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('click', onDocumentClick, true)
+  if (searchDebounceHandle) clearTimeout(searchDebounceHandle)
 })
 </script>
 
@@ -262,7 +432,7 @@ onMounted(async () => {
   background: var(--color-surface, #fff);
   border-radius: 8px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
-  width: min(560px, 95vw);
+  width: min(540px, 95vw);
   max-height: 90vh;
   overflow-y: auto;
   display: flex;
@@ -275,6 +445,10 @@ onMounted(async () => {
   justify-content: space-between;
   padding: 1rem 1.25rem;
   border-bottom: 1px solid var(--color-border, #e5e7eb);
+  position: sticky;
+  top: 0;
+  background: var(--color-surface, #fff);
+  z-index: 1;
 }
 
 .modal-header h2 {
@@ -320,7 +494,7 @@ onMounted(async () => {
   padding: 1rem 1.25rem;
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 0.875rem;
 }
 
 .hint {
@@ -339,11 +513,12 @@ onMounted(async () => {
 .loading-hint,
 .error-hint {
   font-size: 0.875rem;
-  padding: 0.5rem 0;
+  padding: 0.25rem 0;
 }
 
 .error-hint { color: var(--color-danger, #dc2626); }
 
+/* ── Suggest table ── */
 .component-table {
   width: 100%;
   border-collapse: collapse;
@@ -366,30 +541,197 @@ onMounted(async () => {
 
 .align-right { text-align: right; }
 
-.component-editor {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
+/* ── Search block ── */
+.search-block {
+  position: relative;
 }
 
-.component-row {
-  display: grid;
-  grid-template-columns: 110px 1fr 70px 28px;
-  gap: 0.375rem;
+.search-input-wrap {
+  position: relative;
+  display: flex;
   align-items: center;
 }
 
-.component-row input {
-  padding: 0.35rem 0.5rem;
+.search-input {
+  width: 100%;
+  padding: 0.5rem 2rem 0.5rem 0.625rem;
+  border: 1px solid var(--color-border, #d1d5db);
+  border-radius: 6px;
+  font-size: 0.875rem;
+  background: var(--color-surface, #fff);
+  color: var(--color-text, #111827);
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.search-input:focus {
+  border-color: var(--color-accent, #2563eb);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+}
+
+.search-spinner {
+  position: absolute;
+  right: 0.5rem;
+  font-size: 0.875rem;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.search-hint {
+  font-size: 0.75rem;
+  color: var(--color-text-muted, #9ca3af);
+  margin: 0.25rem 0 0;
+}
+
+/* ── Dropdown ── */
+.search-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: var(--color-surface, #fff);
+  border: 1px solid var(--color-border, #d1d5db);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  list-style: none;
+  margin: 0;
+  padding: 0.25rem 0;
+  max-height: 240px;
+  overflow-y: auto;
+  z-index: 100;
+}
+
+.dropdown-item {
+  padding: 0.5rem 0.75rem;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.dropdown-item:hover,
+.dropdown-item--focused {
+  background: var(--color-surface-hover, #f3f4f6);
+}
+
+.dropdown-item--error,
+.dropdown-item--empty {
+  cursor: default;
+  color: var(--color-text-muted, #6b7280);
+  font-size: 0.875rem;
+}
+
+.dropdown-item--error { color: var(--color-danger, #dc2626); }
+
+.result-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.result-symbol {
+  font-family: monospace;
+  font-size: 0.8125rem;
+  color: var(--color-accent, #2563eb);
+  flex-shrink: 0;
+}
+
+.result-name {
+  font-size: 0.8125rem;
+  color: var(--color-text, #374151);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.result-meta {
+  display: flex;
+  gap: 0.4rem;
+  margin-top: 0.125rem;
+}
+
+.result-meta small {
+  font-size: 0.7rem;
+  color: var(--color-text-muted, #9ca3af);
+  background: var(--color-surface-raised, #f3f4f6);
+  padding: 0.1rem 0.3rem;
+  border-radius: 3px;
+}
+
+.result-exchange-full { display: none; }
+
+/* ── Component list ── */
+.component-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.component-entry {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.5rem 0.625rem;
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: 6px;
+  background: var(--color-surface-raised, #f9fafb);
+}
+
+.component-entry-info {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.ticker-badge {
+  font-family: monospace;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--color-accent, #2563eb);
+  background: rgba(37, 99, 235, 0.08);
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.component-name {
+  font-size: 0.8125rem;
+  color: var(--color-text-muted, #6b7280);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.component-entry-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  flex-shrink: 0;
+}
+
+.weight-input-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+}
+
+.weight-input {
+  width: 64px;
+  padding: 0.3rem 0.4rem;
   border: 1px solid var(--color-border, #d1d5db);
   border-radius: 4px;
   font-size: 0.8125rem;
+  text-align: right;
   background: var(--color-surface, #fff);
   color: var(--color-text, #111827);
-  width: 100%;
 }
 
-.input-weight { text-align: right; }
+.weight-unit {
+  font-size: 0.8125rem;
+  color: var(--color-text-muted, #6b7280);
+}
 
 .btn-remove {
   background: none;
@@ -397,24 +739,40 @@ onMounted(async () => {
   cursor: pointer;
   color: var(--color-text-muted, #9ca3af);
   font-size: 0.875rem;
-  padding: 0;
+  padding: 0.15rem 0.25rem;
   line-height: 1;
+  border-radius: 3px;
+  transition: color 0.1s, background 0.1s;
 }
 
-.btn-remove:hover { color: var(--color-danger, #dc2626); }
-
-.btn-add {
-  align-self: flex-start;
+.btn-remove:hover {
+  color: var(--color-danger, #dc2626);
+  background: rgba(220, 38, 38, 0.08);
 }
 
+.empty-components-hint {
+  font-size: 0.8125rem;
+  color: var(--color-text-muted, #9ca3af);
+  text-align: center;
+  margin: 0.25rem 0;
+  font-style: italic;
+}
+
+/* ── Weight summary ── */
 .weight-summary {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   font-size: 0.8125rem;
   color: var(--color-text-muted, #6b7280);
 }
 
 .weight-summary.error { color: var(--color-danger, #dc2626); }
-.weight-error-msg { font-size: 0.8125rem; }
 
+.weight-error-msg { font-size: 0.8125rem; }
+.weight-ok-msg { color: #16a34a; }
+
+/* ── Actions ── */
 .action-row {
   display: flex;
   justify-content: flex-end;
