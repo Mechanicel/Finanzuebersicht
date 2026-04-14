@@ -4,7 +4,18 @@
       "Bash(uv run:*)",
       "Bash(npx tsc:*)",
       "Bash(node_modules/.bin/tsc --noEmit)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(curl -s http://localhost:8006/health)",
+      "Bash(curl -s http://localhost:8005/health)",
+      "Bash(curl -s http://localhost:8000/api/v1/persons)",
+      "Bash(curl -s http://localhost:8002/api/v1/persons)",
+      "Bash(curl -s \"http://localhost:8006/api/v1/portfolio/1adbdf1f-ed89-48cb-8ffc-5cf950dfd52d/risk?range=3m\")",
+      "Bash(curl -s \"http://localhost:8006/api/v1/\")",
+      "Bash(curl -s \"http://localhost:8006/openapi.json\")",
+      "Bash(curl -s \"http://localhost:8006/api/v1/analytics/persons/1adbdf1f-ed89-48cb-8ffc-5cf950dfd52d/portfolio-risk?range=3m\")",
+      "Bash(curl -s \"http://localhost:8005/api/v1/marketdata/instruments/EURUSD=X/snapshot\")",
+      "Bash(curl -s \"http://localhost:8005/api/v1/marketdata/instruments/EURUSD%3DX/refresh\" -X POST)",
+      "Bash(curl -s \"http://localhost:8005/api/v1/marketdata/instruments/EURUSD%3DX/history?range=3m\")"
     ]
   }
 }

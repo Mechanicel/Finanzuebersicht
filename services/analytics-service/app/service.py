@@ -4,10 +4,13 @@ from collections import defaultdict
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
+import logging
 from math import sqrt
 from statistics import mean
 from threading import Lock
 from uuid import UUID
+
+LOGGER = logging.getLogger(__name__)
 
 import httpx
 
@@ -1479,6 +1482,109 @@ class AnalyticsService:
             history_context=history_context,
         )
 
+    @staticmethod
+    def _log_risk_diagnostics(
+        *,
+        range_value: str,
+        portfolio_return_points: list[ChartPoint],
+        benchmark_points: list[ChartPoint],
+        benchmark_return_points_usd: list[ChartPoint],
+        fx_points: list[ChartPoint],
+        fx_return_points: list[ChartPoint],
+        benchmark_return_points_eur: list[ChartPoint],
+        aligned_portfolio_returns: list[float],
+        aligned_benchmark_returns: list[float],
+        aligned_points: int,
+    ) -> None:
+        """Structured diagnostic log for benchmark-relative metric debugging."""
+        sep = "=" * 70
+        LOGGER.warning("\n%s\nRISK DIAGNOSTICS  range=%s\n%s", sep, range_value, sep)
+
+        # ── 1. Cumulative returns ─────────────────────────────────────────────
+        def chain(pts: list[ChartPoint]) -> float | None:
+            if not pts:
+                return None
+            c = 1.0
+            for p in pts:
+                c *= 1.0 + p.y
+            return c - 1.0
+
+        twrr_cum = chain(portfolio_return_points)
+        spy_usd_cum = chain(benchmark_return_points_usd)
+        spy_eur_cum = chain(benchmark_return_points_eur)
+        fx_cum = (fx_points[-1].y / fx_points[0].y - 1.0) if len(fx_points) >= 2 else None
+
+        LOGGER.warning(
+            "[1] Cumulative returns (%d TWRR pts | %d SPY pts | %d FX pts)\n"
+            "    Portfolio TWRR      : %s%%\n"
+            "    SPY in USD          : %s%%\n"
+            "    EURUSD change       : %s%%  (%s → %s)\n"
+            "    SPY in EUR (formula): %s%%",
+            len(portfolio_return_points),
+            len(benchmark_return_points_usd),
+            len(fx_points),
+            f"{twrr_cum * 100:.4f}" if twrr_cum is not None else "N/A",
+            f"{spy_usd_cum * 100:.4f}" if spy_usd_cum is not None else "N/A",
+            f"{fx_cum * 100:.4f}" if fx_cum is not None else "N/A (no FX data)",
+            f"{fx_points[0].y:.5f}" if fx_points else "—",
+            f"{fx_points[-1].y:.5f}" if fx_points else "—",
+            f"{spy_eur_cum * 100:.4f}" if spy_eur_cum is not None else "N/A",
+        )
+
+        # ── 2. FX formula direction check ─────────────────────────────────────
+        if fx_points and len(fx_points) >= 2 and benchmark_return_points_usd:
+            # Expected: if EURUSD rose (EUR stronger), SPY EUR < SPY USD
+            direction_ok = (
+                (fx_cum is not None and fx_cum > 0 and spy_eur_cum is not None and spy_usd_cum is not None and spy_eur_cum < spy_usd_cum)
+                or (fx_cum is not None and fx_cum < 0 and spy_eur_cum is not None and spy_usd_cum is not None and spy_eur_cum > spy_usd_cum)
+                or (fx_cum is not None and abs(fx_cum) < 0.001)
+            )
+            LOGGER.warning(
+                "[2] FX formula direction: EUR stronger=%.4f%% → SPY in EUR should be LOWER than USD\n"
+                "    SPY USD=%.4f%% vs SPY EUR=%.4f%%  →  direction %s",
+                (fx_cum or 0) * 100,
+                (spy_usd_cum or 0) * 100,
+                (spy_eur_cum or 0) * 100,
+                "OK ✓" if direction_ok else "WRONG ✗ — formula sign error!",
+            )
+        else:
+            LOGGER.warning("[2] FX formula direction: SKIPPED — no FX data or no benchmark returns")
+
+        # ── 3. TWRR outlier days (top 10 by absolute return) ─────────────────
+        sorted_twrr = sorted(portfolio_return_points, key=lambda p: abs(p.y), reverse=True)
+        LOGGER.warning("[3] Top 10 TWRR daily returns by absolute magnitude:")
+        for i, pt in enumerate(sorted_twrr[:10], 1):
+            LOGGER.warning("    #%2d  %s  %+.4f%%", i, pt.x, pt.y * 100)
+
+        # ── 4. Alignment coverage ─────────────────────────────────────────────
+        twrr_dates = {p.x for p in portfolio_return_points}
+        bench_dates = {p.x for p in benchmark_return_points_eur}
+        missing_in_bench = sorted(twrr_dates - bench_dates)[:5]
+        missing_in_twrr = sorted(bench_dates - twrr_dates)[:5]
+        LOGGER.warning(
+            "[4] Alignment: %d matched | TWRR only (first 5): %s | Benchmark only (first 5): %s",
+            aligned_points,
+            missing_in_bench or "none",
+            missing_in_twrr or "none",
+        )
+
+        # ── 5. Active return decomposition ───────────────────────────────────
+        if aligned_portfolio_returns and aligned_benchmark_returns:
+            n = len(aligned_portfolio_returns)
+            mean_p = sum(aligned_portfolio_returns) / n
+            mean_b = sum(aligned_benchmark_returns) / n
+            active_ret_ann = (mean_p - mean_b) * 252
+            LOGGER.warning(
+                "[5] Active return: mean_portfolio_daily=%.4f%%  mean_benchmark_daily=%.4f%%\n"
+                "    → annualized active return = (%.4f%% - %.4f%%) × 252 = %.2f%%\n"
+                "    Note: using arithmetic annualization, not geometric",
+                mean_p * 100, mean_b * 100,
+                mean_p * 100, mean_b * 100,
+                active_ret_ann * 100,
+            )
+
+        LOGGER.warning("%s\n", sep)
+
     def _build_portfolio_risk_from_history_context(
         self,
         *,
@@ -1536,9 +1642,16 @@ class AnalyticsService:
             if annualized_tracking_error is not None and annualized_tracking_error > 0:
                 mean_active = sum(active) / len(active)
                 information_ratio = (mean_active * 252) / annualized_tracking_error
-                mean_benchmark = sum(aligned_benchmark_returns) / len(aligned_benchmark_returns)
-                if mean_portfolio_return is not None:
-                    active_return = (mean_portfolio_return - mean_benchmark) * 252
+            # Active return: geometric period return of portfolio minus benchmark over the aligned window.
+            # Using TWRR chain on aligned subset avoids arithmetic-mean annualisation artefacts and
+            # the inconsistency of comparing different day-count means (all TWRR days vs aligned only).
+            aligned_portfolio_cum = 1.0
+            for r in aligned_portfolio_returns:
+                aligned_portfolio_cum *= 1.0 + r
+            aligned_benchmark_cum = 1.0
+            for r in aligned_benchmark_returns:
+                aligned_benchmark_cum *= 1.0 + r
+            active_return = (aligned_portfolio_cum - aligned_benchmark_cum)
 
         downside_returns = [value for value in portfolio_returns if value < 0]
         downside_vol = self._volatility(downside_returns)
@@ -1558,6 +1671,21 @@ class AnalyticsService:
             information_ratio = None
             active_return = None
             history_warnings.append("insufficient_benchmark_overlap")
+
+        # ── DIAGNOSTIC LOG ─────────────────────────────────────────────────────
+        self._log_risk_diagnostics(
+            range_value=range_value,
+            portfolio_return_points=portfolio_return_points,
+            benchmark_points=history_context.benchmark_points,
+            benchmark_return_points_usd=benchmark_return_points_usd,
+            fx_points=history_context.fx_points,
+            fx_return_points=fx_return_points,
+            benchmark_return_points_eur=benchmark_return_points,
+            aligned_portfolio_returns=aligned_portfolio_returns,
+            aligned_benchmark_returns=aligned_benchmark_returns,
+            aligned_points=aligned_points,
+        )
+        # ────────────────────────────────────────────────────────────────────────
 
         return PortfolioRiskReadModel(
             person_id=person_id,
