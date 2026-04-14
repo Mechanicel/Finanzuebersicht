@@ -6,3 +6,4 @@ build/
 dist/
 frontend-web/node_modules/
 frontend-web/dist/
+/.idea/
