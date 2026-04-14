@@ -7,6 +7,8 @@ from finanzuebersicht_shared.models import ApiResponse
 
 from app.dependencies import get_portfolio_service
 from app.models import (
+    BenchmarkConfigPayload,
+    BenchmarkConfigReadModel,
     Holding,
     HoldingCreatePayload,
     HoldingsRefreshStubResponse,
@@ -87,3 +89,20 @@ def refresh_holdings_prices(
     service: PortfolioService = Depends(get_portfolio_service),
 ) -> ApiResponse[HoldingsRefreshStubResponse]:
     return ApiResponse(data=service.refresh_holdings_prices(portfolio_id))
+
+
+@router.get("/persons/{person_id}/benchmark-config", response_model=ApiResponse[BenchmarkConfigReadModel])
+def get_benchmark_config(
+    person_id: UUID,
+    service: PortfolioService = Depends(get_portfolio_service),
+) -> ApiResponse[BenchmarkConfigReadModel]:
+    return ApiResponse(data=service.get_benchmark_config(person_id))
+
+
+@router.put("/persons/{person_id}/benchmark-config", response_model=ApiResponse[BenchmarkConfigReadModel])
+def set_benchmark_config(
+    person_id: UUID,
+    payload: BenchmarkConfigPayload,
+    service: PortfolioService = Depends(get_portfolio_service),
+) -> ApiResponse[BenchmarkConfigReadModel]:
+    return ApiResponse(data=service.set_benchmark_config(person_id, payload))

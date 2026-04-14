@@ -20,6 +20,7 @@ class Settings(ServiceSettings):
     mongo_auth_source: str = Field(default="admin", alias="MONGO_AUTH_SOURCE")
     mongo_portfolios_collection: str = Field(default="portfolios", alias="MONGO_PORTFOLIOS_COLLECTION")
     mongo_holdings_collection: str = Field(default="holdings", alias="MONGO_HOLDINGS_COLLECTION")
+    mongo_benchmark_configs_collection: str = Field(default="benchmark_configs", alias="MONGO_BENCHMARK_CONFIGS_COLLECTION")
     portfolio_mongo_server_selection_timeout_ms: int = Field(
         default=2000, alias="PORTFOLIO_MONGO_SERVER_SELECTION_TIMEOUT_MS"
     )

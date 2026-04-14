@@ -6,6 +6,8 @@ from uuid import UUID
 from fastapi import HTTPException, status
 
 from app.models import (
+    BenchmarkConfigPayload,
+    BenchmarkConfigReadModel,
     Holding,
     HoldingCreatePayload,
     HoldingsRefreshStubResponse,
@@ -66,6 +68,33 @@ class PortfolioService:
         deleted = self.repository.delete_holding(portfolio_id, holding_id)
         if not deleted:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Holding nicht gefunden")
+
+    def get_benchmark_config(self, person_id: UUID) -> BenchmarkConfigReadModel:
+        doc = self.repository.get_benchmark_config(person_id)
+        if doc is None:
+            return BenchmarkConfigReadModel(person_id=person_id)
+        return BenchmarkConfigReadModel.model_validate(doc)
+
+    def set_benchmark_config(self, person_id: UUID, payload: BenchmarkConfigPayload) -> BenchmarkConfigReadModel:
+        if payload.components:
+            total = sum(c.weight for c in payload.components)
+            if abs(total - 100.0) > 0.01:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=f"Benchmark-Gewichte müssen sich auf 100 summieren (erhalten: {total:.2f})",
+                )
+        now = datetime.now(timezone.utc)
+        config_doc = {
+            "person_id": str(person_id),
+            "components": [c.model_dump() for c in payload.components],
+            "updated_at": now.isoformat(),
+        }
+        self.repository.set_benchmark_config(person_id, config_doc)
+        return BenchmarkConfigReadModel(
+            person_id=person_id,
+            components=payload.components,
+            updated_at=now,
+        )
 
     def refresh_holdings_prices(self, portfolio_id: UUID) -> HoldingsRefreshStubResponse:
         portfolio = self.repository.get_portfolio(portfolio_id)

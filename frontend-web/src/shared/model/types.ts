@@ -745,3 +745,29 @@ export interface PortfolioDashboardReadModel {
 }
 
 export interface ApiEnvelope<T> { data: T }
+
+// ---------------------------------------------------------------------------
+// Smart Benchmark types
+// ---------------------------------------------------------------------------
+
+export interface BenchmarkComponent {
+  ticker: string
+  name?: string | null
+  weight: number  // 0–100, must sum to 100
+}
+
+export interface BenchmarkConfig {
+  components: BenchmarkComponent[]
+}
+
+export interface BenchmarkConfigReadModel {
+  person_id: string
+  components: BenchmarkComponent[]
+  updated_at?: string | null
+}
+
+export interface BenchmarkSuggestionReadModel {
+  person_id: string
+  components: BenchmarkComponent[]
+  reasoning: string
+}

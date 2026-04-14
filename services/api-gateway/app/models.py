@@ -11,6 +11,9 @@ from pydantic import BaseModel, Field
 # Import them here so that routers and service.py can keep their existing
 # "from app.models import ..." imports unchanged.
 from finanzuebersicht_shared.models import (
+    BenchmarkComponent,
+    BenchmarkConfig,
+    BenchmarkSuggestionReadModel,
     ChartSeries,
     LoadingMeta,
     PortfolioAttributionItem,
@@ -34,6 +37,9 @@ from finanzuebersicht_shared.models import (
 
 __all__ = [
     # re-exported from shared
+    "BenchmarkComponent",
+    "BenchmarkConfig",
+    "BenchmarkSuggestionReadModel",
     "ChartSeries",
     "LoadingMeta",
     "PortfolioAttributionItem",
@@ -88,6 +94,7 @@ __all__ = [
     "DashboardReadModel",
     "HealthDependency",
     "GatewayHealthReadModel",
+    "BenchmarkConfigReadModel",
     # legacy aliases kept for backwards-compat
     "PortfolioExposureSliceReadModel",
     "PortfolioHoldingItemReadModel",
@@ -100,6 +107,16 @@ __all__ = [
 PortfolioExposureSliceReadModel = PortfolioExposureSlice
 PortfolioHoldingItemReadModel = PortfolioHoldingItem
 PortfolioContributorReadModel = PortfolioContributorItem
+
+
+# ---------------------------------------------------------------------------
+# Benchmark config gateway models (wraps portfolio-service response)
+# ---------------------------------------------------------------------------
+
+class BenchmarkConfigReadModel(BaseModel):
+    person_id: UUID
+    components: list[BenchmarkComponent] = Field(default_factory=list)
+    updated_at: str | None = None
 
 
 # ---------------------------------------------------------------------------

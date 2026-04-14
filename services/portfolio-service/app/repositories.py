@@ -42,12 +42,19 @@ class PortfolioRepository(ABC):
     @abstractmethod
     def delete_holding(self, portfolio_id: UUID, holding_id: UUID) -> bool: ...
 
+    @abstractmethod
+    def get_benchmark_config(self, person_id: UUID) -> dict | None: ...
+
+    @abstractmethod
+    def set_benchmark_config(self, person_id: UUID, config_doc: dict) -> None: ...
+
 
 class InMemoryPortfolioRepository(PortfolioRepository):
     def __init__(self) -> None:
         self._portfolios: dict[UUID, Portfolio] = {}
         self._person_portfolios: dict[UUID, list[UUID]] = defaultdict(list)
         self._holdings_by_portfolio: dict[UUID, dict[UUID, Holding]] = defaultdict(dict)
+        self._benchmark_configs: dict[UUID, dict] = {}
 
     def create_portfolio(self, portfolio: Portfolio) -> Portfolio:
         self._portfolios[portfolio.portfolio_id] = portfolio
@@ -79,11 +86,25 @@ class InMemoryPortfolioRepository(PortfolioRepository):
         deleted = self._holdings_by_portfolio.get(portfolio_id, {}).pop(holding_id, None)
         return deleted is not None
 
+    def get_benchmark_config(self, person_id: UUID) -> dict | None:
+        return self._benchmark_configs.get(person_id)
+
+    def set_benchmark_config(self, person_id: UUID, config_doc: dict) -> None:
+        self._benchmark_configs[person_id] = config_doc
+
 
 class MongoPortfolioRepository(PortfolioRepository):
-    def __init__(self, database: Database, *, portfolio_collection: str, holding_collection: str) -> None:
+    def __init__(
+        self,
+        database: Database,
+        *,
+        portfolio_collection: str,
+        holding_collection: str,
+        benchmark_config_collection: str = "benchmark_configs",
+    ) -> None:
         self._portfolios: Collection = database[portfolio_collection]
         self._holdings: Collection = database[holding_collection]
+        self._benchmark_configs: Collection = database[benchmark_config_collection]
         self._ensure_indexes()
 
     def _ensure_indexes(self) -> None:
@@ -91,6 +112,7 @@ class MongoPortfolioRepository(PortfolioRepository):
         self._portfolios.create_index([("person_id", ASCENDING), ("created_at", ASCENDING)])
         self._holdings.create_index([("portfolio_id", ASCENDING), ("holding_id", ASCENDING)], unique=True)
         self._holdings.create_index([("portfolio_id", ASCENDING), ("created_at", ASCENDING)])
+        self._benchmark_configs.create_index([("person_id", ASCENDING)], unique=True)
 
     def create_portfolio(self, portfolio: Portfolio) -> Portfolio:
         try:
@@ -158,6 +180,23 @@ class MongoPortfolioRepository(PortfolioRepository):
             return result.deleted_count > 0
         except PyMongoError as exc:
             raise PortfolioRepositoryError("Failed to delete holding") from exc
+
+    def get_benchmark_config(self, person_id: UUID) -> dict | None:
+        try:
+            doc = self._benchmark_configs.find_one({"person_id": str(person_id)}, {"_id": 0})
+            return dict(doc) if doc is not None else None
+        except PyMongoError as exc:
+            raise PortfolioRepositoryError("Failed to load benchmark config") from exc
+
+    def set_benchmark_config(self, person_id: UUID, config_doc: dict) -> None:
+        try:
+            self._benchmark_configs.replace_one(
+                {"person_id": str(person_id)},
+                config_doc,
+                upsert=True,
+            )
+        except PyMongoError as exc:
+            raise PortfolioRepositoryError("Failed to save benchmark config") from exc
 
     @staticmethod
     def _portfolio_to_doc(portfolio: Portfolio) -> dict[str, object]:

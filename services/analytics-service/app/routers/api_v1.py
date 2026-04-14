@@ -11,6 +11,7 @@ from finanzuebersicht_shared.models import ApiResponse
 from app.dependencies import get_analytics_service
 from app.models import (
     AllocationReadModel,
+    BenchmarkSuggestionReadModel,
     DashboardSectionReadModel,
     ForecastReadModel,
     HeatmapReadModel,
@@ -310,4 +311,17 @@ async def portfolio_data_coverage(
 ) -> ApiResponse[PortfolioDataCoverageReadModel]:
     return ApiResponse(
         data=await asyncio.to_thread(_call_or_404, lambda: service.portfolio_data_coverage(person_id))
+    )
+
+
+@router.get(
+    "/analytics/persons/{person_id}/suggest-benchmark",
+    response_model=ApiResponse[BenchmarkSuggestionReadModel],
+)
+async def suggest_benchmark(
+    person_id: UUID,
+    service: Annotated[AnalyticsService, Depends(get_analytics_service)],
+) -> ApiResponse[BenchmarkSuggestionReadModel]:
+    return ApiResponse(
+        data=await asyncio.to_thread(_call_or_404, lambda: service.suggest_benchmark(person_id))
     )

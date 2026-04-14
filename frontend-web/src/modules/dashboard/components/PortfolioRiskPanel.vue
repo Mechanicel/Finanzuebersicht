@@ -8,9 +8,26 @@
       <p class="meta">
         <span>Stand: <strong>{{ asOfLabel }}</strong></span>
         <span>Zeitraum: <strong>{{ rangeLabel }}</strong></span>
-        <span>Benchmark: <strong>{{ benchmarkSymbol }}</strong></span>
+        <span>
+          Benchmark: <strong>{{ benchmarkSymbol }}</strong>
+          <button
+            v-if="personId"
+            class="btn-change-benchmark"
+            title="Benchmark ändern"
+            @click="showBenchmarkModal = true"
+          >ändern</button>
+        </span>
         <span v-if="methodologyLabel">Methodik: <strong>{{ methodologyLabel }}</strong></span>
       </p>
+
+      <Teleport to="body">
+        <BenchmarkSelectorModal
+          v-if="showBenchmarkModal && personId"
+          :person-id="personId"
+          @close="showBenchmarkModal = false"
+          @saved="onBenchmarkSaved"
+        />
+      </Teleport>
     </header>
 
     <div class="risk-board" data-testid="risk-metric-board">
@@ -124,7 +141,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import type { PortfolioRiskReadModel } from '@/shared/model/types'
 import {
   formatDate,
@@ -138,10 +155,21 @@ import {
   mapConcentrationNote,
   mapPortfolioMethodology
 } from '@/modules/dashboard/model/portfolioFormatting'
+import BenchmarkSelectorModal from './BenchmarkSelectorModal.vue'
 
 const props = defineProps<{
   risk: PortfolioRiskReadModel
+  personId?: string
 }>()
+
+const emit = defineEmits<{ (e: 'benchmarkChanged'): void }>()
+
+const showBenchmarkModal = ref(false)
+
+function onBenchmarkSaved() {
+  showBenchmarkModal.value = false
+  emit('benchmarkChanged')
+}
 
 type MetricTone = 'positive' | 'negative' | 'neutral'
 
@@ -297,6 +325,19 @@ h3 {
   align-items: center;
   gap: 0.4rem;
 }
+
+.btn-change-benchmark {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #2563eb;
+  font-size: 0.75rem;
+  padding: 0 0.25rem;
+  text-decoration: underline;
+  vertical-align: baseline;
+}
+
+.btn-change-benchmark:hover { color: #1d4ed8; }
 
 .scope-badge {
   border: 1px solid #cbd5e1;

@@ -41,6 +41,7 @@ def get_repository() -> PortfolioRepository:
             database=database,
             portfolio_collection=settings.mongo_portfolios_collection,
             holding_collection=settings.mongo_holdings_collection,
+            benchmark_config_collection=settings.mongo_benchmark_configs_collection,
         )
     raise ValueError(f"Unsupported portfolio repository backend: {settings.portfolio_repository_backend}")
 

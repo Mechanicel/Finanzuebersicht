@@ -10,6 +10,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from finanzuebersicht_shared.models import ApiResponse
 
 from app.dependencies import get_gateway_service
+from finanzuebersicht_shared.models import BenchmarkConfig
+
 from app.models import (
     AccountCreatePayload,
     AccountReadModel,
@@ -21,6 +23,9 @@ from app.models import (
     BankCreatePayload,
     BankListReadModel,
     BankReadModel,
+    BenchmarkComponent,
+    BenchmarkConfigReadModel,
+    BenchmarkSuggestionReadModel,
     DashboardReadModel,
     GatewayHealthReadModel,
     PersonCreatePayload,
@@ -657,3 +662,31 @@ async def marketdata_benchmark_search(
     q: str = Query(..., min_length=1),
 ) -> ApiResponse[dict]:
     return ApiResponse(data=await service.search_marketdata_benchmark(q))
+
+
+@router.get("/app/persons/{person_id}/benchmark-config", response_model=ApiResponse[BenchmarkConfigReadModel])
+async def get_benchmark_config(
+    person_id: UUID,
+    service: Annotated[GatewayService, Depends(get_gateway_service)],
+) -> ApiResponse[BenchmarkConfigReadModel]:
+    payload = await service.get_benchmark_config(person_id)
+    return ApiResponse(data=BenchmarkConfigReadModel.model_validate(payload))
+
+
+@router.put("/app/persons/{person_id}/benchmark-config", response_model=ApiResponse[BenchmarkConfigReadModel])
+async def set_benchmark_config(
+    person_id: UUID,
+    payload: BenchmarkConfig,
+    service: Annotated[GatewayService, Depends(get_gateway_service)],
+) -> ApiResponse[BenchmarkConfigReadModel]:
+    result = await service.set_benchmark_config(person_id, payload.model_dump())
+    return ApiResponse(data=BenchmarkConfigReadModel.model_validate(result))
+
+
+@router.get("/app/persons/{person_id}/suggest-benchmark", response_model=ApiResponse[BenchmarkSuggestionReadModel])
+async def suggest_benchmark(
+    person_id: UUID,
+    service: Annotated[GatewayService, Depends(get_gateway_service)],
+) -> ApiResponse[BenchmarkSuggestionReadModel]:
+    payload = await service.suggest_benchmark(person_id)
+    return ApiResponse(data=BenchmarkSuggestionReadModel.model_validate(payload))

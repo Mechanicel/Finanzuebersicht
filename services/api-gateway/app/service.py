@@ -576,6 +576,22 @@ class GatewayService:
         )
         return PortfolioAttributionReadModel.model_validate(payload)
 
+    async def get_benchmark_config(self, person_id: UUID) -> dict:
+        return await self._request_portfolio_service(
+            "GET", f"/api/v1/persons/{person_id}/benchmark-config"
+        )
+
+    async def set_benchmark_config(self, person_id: UUID, payload: dict) -> dict:
+        return await self._request_portfolio_service(
+            "PUT", f"/api/v1/persons/{person_id}/benchmark-config", json=payload
+        )
+
+    async def suggest_benchmark(self, person_id: UUID) -> dict:
+        return await self._request_json(
+            f"{self._analytics_base_url}/api/v1/analytics/persons/{person_id}/suggest-benchmark",
+            "GET",
+        )
+
     async def get_portfolio_data_coverage(self, person_id: UUID) -> PortfolioDataCoverageReadModel:
         payload = await self._request_json(
             f"{self._analytics_base_url}/api/v1/analytics/persons/{person_id}/portfolio-data-coverage",
