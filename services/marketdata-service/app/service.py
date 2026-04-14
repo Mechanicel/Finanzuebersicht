@@ -70,6 +70,8 @@ class MarketDataService:
     BENCHMARK_CATALOG_CACHE_TTL_SECONDS = 86400
     NEGATIVE_REFRESH_CACHE_MAX_SIZE = 2048
     NEGATIVE_REFRESH_CACHE_TTL_SECONDS = 30
+    PROFILE_INMEM_CACHE_MAX_SIZE = 2048
+    PROFILE_INMEM_CACHE_TTL_SECONDS = 86400
 
     def __init__(
         self,
@@ -104,6 +106,12 @@ class MarketDataService:
         self._negative_refresh_cache = TtlLruCache(
             max_size=self.NEGATIVE_REFRESH_CACHE_MAX_SIZE,
             ttl_seconds=self.NEGATIVE_REFRESH_CACHE_TTL_SECONDS,
+        )
+        # In-memory profile cache: avoids MongoDB round-trips for hot profile data.
+        # Keyed by normalized symbol; holds InstrumentProfile objects.
+        self._profile_inmem_cache = TtlLruCache(
+            max_size=self.PROFILE_INMEM_CACHE_MAX_SIZE,
+            ttl_seconds=self.PROFILE_INMEM_CACHE_TTL_SECONDS,
         )
         self._inflight_jobs: set[tuple[str, str]] = set()
         self._inflight_guard = threading.Lock()
@@ -202,6 +210,12 @@ class MarketDataService:
         if not normalized:
             raise BadRequestError("symbol must not be empty")
 
+        # Fast path: in-memory cache (avoids MongoDB round-trip)
+        if self._cache_enabled:
+            mem_profile = self._profile_inmem_cache.get(normalized)
+            if mem_profile is not None:
+                return mem_profile
+
         try:
             cached = self._profile_repository.get(normalized)
         except Exception:
@@ -209,6 +223,8 @@ class MarketDataService:
             cached = None
 
         if cached is not None and self._is_fresh(cached.fetched_at):
+            if self._cache_enabled:
+                self._profile_inmem_cache.set(normalized, cached.visible_profile)
             return cached.visible_profile
 
         rows = self._fmp_client.profile(symbol=normalized)
@@ -227,6 +243,8 @@ class MarketDataService:
             )
         except Exception:
             LOGGER.warning("profile cache write failed for symbol '%s'", normalized, exc_info=True)
+        if self._cache_enabled:
+            self._profile_inmem_cache.set(normalized, visible_profile)
         return visible_profile
 
     def get_holdings_summary(self, symbols_csv: str) -> HoldingsSummaryResponse:
@@ -824,8 +842,17 @@ class MarketDataService:
 
     def _get_profile_with_swr(self, symbol: str) -> dict[str, Any]:
         normalized = self._normalize_symbol(symbol)
+
+        # Fast path: in-memory cache (avoids MongoDB round-trip per holding)
+        if self._cache_enabled:
+            mem_profile = self._profile_inmem_cache.get(normalized)
+            if mem_profile is not None:
+                return {"name": mem_profile.company_name, "sector": mem_profile.sector, "country": mem_profile.country, "currency": mem_profile.currency, "provider": "in_memory_cache", "cache_status": "fresh_cache"}
+
         cached = self._profile_repository.get(normalized)
         if cached is not None and self._is_fresh(cached.fetched_at):
+            if self._cache_enabled:
+                self._profile_inmem_cache.set(normalized, cached.visible_profile)
             return {"name": cached.visible_profile.company_name, "sector": cached.visible_profile.sector, "country": cached.visible_profile.country, "currency": cached.visible_profile.currency, "provider": cached.source, "cache_status": "fresh_cache"}
         if cached is not None:
             self._trigger_background_refresh("profile", normalized, self._refresh_profile_now)
@@ -1051,6 +1078,8 @@ class MarketDataService:
                 visible_profile=visible_profile.model_dump(),
                 persistence_only_profile=persistence_only_profile.model_dump(),
             )
+            if self._cache_enabled:
+                self._profile_inmem_cache.set(symbol, visible_profile)
             return {"name": visible_profile.company_name, "sector": visible_profile.sector, "country": visible_profile.country, "currency": visible_profile.currency, "provider": "fmp_profile_v2"}
 
     def _refresh_price_now(self, symbol: str) -> dict[str, Any] | None:

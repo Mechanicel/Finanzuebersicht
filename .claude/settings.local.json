@@ -18,7 +18,8 @@
       "Bash(curl -s \"http://localhost:8005/api/v1/marketdata/instruments/EURUSD%3DX/history?range=3m\")",
       "Bash(npx vue-tsc:*)",
       "Bash(git add:*)",
-      "Bash(git commit -m ':*)"
+      "Bash(git commit -m ':*)",
+      "Bash(git checkout:*)"
     ]
   }
 }
