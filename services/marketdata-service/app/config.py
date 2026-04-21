@@ -50,6 +50,10 @@ class Settings(ServiceSettings):
         default="marketdata_financials_cache",
         alias="MARKETDATA_FINANCIALS_CACHE_COLLECTION",
     )
+    marketdata_etf_cache_collection: str = Field(
+        default="marketdata_etf_cache",
+        alias="MARKETDATA_ETF_CACHE_COLLECTION",
+    )
 
     def resolved_mongo_uri(self) -> str:
         if self.mongo_uri and self.mongo_uri.strip():

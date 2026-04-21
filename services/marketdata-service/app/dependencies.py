@@ -12,8 +12,10 @@ from app.clients.yfinance_client import YFinanceClient
 from app.config import get_settings
 from app.repositories import (
     CurrentPriceCacheRepository,
+    EtfDataCacheRepository,
     FinancialsCacheRepository,
     InMemoryCurrentPriceCacheRepository,
+    InMemoryEtfDataCacheRepository,
     InMemoryFinancialsCacheRepository,
     InMemoryInstrumentProfileCacheRepository,
     InMemoryPriceHistoryCacheRepository,
@@ -166,6 +168,22 @@ def get_price_history_repository() -> PriceHistoryCacheRepository | InMemoryPric
 
 
 @lru_cache
+def get_etf_repository() -> EtfDataCacheRepository | InMemoryEtfDataCacheRepository:
+    settings = get_settings()
+    if not settings.marketdata_mongo_enabled:
+        return InMemoryEtfDataCacheRepository()
+    try:
+        database = _get_mongo_database()
+        if database is None:
+            return InMemoryEtfDataCacheRepository()
+        collection = database[settings.marketdata_etf_cache_collection]
+        return EtfDataCacheRepository(collection=collection)
+    except PyMongoError:
+        LOGGER.warning("etf_repo: mongo unavailable, falling back to in-memory", exc_info=True)
+        return InMemoryEtfDataCacheRepository()
+
+
+@lru_cache
 def get_financials_repository() -> FinancialsCacheRepository | InMemoryFinancialsCacheRepository:
     started_at = time.perf_counter()
     LOGGER.info("search_trace dependency_financials_repo_start")
@@ -211,6 +229,7 @@ def get_marketdata_service() -> MarketDataService:
         current_price_repository=get_current_price_repository(),
         price_history_repository=get_price_history_repository(),
         financials_repository=get_financials_repository(),
+        etf_repository=get_etf_repository(),
         cache_enabled=settings.cache_enabled,
         profile_cache_ttl_seconds=settings.marketdata_profile_cache_ttl_seconds,
         financials_cache_ttl_seconds=settings.marketdata_financials_cache_ttl_seconds,

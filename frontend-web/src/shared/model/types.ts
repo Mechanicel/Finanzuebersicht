@@ -398,8 +398,11 @@ export interface DepotInstrumentBenchmarkSearchResult {
   total: number
 }
 
+export type InstrumentType = 'EQUITY' | 'ETF' | 'MUTUALFUND' | 'INDEX' | 'UNKNOWN'
+
 export interface DepotInstrumentFundamentals {
   symbol: string
+  instrument_type?: InstrumentType | null
   company_name?: string | null
   sector?: string | null
   country?: string | null
@@ -407,17 +410,72 @@ export interface DepotInstrumentFundamentals {
   exchange?: string | null
   website?: string | null
   description?: string | null
+  // Market data from yfinance info
+  market_cap?: number | null
+  enterprise_value?: number | null
+  trailing_pe?: number | null
+  forward_pe?: number | null
+  price_to_book?: number | null
+  dividend_yield?: number | null
+  beta?: number | null
+  fifty_two_week_high?: number | null
+  fifty_two_week_low?: number | null
+  profit_margins?: number | null
+  gross_margins?: number | null
+  operating_margins?: number | null
+  return_on_assets?: number | null
+  return_on_equity?: number | null
+  earnings_per_share?: number | null
+  forward_eps?: number | null
+  revenue_growth?: number | null
+  debt_to_equity?: number | null
+  current_ratio?: number | null
+  ebitda?: number | null
+  total_revenue?: number | null
+  // ETF from info
+  total_assets_aum?: number | null
+  fund_family?: string | null
+  fund_inception_date?: string | null
+  fund_yield?: number | null
+  ytd_return?: number | null
   [key: string]: unknown
+}
+
+export interface EtfHolding {
+  symbol: string
+  name?: string | null
+  weight?: number | null
+}
+
+export interface EtfData {
+  symbol: string
+  instrument_type: InstrumentType
+  aum?: number | null
+  fund_family?: string | null
+  inception_date?: string | null
+  legal_type?: string | null
+  expense_ratio?: number | null
+  fund_yield?: number | null
+  ytd_return?: number | null
+  three_year_return?: number | null
+  five_year_return?: number | null
+  top_holdings: EtfHolding[]
+  sector_weights: Record<string, number>
+  asset_classes: Record<string, number>
+  equity_holdings: Record<string, number>
+  fetched_at?: string | null
 }
 
 export interface DepotInstrumentFinancials {
   symbol: string
   period: 'annual' | 'quarterly'
+  instrument_type?: InstrumentType | null
   currency?: string | null
+  etf_data?: EtfData | null
   statements?: {
-    income_statement?: DepotInstrumentFinancialStatementRow[]
+    income_statement?: DepotInstrumentIncomeStatementRow[]
     balance_sheet?: DepotInstrumentBalanceSheetStatementRow[]
-    cash_flow?: DepotInstrumentFinancialStatementRow[]
+    cash_flow?: DepotInstrumentCashFlowRow[]
   }
   derived?: DepotInstrumentFinancialDerivedFields
   meta?: DepotInstrumentFinancialMeta
@@ -441,11 +499,64 @@ export interface DepotInstrumentBalanceSheetStatementRow extends DepotInstrument
   cashAndShortTermInvestments?: number | null
   totalDebt?: number | null
   netDebt?: number | null
+  shortTermDebt?: number | null
+  longTermDebt?: number | null
+  accountsReceivable?: number | null
+  inventory?: number | null
+  accountsPayable?: number | null
+  retainedEarnings?: number | null
+  goodwillAndIntangibles?: number | null
+  netPPE?: number | null
+  workingCapital?: number | null
+}
+
+export interface DepotInstrumentIncomeStatementRow extends DepotInstrumentFinancialStatementRow {
+  revenue?: number | null
+  costOfRevenue?: number | null
+  grossProfit?: number | null
+  grossMargin?: number | null
+  operatingIncome?: number | null
+  operatingMargin?: number | null
+  ebitda?: number | null
+  ebit?: number | null
+  netIncome?: number | null
+  netMargin?: number | null
+  interestExpense?: number | null
+  taxProvision?: number | null
+  pretaxIncome?: number | null
+  epsDiluted?: number | null
+  depreciationAmortization?: number | null
+}
+
+export interface DepotInstrumentCashFlowRow extends DepotInstrumentFinancialStatementRow {
+  operatingCashFlow?: number | null
+  capitalExpenditure?: number | null
+  freeCashFlow?: number | null
+  dividendsPaid?: number | null
+  shareRepurchase?: number | null
+  issuanceOfDebt?: number | null
+  repaymentOfDebt?: number | null
+  changeInWorkingCapital?: number | null
+  investingCashFlow?: number | null
+  financingCashFlow?: number | null
 }
 
 export interface DepotInstrumentFinancialDerivedFields {
-  latest_balance_sheet?: DepotInstrumentBalanceSheetStatementRow | null
-  balance_sheet_periods?: number | null
+  latest_period_date?: string | null
+  total_debt?: number | null
+  net_debt?: number | null
+  free_cash_flow?: number | null
+  roe?: number | null
+  roa?: number | null
+  debt_to_equity?: number | null
+  current_ratio?: number | null
+  gross_margin?: number | null
+  operating_margin?: number | null
+  net_margin?: number | null
+  ebitda?: number | null
+  ebitda_margin?: number | null
+  market_cap?: number | null
+  beta?: number | null
   [key: string]: unknown
 }
 

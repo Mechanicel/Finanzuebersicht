@@ -125,6 +125,14 @@ def instrument_financials(
     return ApiResponse(data=service.get_instrument_financials(symbol, period))
 
 
+@router.get("/marketdata/instruments/{symbol}/etf-data", response_model=ApiResponse[dict])
+def instrument_etf_data(
+    symbol: str,
+    service: MarketDataService = Depends(get_marketdata_service),
+) -> ApiResponse[dict]:
+    return ApiResponse(data=service.get_instrument_etf_data(symbol))
+
+
 @router.get("/marketdata/instruments/{symbol}/risk", response_model=ApiResponse[dict])
 def instrument_risk(
     symbol: str,

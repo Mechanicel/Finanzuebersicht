@@ -8,10 +8,13 @@ from pymongo.collection import Collection
 from app.models import (
     CachedInstrumentProfile,
     CurrentPriceCacheDocument,
+    EtfData,
+    EtfDataCacheDocument,
     FinancialStatements,
     FinancialsCacheDocument,
     FinancialsPeriod,
     InstrumentProfile,
+    InstrumentType,
     PersistenceOnlyInstrumentProfile,
     PriceHistoryCacheDocument,
     PriceHistoryRow,
@@ -334,3 +337,50 @@ class InMemoryFinancialsCacheRepository:
     def upsert_document(self, document: FinancialsCacheDocument) -> FinancialsCacheDocument:
         self._data[(document.symbol, document.period)] = document
         return document
+
+
+class EtfDataCacheRepository:
+    def __init__(self, collection: Collection) -> None:
+        self._collection = collection
+        self._collection.create_index([("symbol", ASCENDING)], unique=True)
+
+    def get(self, symbol: str) -> EtfDataCacheDocument | None:
+        document = self._collection.find_one({"symbol": symbol})
+        if document is None:
+            return None
+        return self._to_document(document)
+
+    def upsert_document(self, document: EtfDataCacheDocument) -> None:
+        self._collection.update_one(
+            {"symbol": document.symbol},
+            {"$set": document.model_dump()},
+            upsert=True,
+        )
+
+    @staticmethod
+    def _to_document(document: dict) -> EtfDataCacheDocument | None:
+        fetched_at = document.get("fetched_at")
+        if not isinstance(fetched_at, datetime):
+            return None
+        if fetched_at.tzinfo is None:
+            fetched_at = fetched_at.replace(tzinfo=UTC)
+        try:
+            return EtfDataCacheDocument(
+                symbol=str(document["symbol"]),
+                instrument_type=document.get("instrument_type", "ETF"),
+                etf_data=EtfData.model_validate(document.get("etf_data", {})),
+                fetched_at=fetched_at,
+            )
+        except (KeyError, TypeError, ValueError):
+            return None
+
+
+class InMemoryEtfDataCacheRepository:
+    def __init__(self) -> None:
+        self._data: dict[str, EtfDataCacheDocument] = {}
+
+    def get(self, symbol: str) -> EtfDataCacheDocument | None:
+        return self._data.get(symbol)
+
+    def upsert_document(self, document: EtfDataCacheDocument) -> None:
+        self._data[document.symbol] = document
