@@ -25,6 +25,7 @@ from app.models import (
 )
 from app.repositories import (
     InMemoryCurrentPriceCacheRepository,
+    InMemoryEtfDataCacheRepository,
     InMemoryFinancialsCacheRepository,
     InMemoryInstrumentProfileCacheRepository,
     InMemoryPriceHistoryCacheRepository,
@@ -260,13 +261,14 @@ class BrokenRepository:
         raise RuntimeError("mongo unavailable")
 
 
-def build_service(*, ttl_seconds: int = 300, yfinance_client: FakeYFinanceClient | None = None):
+def build_service(*, ttl_seconds: int = 300, yfinance_client: FakeYFinanceClient | None = None, financials_ttl_seconds: int = 3600):
     client = FakeFMPClient()
     yf_client = yfinance_client or FakeYFinanceClient(FakeYFinance())
     profile_repository = InMemoryInstrumentProfileCacheRepository()
     current_price_repository = InMemoryCurrentPriceCacheRepository()
     history_repository = InMemoryPriceHistoryCacheRepository()
     financials_repository = InMemoryFinancialsCacheRepository()
+    etf_repository = InMemoryEtfDataCacheRepository()
     service = MarketDataService(
         fmp_client=client,
         yfinance_client=yf_client,
@@ -274,9 +276,10 @@ def build_service(*, ttl_seconds: int = 300, yfinance_client: FakeYFinanceClient
         current_price_repository=current_price_repository,
         price_history_repository=history_repository,
         financials_repository=financials_repository,
+        etf_repository=etf_repository,
         cache_enabled=True,
         profile_cache_ttl_seconds=ttl_seconds,
-        financials_cache_ttl_seconds=3600,
+        financials_cache_ttl_seconds=financials_ttl_seconds,
     )
     return service, client, profile_repository, current_price_repository, history_repository, financials_repository
 
@@ -334,6 +337,7 @@ def test_profile_with_unavailable_repository_falls_back_to_fmp() -> None:
         current_price_repository=InMemoryCurrentPriceCacheRepository(),
         price_history_repository=InMemoryPriceHistoryCacheRepository(),
         financials_repository=InMemoryFinancialsCacheRepository(),
+        etf_repository=InMemoryEtfDataCacheRepository(),
         cache_enabled=True,
         profile_cache_ttl_seconds=300,
         financials_cache_ttl_seconds=3600,
@@ -678,7 +682,7 @@ def test_financials_cache_miss_loads_balance_sheet_and_stores() -> None:
     assert len(payload["statements"]["balance_sheet"]) == 1
     assert payload["statements"]["balance_sheet"][0]["totalAssets"] == 110.0
     assert payload["statements"]["balance_sheet"][0]["fiscalYear"] == "2025"
-    assert payload["meta"]["source"] == "yfinance_financials_v2"
+    assert payload["meta"]["source"] == "yfinance_financials_v3"
     assert payload["meta"]["warnings"] == []
     assert payload["meta"]["coverage"] == {
         "income_statement": "integrated",
@@ -747,7 +751,7 @@ def test_financials_uses_fmp_when_yfinance_is_empty() -> None:
 
     assert fake_yf_client.balance_sheet_calls == [("EMPTY", "annual")]
     assert client.balance_sheet_calls == [("EMPTY", "annual")]
-    assert payload["meta"]["source"] == "fmp_balance_sheet_v2"
+    assert payload["meta"]["source"] == "fmp_balance_sheet_v3"
     codes = [warning["code"] for warning in payload["meta"]["warnings"]]
     assert "yfinance_balance_sheet_empty" in codes
 
@@ -761,7 +765,7 @@ def test_financials_uses_fmp_when_yfinance_errors() -> None:
 
     assert fake_yf_client.balance_sheet_calls == [("CBK.DE", "annual")]
     assert client.balance_sheet_calls == [("CBK.DE", "annual")]
-    assert payload["meta"]["source"] == "fmp_balance_sheet_v2"
+    assert payload["meta"]["source"] == "fmp_balance_sheet_v3"
     codes = [warning["code"] for warning in payload["meta"]["warnings"]]
     assert "yfinance_balance_sheet_failed" in codes
 
@@ -769,7 +773,8 @@ def test_financials_uses_fmp_when_yfinance_errors() -> None:
 def test_financials_both_providers_fail_uses_stale_cache() -> None:
     fake_yf_client = FakeYFinanceClient(FakeYFinance())
     fake_yf_client._raise_balance_sheet_error = True
-    service, client, _, _, _, _ = build_service(yfinance_client=fake_yf_client)
+    # financials_ttl_seconds=-1 so the seeded cache is always considered stale, forcing a re-fetch on the second call
+    service, client, _, _, _, _ = build_service(yfinance_client=fake_yf_client, financials_ttl_seconds=-1)
     _ = service.get_instrument_financials("CBK.DE", "annual")
 
     def fail_balance_sheet_statement(*, symbol: str, period: str):
@@ -801,7 +806,7 @@ def test_financials_quarterly_empty_yfinance_falls_back_to_fmp() -> None:
     assert fake_yf_client.balance_sheet_calls == [("EMPTY", "quarterly")]
     assert client.balance_sheet_calls == [("EMPTY", "quarterly")]
     assert payload["period"] == "quarterly"
-    assert payload["meta"]["source"] == "fmp_balance_sheet_v2"
+    assert payload["meta"]["source"] == "fmp_balance_sheet_v3"
 
 
 def test_timeseries_supports_normalized_close_and_returns() -> None:

@@ -9,6 +9,7 @@ import type {
   DepotInstrumentRisk,
   DepotInstrumentTimeseries,
   DepotMarketdataHoldingsSummary,
+  EtfData,
   PortfolioDetailReadModel,
   PortfolioListReadModel
 } from '@/shared/model/types'
@@ -80,4 +81,8 @@ export async function fetchInstrumentFinancials(symbol: string, period: 'annual'
       params: { period }
     })
   ).data.data
+}
+
+export async function fetchInstrumentEtfData(symbol: string) {
+  return (await http.get<ApiEnvelope<EtfData>>(`/app/marketdata/instruments/${symbol}/etf-data`)).data.data
 }

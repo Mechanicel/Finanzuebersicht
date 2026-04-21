@@ -17,6 +17,8 @@ from app.models import (
     BatchPricesResponse,
     BalanceSheetStatement,
     CacheStatus,
+    EtfData,
+    EtfDataCacheDocument,
     FinancialStatements,
     FinancialsCacheDocument,
     FinancialsPeriod,
@@ -30,6 +32,7 @@ from app.models import (
     InstrumentProfile,
     InstrumentSearchItem,
     InstrumentSearchResponse,
+    InstrumentType,
     MetaWarning,
     NotFoundError,
     PersistenceOnlyInstrumentProfile,
@@ -40,8 +43,10 @@ from app.models import (
 )
 from app.repositories import (
     CurrentPriceCacheRepository,
+    EtfDataCacheRepository,
     FinancialsCacheRepository,
     InMemoryCurrentPriceCacheRepository,
+    InMemoryEtfDataCacheRepository,
     InMemoryFinancialsCacheRepository,
     InMemoryInstrumentProfileCacheRepository,
     InMemoryPriceHistoryCacheRepository,
@@ -66,6 +71,10 @@ class MarketDataService:
     METRICS_CACHE_TTL_SECONDS = 300
     FUNDAMENTALS_CACHE_MAX_SIZE = 512
     FUNDAMENTALS_CACHE_TTL_SECONDS = 3600
+    ETF_DATA_CACHE_MAX_SIZE = 512
+    ETF_DATA_CACHE_TTL_SECONDS = 86400
+    YFINANCE_INFO_CACHE_MAX_SIZE = 512
+    YFINANCE_INFO_CACHE_TTL_SECONDS = 3600
     BENCHMARK_CATALOG_CACHE_MAX_SIZE = 8
     BENCHMARK_CATALOG_CACHE_TTL_SECONDS = 86400
     NEGATIVE_REFRESH_CACHE_MAX_SIZE = 2048
@@ -82,6 +91,7 @@ class MarketDataService:
         current_price_repository: CurrentPriceCacheRepository | InMemoryCurrentPriceCacheRepository,
         price_history_repository: PriceHistoryCacheRepository | InMemoryPriceHistoryCacheRepository,
         financials_repository: FinancialsCacheRepository | InMemoryFinancialsCacheRepository,
+        etf_repository: EtfDataCacheRepository | InMemoryEtfDataCacheRepository,
         cache_enabled: bool,
         profile_cache_ttl_seconds: int,
         financials_cache_ttl_seconds: int,
@@ -92,6 +102,7 @@ class MarketDataService:
         self._current_price_repository = current_price_repository
         self._price_history_repository = price_history_repository
         self._financials_repository = financials_repository
+        self._etf_repository = etf_repository
         self._cache_enabled = cache_enabled
         self._profile_cache_ttl_seconds = profile_cache_ttl_seconds
         self._financials_cache_ttl_seconds = financials_cache_ttl_seconds
@@ -99,6 +110,8 @@ class MarketDataService:
         self._snapshot_cache = TtlLruCache(max_size=self.SNAPSHOT_CACHE_MAX_SIZE, ttl_seconds=self.SNAPSHOT_CACHE_TTL_SECONDS)
         self._metrics_cache = TtlLruCache(max_size=self.METRICS_CACHE_MAX_SIZE, ttl_seconds=self.METRICS_CACHE_TTL_SECONDS)
         self._fundamentals_cache = TtlLruCache(max_size=self.FUNDAMENTALS_CACHE_MAX_SIZE, ttl_seconds=self.FUNDAMENTALS_CACHE_TTL_SECONDS)
+        self._etf_data_cache = TtlLruCache(max_size=self.ETF_DATA_CACHE_MAX_SIZE, ttl_seconds=self.ETF_DATA_CACHE_TTL_SECONDS)
+        self._yfinance_info_cache = TtlLruCache(max_size=self.YFINANCE_INFO_CACHE_MAX_SIZE, ttl_seconds=self.YFINANCE_INFO_CACHE_TTL_SECONDS)
         self._benchmark_catalog_cache = TtlLruCache(
             max_size=self.BENCHMARK_CATALOG_CACHE_MAX_SIZE,
             ttl_seconds=self.BENCHMARK_CATALOG_CACHE_TTL_SECONDS,
@@ -382,8 +395,11 @@ class MarketDataService:
                 return cached
 
         profile = self.get_instrument_profile(normalized)
-        payload = {
+        instrument_type = self._get_instrument_type(normalized)
+
+        payload: dict[str, Any] = {
             "symbol": normalized,
+            "instrument_type": instrument_type,
             "company_name": profile.company_name,
             "sector": profile.sector,
             "industry": profile.industry,
@@ -393,8 +409,93 @@ class MarketDataService:
             "currency": profile.currency,
             "source": "profile_cache",
         }
+
+        # Enrich with yfinance info (market data, ratios) – non-blocking if unavailable
+        try:
+            info = self._get_yfinance_info(normalized)
+            if info:
+                payload.update({
+                    "market_cap": info.get("market_cap"),
+                    "enterprise_value": info.get("enterprise_value"),
+                    "trailing_pe": info.get("trailing_pe"),
+                    "forward_pe": info.get("forward_pe"),
+                    "price_to_book": info.get("price_to_book"),
+                    # trailing_annual_dividend_yield is always a decimal fraction (e.g. 0.021);
+                    # dividendYield from yfinance.info can be a percentage (2.09) — prefer the former.
+                    "dividend_yield": info.get("trailing_annual_dividend_yield") or info.get("dividend_yield"),
+                    "beta": info.get("beta"),
+                    "fifty_two_week_high": info.get("fifty_two_week_high"),
+                    "fifty_two_week_low": info.get("fifty_two_week_low"),
+                    "average_volume": info.get("average_volume"),
+                    "profit_margins": info.get("profit_margins"),
+                    "gross_margins": info.get("gross_margins"),
+                    "operating_margins": info.get("operating_margins"),
+                    "return_on_assets": info.get("return_on_assets"),
+                    "return_on_equity": info.get("return_on_equity"),
+                    "earnings_per_share": info.get("earnings_per_share"),
+                    "forward_eps": info.get("forward_eps"),
+                    "revenue_growth": info.get("revenue_growth"),
+                    "debt_to_equity": info.get("debt_to_equity"),
+                    "current_ratio": info.get("current_ratio"),
+                    "quick_ratio": info.get("quick_ratio"),
+                    "ebitda": info.get("ebitda"),
+                    "total_revenue": info.get("total_revenue"),
+                    # ETF-specific from info
+                    "total_assets_aum": info.get("total_assets"),
+                    "fund_family": info.get("fund_family"),
+                    "fund_inception_date": info.get("fund_inception_date"),
+                    "fund_yield": info.get("yield"),
+                    "ytd_return": info.get("ytd_return"),
+                    "source": "profile_cache+yfinance_info",
+                })
+        except Exception:
+            LOGGER.debug("yfinance info enrichment failed for %s", normalized, exc_info=True)
+
         if self._cache_enabled:
             self._fundamentals_cache.set(normalized, payload)
+        return payload
+
+    def get_instrument_etf_data(self, symbol: str) -> dict[str, Any]:
+        normalized = self._normalize_symbol(symbol)
+
+        # In-memory cache first
+        if self._cache_enabled:
+            cached = self._etf_data_cache.get(normalized)
+            if cached is not None:
+                return cached
+
+        # MongoDB cache
+        cached_doc = self._etf_repository.get(normalized)
+        if cached_doc is not None and self._is_etf_data_fresh(cached_doc.fetched_at):
+            payload = self._etf_doc_to_payload(cached_doc)
+            if self._cache_enabled:
+                self._etf_data_cache.set(normalized, payload)
+            return payload
+
+        # Fetch from yfinance
+        instrument_type = self._get_instrument_type(normalized)
+        try:
+            raw = self._yfinance_client.fetch_etf_data(normalized)
+        except UpstreamServiceError:
+            if cached_doc is not None:
+                return self._etf_doc_to_payload(cached_doc)
+            raise
+
+        etf_data = EtfData.model_validate(raw)
+        document = EtfDataCacheDocument(
+            symbol=normalized,
+            instrument_type=instrument_type,
+            etf_data=etf_data,
+            fetched_at=utcnow(),
+        )
+        try:
+            self._etf_repository.upsert_document(document)
+        except Exception:
+            LOGGER.warning("etf cache write failed for %s", normalized, exc_info=True)
+
+        payload = self._etf_doc_to_payload(document)
+        if self._cache_enabled:
+            self._etf_data_cache.set(normalized, payload)
         return payload
 
     def get_instrument_metrics(self, symbol: str) -> dict[str, Any]:
@@ -433,9 +534,39 @@ class MarketDataService:
         if period not in {"annual", "quarterly"}:
             raise BadRequestError("period must be annual or quarterly")
         financials_period = cast(FinancialsPeriod, period)
+
+        # ETF/fund guard: financial statements don't exist for funds
+        instrument_type = self._get_instrument_type(normalized)
+        if instrument_type in ("ETF", "MUTUALFUND"):
+            etf_payload = self.get_instrument_etf_data(normalized)
+            return {
+                "symbol": normalized,
+                "period": period,
+                "instrument_type": instrument_type,
+                "etf_data": etf_payload,
+                "statements": {"income_statement": [], "balance_sheet": [], "cash_flow": []},
+                "derived": {},
+                "meta": {
+                    "warnings": [
+                        {
+                            "code": "etf_no_financial_statements",
+                            "message": "Dieses Instrument ist ein ETF/Fonds. Finanzberichte sind nicht verfügbar.",
+                        }
+                    ],
+                    "source": "etf_data",
+                    "coverage": {
+                        "income_statement": "not_applicable",
+                        "balance_sheet": "not_applicable",
+                        "cash_flow": "not_applicable",
+                    },
+                },
+            }
+
         warnings: list[dict[str, str]] = []
         cached = self._financials_repository.get(normalized, financials_period)
-        if cached is not None and self._is_financials_fresh(cached.fetched_at):
+        # Skip cache entries written before the enrichment fields were added (v2 → v3 bump invalidates them)
+        _deprecated_sources = {"yfinance_financials_v2", "fmp_balance_sheet_v2"}
+        if cached is not None and self._is_financials_fresh(cached.fetched_at) and cached.source not in _deprecated_sources:
             return self._financials_document_to_payload(cached, warnings=warnings)
 
         income_statement_rows: list[dict[str, Any]] = []
@@ -478,10 +609,12 @@ class MarketDataService:
 
         if yfinance_rows:
             currency = yfinance_rows[0].reported_currency if yfinance_rows else None
+            if currency is None:
+                currency = self._get_financial_currency(normalized)
             document = FinancialsCacheDocument(
                 symbol=normalized,
                 period=financials_period,
-                source="yfinance_financials_v2",
+                source="yfinance_financials_v3",
                 currency=currency or self._detect_statement_currency(income_statement_rows, cash_flow_rows),
                 statements=FinancialStatements(
                     income_statement=income_statement_rows,
@@ -514,7 +647,7 @@ class MarketDataService:
             document = FinancialsCacheDocument(
                 symbol=normalized,
                 period=financials_period,
-                source="fmp_balance_sheet_v2",
+                source="fmp_balance_sheet_v3",
                 currency=currency or self._detect_statement_currency(income_statement_rows, cash_flow_rows),
                 statements=FinancialStatements(
                     income_statement=income_statement_rows,
@@ -760,14 +893,22 @@ class MarketDataService:
 
     def get_instrument_full(self, symbol: str) -> dict[str, Any]:
         normalized = self._normalize_symbol(symbol)
-        return {
+        instrument_type = self._get_instrument_type(normalized)
+        result: dict[str, Any] = {
             "symbol": normalized,
+            "instrument_type": instrument_type,
             "snapshot": self.get_instrument_snapshot(normalized),
             "fundamentals": self.get_instrument_fundamentals(normalized),
             "metrics": self.get_instrument_metrics(normalized),
             "financials": self.get_instrument_financials(normalized, "annual"),
             "risk": self.get_instrument_risk(normalized, "SPY"),
         }
+        if instrument_type in ("ETF", "MUTUALFUND"):
+            try:
+                result["etf_data"] = self.get_instrument_etf_data(normalized)
+            except Exception:
+                LOGGER.debug("etf_data fetch failed for %s in get_instrument_full", normalized, exc_info=True)
+        return result
 
     def refresh_instrument_price(self, symbol: str) -> InstrumentPriceRefreshResponse:
         normalized = symbol.strip().upper()
@@ -907,6 +1048,81 @@ class MarketDataService:
         filtered_rows = cache_document.history_rows if cutoff is None else [row for row in cache_document.history_rows if row.date >= cutoff]
         filtered_rows.sort(key=lambda row: row.date)
         return {"points": [InstrumentHistoryPoint(date=row.date, close=row.close) for row in filtered_rows], "cache_present": True, "updated_at": cache_document.updated_at, "cache_status": cache_status}
+
+    def _get_instrument_type(self, symbol: str) -> InstrumentType:
+        """Determine instrument type: check FMP profile first, then yfinance info."""
+        cached = self._profile_repository.get(symbol)
+        if cached is not None:
+            p = cached.persistence_only_profile
+            if p.is_etf:
+                return "ETF"
+            if p.is_fund:
+                return "MUTUALFUND"
+            # FMP profile exists but not flagged as ETF/fund → assume EQUITY
+            # (may also be from yfinance info if available)
+            try:
+                info = self._yfinance_info_cache.get(symbol)
+                if info is not None:
+                    return self._quote_type_to_instrument_type(info.get("quote_type"))
+            except Exception:
+                pass
+            return "EQUITY"
+
+        # No FMP profile cached yet – try yfinance info cache
+        try:
+            info = self._yfinance_info_cache.get(symbol)
+            if info is not None:
+                return self._quote_type_to_instrument_type(info.get("quote_type"))
+        except Exception:
+            pass
+        return "UNKNOWN"
+
+    def _get_yfinance_info(self, symbol: str) -> dict[str, Any]:
+        """Fetch ticker.info with in-memory TTL cache (1h). Expensive call – use sparingly."""
+        cached = self._yfinance_info_cache.get(symbol)
+        if cached is not None:
+            return cached
+        try:
+            info = self._yfinance_client.fetch_info(symbol)
+            self._yfinance_info_cache.set(symbol, info)
+            return info
+        except Exception:
+            LOGGER.debug("yfinance fetch_info failed for %s", symbol, exc_info=True)
+            return {}
+
+    def _get_financial_currency(self, symbol: str) -> str | None:
+        """Get financial reporting currency from yfinance info cache (non-blocking)."""
+        try:
+            info = self._yfinance_info_cache.get(symbol)
+            if info is None:
+                info = self._get_yfinance_info(symbol)
+            return info.get("financial_currency") or info.get("currency")
+        except Exception:
+            return None
+
+    @staticmethod
+    def _quote_type_to_instrument_type(quote_type: str | None) -> InstrumentType:
+        mapping: dict[str, InstrumentType] = {
+            "EQUITY": "EQUITY",
+            "ETF": "ETF",
+            "MUTUALFUND": "MUTUALFUND",
+            "INDEX": "INDEX",
+        }
+        if quote_type is None:
+            return "UNKNOWN"
+        return mapping.get(quote_type.upper(), "UNKNOWN")
+
+    def _is_etf_data_fresh(self, fetched_at) -> bool:
+        return utcnow() - fetched_at <= timedelta(seconds=self.ETF_DATA_CACHE_TTL_SECONDS)
+
+    @staticmethod
+    def _etf_doc_to_payload(document: EtfDataCacheDocument) -> dict[str, Any]:
+        return {
+            "symbol": document.symbol,
+            "instrument_type": document.instrument_type,
+            "fetched_at": document.fetched_at.isoformat(),
+            **document.etf_data.model_dump(by_alias=False),
+        }
 
     def _extract_market_cap(self, symbol: str) -> float | None:
         cached = self._profile_repository.get(symbol)
@@ -1214,29 +1430,31 @@ class MarketDataService:
         latest_date = latest_balance.get("date") or latest_income.get("date") or latest_cash_flow.get("date")
 
         total_debt = self._coerce_float(latest_balance.get("totalDebt"))
-        if total_debt is None:
-            short_term = self._coerce_float(latest_balance.get("shortTermDebt"))
-            long_term = self._coerce_float(latest_balance.get("longTermDebt"))
-            if short_term is not None and long_term is not None:
-                total_debt = short_term + long_term
-
         cash_and_equivalents = self._coerce_float(latest_balance.get("cashAndCashEquivalents"))
-        net_debt = (total_debt - cash_and_equivalents) if total_debt is not None and cash_and_equivalents is not None else None
+        net_debt = self._coerce_float(latest_balance.get("netDebt"))
+        if net_debt is None and total_debt is not None and cash_and_equivalents is not None:
+            net_debt = total_debt - cash_and_equivalents
 
         operating_cash_flow = self._coerce_float(latest_cash_flow.get("operatingCashFlow"))
         capital_expenditure = self._coerce_float(latest_cash_flow.get("capitalExpenditure"))
-        free_cash_flow = (
-            operating_cash_flow - capital_expenditure
-            if operating_cash_flow is not None and capital_expenditure is not None
-            else None
-        )
+        free_cash_flow = self._coerce_float(latest_cash_flow.get("freeCashFlow"))
+        if free_cash_flow is None and operating_cash_flow is not None and capital_expenditure is not None:
+            free_cash_flow = operating_cash_flow - capital_expenditure
 
         net_income = self._coerce_float(latest_income.get("netIncome"))
+        revenue = self._coerce_float(latest_income.get("revenue"))
+        gross_profit = self._coerce_float(latest_income.get("grossProfit"))
+        operating_income = self._coerce_float(latest_income.get("operatingIncome"))
+        ebitda = self._coerce_float(latest_income.get("ebitda"))
         total_equity = self._coerce_float(latest_balance.get("totalEquity"))
         total_assets = self._coerce_float(latest_balance.get("totalAssets"))
-        roe = (net_income / total_equity) if net_income is not None and total_equity not in (None, 0.0) else None
-        roa = (net_income / total_assets) if net_income is not None and total_assets not in (None, 0.0) else None
-        debt_to_equity = (total_debt / total_equity) if total_debt is not None and total_equity not in (None, 0.0) else None
+        current_assets = self._coerce_float(latest_balance.get("totalCurrentAssets"))
+        current_liabilities = self._coerce_float(latest_balance.get("totalCurrentLiabilities"))
+
+        def _ratio(num: float | None, denom: float | None) -> float | None:
+            if num is not None and denom not in (None, 0.0):
+                return num / denom
+            return None
 
         return {
             "market_cap": self._extract_market_cap(symbol),
@@ -1245,9 +1463,15 @@ class MarketDataService:
             "total_debt": total_debt,
             "net_debt": net_debt,
             "free_cash_flow": free_cash_flow,
-            "roe": roe,
-            "roa": roa,
-            "debt_to_equity": debt_to_equity,
+            "roe": _ratio(net_income, total_equity),
+            "roa": _ratio(net_income, total_assets),
+            "debt_to_equity": _ratio(total_debt, total_equity),
+            "current_ratio": _ratio(current_assets, current_liabilities),
+            "gross_margin": _ratio(gross_profit, revenue),
+            "operating_margin": _ratio(operating_income, revenue),
+            "net_margin": _ratio(net_income, revenue),
+            "ebitda": ebitda,
+            "ebitda_margin": _ratio(ebitda, revenue),
         }
 
     @staticmethod
@@ -1268,15 +1492,41 @@ class MarketDataService:
     def _map_income_statement_rows(symbol: str, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         mapped: list[dict[str, Any]] = []
         for row in rows:
+            revenue = row.get("revenue")
+            gross_profit = row.get("grossProfit")
+            operating_income = row.get("operatingIncome")
+            net_income = row.get("netIncome")
+            ebitda = row.get("ebitda")
+
+            # Compute margins inline so frontend gets them directly
+            def _margin(numerator: Any, denominator: Any) -> float | None:
+                if isinstance(numerator, (int, float)) and isinstance(denominator, (int, float)) and denominator != 0:
+                    return float(numerator) / float(denominator)
+                return None
+
             mapped.append(
                 {
                     "symbol": symbol,
                     "date": row.get("date"),
                     "calendarYear": row.get("calendarYear") or row.get("calendar_year"),
                     "period": row.get("period"),
-                    "revenue": row.get("revenue"),
-                    "operatingIncome": row.get("operatingIncome"),
-                    "netIncome": row.get("netIncome"),
+                    "revenue": revenue,
+                    "costOfRevenue": row.get("costOfRevenue"),
+                    "grossProfit": gross_profit,
+                    "grossMargin": _margin(gross_profit, revenue),
+                    "operatingIncome": operating_income,
+                    "operatingMargin": _margin(operating_income, revenue),
+                    "ebitda": ebitda,
+                    "ebit": row.get("ebit"),
+                    "netIncome": net_income,
+                    "netMargin": _margin(net_income, revenue),
+                    "interestExpense": row.get("interestExpense"),
+                    "taxProvision": row.get("taxProvision"),
+                    "pretaxIncome": row.get("pretaxIncome"),
+                    "totalExpenses": row.get("totalExpenses"),
+                    "sellingGeneralAdministrative": row.get("sellingGeneralAdministrative"),
+                    "depreciationAmortization": row.get("depreciationAmortization"),
+                    "epsDiluted": row.get("epsDiluted"),
                 }
             )
         return mapped
@@ -1288,7 +1538,7 @@ class MarketDataService:
             operating_cash_flow = row.get("operatingCashFlow")
             capital_expenditure = row.get("capitalExpenditure")
             free_cash_flow = row.get("freeCashFlow")
-            if free_cash_flow is None and isinstance(operating_cash_flow, int | float) and isinstance(capital_expenditure, int | float):
+            if free_cash_flow is None and isinstance(operating_cash_flow, (int, float)) and isinstance(capital_expenditure, (int, float)):
                 free_cash_flow = float(operating_cash_flow) - float(capital_expenditure)
             mapped.append(
                 {
@@ -1299,6 +1549,14 @@ class MarketDataService:
                     "operatingCashFlow": operating_cash_flow,
                     "capitalExpenditure": capital_expenditure,
                     "freeCashFlow": free_cash_flow,
+                    "dividendsPaid": row.get("dividendsPaid"),
+                    "shareRepurchase": row.get("shareRepurchase"),
+                    "issuanceOfDebt": row.get("issuanceOfDebt"),
+                    "repaymentOfDebt": row.get("repaymentOfDebt"),
+                    "changeInWorkingCapital": row.get("changeInWorkingCapital"),
+                    "depreciationAmortization": row.get("depreciationAmortization"),
+                    "investingCashFlow": row.get("investingCashFlow"),
+                    "financingCashFlow": row.get("financingCashFlow"),
                 }
             )
         return mapped
@@ -1309,17 +1567,39 @@ class MarketDataService:
         result["fiscalYear"] = row.get("calendarYear") or row.get("calendar_year")
         result["reportedCurrency"] = row.get("reportedCurrency") or row.get("reported_currency")
         result["totalEquity"] = row.get("totalStockholdersEquity")
+        result["totalCurrentAssets"] = row.get("currentAssets")
+        result["totalLiabilities"] = row.get("totalLiabilities")
+        result["totalCurrentLiabilities"] = row.get("currentLiabilities")
+        result["cashAndShortTermInvestments"] = row.get("cashAndShortTermInvestments")
+        result["goodwillAndIntangibles"] = row.get("goodwillAndIntangibles")
+        result["netPPE"] = row.get("netPPE")
+        result["accountsReceivable"] = row.get("accountsReceivable")
+        result["inventory"] = row.get("inventory")
+        result["accountsPayable"] = row.get("accountsPayable")
+        result["retainedEarnings"] = row.get("retainedEarnings")
+        result["workingCapital"] = row.get("workingCapital")
+
+        # totalDebt: prefer direct field from yfinance, fall back to short+long
+        total_debt_direct = row.get("totalDebtDirect")
         short_term_debt = row.get("shortTermDebt")
         long_term_debt = row.get("longTermDebt")
-        if isinstance(short_term_debt, (int, float)) or isinstance(long_term_debt, (int, float)):
-            result["totalDebt"] = (float(short_term_debt or 0.0) + float(long_term_debt or 0.0))
+        if isinstance(total_debt_direct, (int, float)):
+            result["totalDebt"] = float(total_debt_direct)
+        elif isinstance(short_term_debt, (int, float)) or isinstance(long_term_debt, (int, float)):
+            result["totalDebt"] = float(short_term_debt or 0.0) + float(long_term_debt or 0.0)
         else:
             result["totalDebt"] = None
+
+        # netDebt: prefer direct field from yfinance, fall back to computed
+        net_debt_direct = row.get("netDebtDirect")
         cash_and_equivalents = row.get("cashAndCashEquivalents")
-        if isinstance(result["totalDebt"], (int, float)) and isinstance(cash_and_equivalents, (int, float)):
+        if isinstance(net_debt_direct, (int, float)):
+            result["netDebt"] = float(net_debt_direct)
+        elif isinstance(result["totalDebt"], (int, float)) and isinstance(cash_and_equivalents, (int, float)):
             result["netDebt"] = float(result["totalDebt"]) - float(cash_and_equivalents)
         else:
             result["netDebt"] = None
+
         return result
 
     @staticmethod

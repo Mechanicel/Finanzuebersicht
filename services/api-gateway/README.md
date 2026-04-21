@@ -1,3 +1,4 @@
+
 # api-gateway (BFF)
 
 Das Gateway ist der zentrale Einstiegspunkt für das Frontend.

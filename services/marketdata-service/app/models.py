@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
-from typing import Literal
+from typing import Any, Literal
 
 
 CacheStatus = Literal[
@@ -13,6 +13,8 @@ CacheStatus = Literal[
     "cache_miss_pending",
     "provider_error_fallback",
 ]
+
+InstrumentType = Literal["EQUITY", "ETF", "MUTUALFUND", "INDEX", "UNKNOWN"]
 
 
 class InstrumentSearchItem(BaseModel):
@@ -37,6 +39,7 @@ class InstrumentProfile(BaseModel):
 
     symbol: str
     company_name: str = Field(validation_alias=AliasChoices("companyName", "company_name"))
+    instrument_type: InstrumentType | None = Field(default=None, validation_alias=AliasChoices("instrumentType", "instrument_type"))
     price: float | None = None
     currency: str | None = None
     isin: str | None = None
@@ -237,6 +240,36 @@ class FinancialsCacheDocument(BaseModel):
     source: str
     currency: str | None = None
     statements: FinancialStatements
+    fetched_at: datetime
+
+
+class EtfHolding(BaseModel):
+    symbol: str
+    name: str | None = None
+    weight: float | None = None
+
+
+class EtfData(BaseModel):
+    aum: float | None = None
+    fund_family: str | None = None
+    inception_date: str | None = None
+    legal_type: str | None = None
+    expense_ratio: float | None = None
+    fund_yield: float | None = Field(default=None, validation_alias=AliasChoices("yield", "fund_yield"))
+    ytd_return: float | None = None
+    three_year_return: float | None = None
+    five_year_return: float | None = None
+    top_holdings: list[EtfHolding] = Field(default_factory=list)
+    sector_weights: dict[str, float] = Field(default_factory=dict)
+    asset_classes: dict[str, float] = Field(default_factory=dict)
+    equity_holdings: dict[str, Any] = Field(default_factory=dict)
+    bond_holdings: dict[str, Any] = Field(default_factory=dict)
+
+
+class EtfDataCacheDocument(BaseModel):
+    symbol: str
+    instrument_type: InstrumentType
+    etf_data: EtfData
     fetched_at: datetime
 
 

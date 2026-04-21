@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from datetime import datetime
 from typing import Any
 
@@ -14,6 +15,190 @@ class YFinanceClient:
         except ImportError as exc:
             raise UpstreamServiceError("yfinance dependency is unavailable") from exc
         return yf
+
+    def fetch_info(self, symbol: str) -> dict[str, Any]:
+        """Fetch ticker.info and return a cleaned subset. Expensive (~500ms) – cache aggressively."""
+        try:
+            yf = self._get_yf_module()
+            ticker = yf.Ticker(symbol)
+            raw: dict[str, Any] = ticker.info or {}
+        except Exception as exc:
+            raise UpstreamServiceError("Market data provider temporarily unavailable") from exc
+        return self._clean_info(raw)
+
+    @staticmethod
+    def _clean_info(raw: dict[str, Any]) -> dict[str, Any]:
+        """Extract and sanitize the useful fields from ticker.info."""
+        def _float(key: str) -> float | None:
+            v = raw.get(key)
+            if isinstance(v, (int, float)) and math.isfinite(v):
+                return float(v)
+            return None
+
+        def _int(key: str) -> int | None:
+            v = raw.get(key)
+            if isinstance(v, (int, float)) and math.isfinite(v):
+                return int(v)
+            return None
+
+        def _str(key: str) -> str | None:
+            v = raw.get(key)
+            return str(v).strip() if isinstance(v, str) and v.strip() else None
+
+        return {
+            "quote_type": _str("quoteType"),
+            "financial_currency": _str("financialCurrency"),
+            "currency": _str("currency"),
+            "long_name": _str("longName"),
+            "short_name": _str("shortName"),
+            "sector": _str("sector"),
+            "industry": _str("industry"),
+            "long_business_summary": _str("longBusinessSummary"),
+            "market_cap": _float("marketCap"),
+            "enterprise_value": _float("enterpriseValue"),
+            "trailing_pe": _float("trailingPE"),
+            "forward_pe": _float("forwardPE"),
+            "price_to_book": _float("priceToBook"),
+            "dividend_yield": _float("dividendYield"),
+            "trailing_annual_dividend_yield": _float("trailingAnnualDividendYield"),
+            "beta": _float("beta"),
+            "fifty_two_week_high": _float("fiftyTwoWeekHigh"),
+            "fifty_two_week_low": _float("fiftyTwoWeekLow"),
+            "average_volume": _int("averageVolume"),
+            "total_cash": _float("totalCash"),
+            "total_debt": _float("totalDebt"),
+            "total_revenue": _float("totalRevenue"),
+            "ebitda": _float("ebitda"),
+            "profit_margins": _float("profitMargins"),
+            "gross_margins": _float("grossMargins"),
+            "operating_margins": _float("operatingMargins"),
+            "return_on_assets": _float("returnOnAssets"),
+            "return_on_equity": _float("returnOnEquity"),
+            "earnings_per_share": _float("trailingEps"),
+            "forward_eps": _float("forwardEps"),
+            "book_value": _float("bookValue"),
+            "revenue_growth": _float("revenueGrowth"),
+            "debt_to_equity": _float("debtToEquity"),
+            "current_ratio": _float("currentRatio"),
+            "quick_ratio": _float("quickRatio"),
+            "free_cashflow": _float("freeCashflow"),
+            "operating_cashflow": _float("operatingCashflow"),
+            # ETF-specific
+            "total_assets": _float("totalAssets"),
+            "fund_family": _str("fundFamily"),
+            "fund_inception_date": _str("fundInceptionDate"),
+            "legal_type": _str("legalType"),
+            "yield": _float("yield"),
+            "ytd_return": _float("ytdReturn"),
+            "three_year_average_return": _float("threeYearAverageReturn"),
+            "five_year_average_return": _float("fiveYearAverageReturn"),
+        }
+
+    def fetch_etf_data(self, symbol: str) -> dict[str, Any]:
+        """Fetch ETF-specific data: top holdings, sector weights, asset classes."""
+        try:
+            yf = self._get_yf_module()
+            ticker = yf.Ticker(symbol)
+            info = ticker.info or {}
+        except Exception as exc:
+            raise UpstreamServiceError("Market data provider temporarily unavailable") from exc
+
+        top_holdings: list[dict[str, Any]] = []
+        sector_weights: dict[str, float] = {}
+        asset_classes: dict[str, float] = {}
+        equity_holdings: dict[str, Any] = {}
+        bond_holdings: dict[str, Any] = {}
+
+        try:
+            fd = ticker.funds_data
+            # Top holdings
+            if fd is not None and hasattr(fd, "top_holdings") and fd.top_holdings is not None:
+                df = fd.top_holdings
+                for symbol_key, row in df.iterrows():
+                    try:
+                        holding: dict[str, Any] = {"symbol": str(symbol_key)}
+                        name = row.get("Name") or row.get("name")
+                        if name is not None:
+                            holding["name"] = str(name)
+                        pct = row.get("Holding Percent") or row.get("holdingPercent")
+                        if isinstance(pct, (int, float)) and math.isfinite(pct):
+                            holding["weight"] = float(pct)
+                        top_holdings.append(holding)
+                    except Exception:
+                        continue
+
+            # Sector weights
+            if fd is not None and hasattr(fd, "sector_weightings") and fd.sector_weightings:
+                for key, value in fd.sector_weightings.items():
+                    if isinstance(value, (int, float)) and math.isfinite(value):
+                        sector_weights[str(key)] = float(value)
+
+            # Asset classes
+            if fd is not None and hasattr(fd, "asset_classes") and fd.asset_classes:
+                for key, value in fd.asset_classes.items():
+                    if isinstance(value, (int, float)) and math.isfinite(value):
+                        asset_classes[str(key)] = float(value)
+
+            # Equity holdings (P/E, P/B etc.)
+            if fd is not None and hasattr(fd, "equity_holdings") and fd.equity_holdings is not None:
+                df_eq = fd.equity_holdings
+                for metric_name, row in df_eq.iterrows():
+                    try:
+                        fund_val = row.get(symbol, row.iloc[0] if len(row) > 0 else None)
+                        if fund_val is not None:
+                            try:
+                                fv = float(fund_val)
+                                if math.isfinite(fv):
+                                    equity_holdings[str(metric_name)] = fv
+                            except (TypeError, ValueError):
+                                pass
+                    except Exception:
+                        continue
+
+            # Bond holdings
+            if fd is not None and hasattr(fd, "bond_holdings") and fd.bond_holdings is not None:
+                df_bond = fd.bond_holdings
+                for metric_name, row in df_bond.iterrows():
+                    try:
+                        fund_val = row.get(symbol, row.iloc[0] if len(row) > 0 else None)
+                        if fund_val is not None:
+                            try:
+                                fv = float(fund_val)
+                                if math.isfinite(fv):
+                                    bond_holdings[str(metric_name)] = fv
+                            except (TypeError, ValueError):
+                                pass
+                    except Exception:
+                        continue
+        except Exception:
+            pass  # funds_data is optional; degrade gracefully
+
+        def _float(key: str) -> float | None:
+            v = info.get(key)
+            if isinstance(v, (int, float)) and math.isfinite(v):
+                return float(v)
+            return None
+
+        def _str(key: str) -> str | None:
+            v = info.get(key)
+            return str(v).strip() if isinstance(v, str) and v.strip() else None
+
+        return {
+            "aum": _float("totalAssets"),
+            "fund_family": _str("fundFamily"),
+            "inception_date": _str("fundInceptionDate"),
+            "legal_type": _str("legalType"),
+            "expense_ratio": _float("annualReportExpenseRatio"),
+            "yield": _float("yield"),
+            "ytd_return": _float("ytdReturn"),
+            "three_year_return": _float("threeYearAverageReturn"),
+            "five_year_return": _float("fiveYearAverageReturn"),
+            "top_holdings": top_holdings,
+            "sector_weights": sector_weights,
+            "asset_classes": asset_classes,
+            "equity_holdings": equity_holdings,
+            "bond_holdings": bond_holdings,
+        }
 
     def fetch_current_price(self, symbol: str) -> float:
         try:
@@ -66,12 +251,19 @@ class YFinanceClient:
                 "calendarYear": year,
                 "period": "FY" if period == "annual" else "Q",
             }
+            # Core fields (existing)
             self._set_numeric_field(row, "totalAssets", series, ["Total Assets"])
             self._set_numeric_field(
                 row,
                 "cashAndCashEquivalents",
                 series,
-                ["Cash And Cash Equivalents", "Cash Cash Equivalents And Short Term Investments"],
+                ["Cash And Cash Equivalents"],
+            )
+            self._set_numeric_field(
+                row,
+                "cashAndShortTermInvestments",
+                series,
+                ["Cash Cash Equivalents And Short Term Investments"],
             )
             self._set_numeric_field(row, "shortTermDebt", series, ["Current Debt"])
             self._set_numeric_field(row, "longTermDebt", series, ["Long Term Debt"])
@@ -79,7 +271,42 @@ class YFinanceClient:
                 row,
                 "totalStockholdersEquity",
                 series,
-                ["Total Equity Gross Minority Interest", "Stockholders Equity"],
+                ["Stockholders Equity", "Common Stock Equity"],
+            )
+            # Extended fields (new)
+            self._set_numeric_field(row, "currentAssets", series, ["Current Assets"])
+            self._set_numeric_field(
+                row,
+                "totalLiabilities",
+                series,
+                ["Total Liabilities Net Minority Interest"],
+            )
+            self._set_numeric_field(row, "currentLiabilities", series, ["Current Liabilities"])
+            self._set_numeric_field(row, "totalDebtDirect", series, ["Total Debt"])
+            self._set_numeric_field(row, "netDebtDirect", series, ["Net Debt"])
+            self._set_numeric_field(row, "accountsReceivable", series, ["Accounts Receivable"])
+            self._set_numeric_field(row, "inventory", series, ["Inventory"])
+            self._set_numeric_field(row, "accountsPayable", series, ["Accounts Payable"])
+            self._set_numeric_field(row, "retainedEarnings", series, ["Retained Earnings"])
+            self._set_numeric_field(
+                row,
+                "goodwillAndIntangibles",
+                series,
+                ["Goodwill And Other Intangible Assets"],
+            )
+            self._set_numeric_field(row, "netPPE", series, ["Net PPE"])
+            self._set_numeric_field(row, "workingCapital", series, ["Working Capital"])
+            self._set_numeric_field(
+                row,
+                "minorityInterest",
+                series,
+                ["Minority Interest"],
+            )
+            self._set_numeric_field(
+                row,
+                "totalEquityGrossMinorityInterest",
+                series,
+                ["Total Equity Gross Minority Interest"],
             )
             rows.append(row)
         return rows
@@ -108,9 +335,22 @@ class YFinanceClient:
                 "calendarYear": year,
                 "period": "FY" if period == "annual" else "Q",
             }
-            self._set_numeric_field(row, "revenue", series, ["Total Revenue", "Revenue"])
-            self._set_numeric_field(row, "operatingIncome", series, ["Operating Income"])
+            # Core fields (existing)
+            self._set_numeric_field(row, "revenue", series, ["Total Revenue", "Revenue", "Operating Revenue"])
+            self._set_numeric_field(row, "operatingIncome", series, ["Operating Income", "EBIT"])
             self._set_numeric_field(row, "netIncome", series, ["Net Income"])
+            # Extended fields (new)
+            self._set_numeric_field(row, "grossProfit", series, ["Gross Profit"])
+            self._set_numeric_field(row, "costOfRevenue", series, ["Cost Of Revenue", "Reconciled Cost Of Revenue"])
+            self._set_numeric_field(row, "ebitda", series, ["EBITDA", "Normalized EBITDA"])
+            self._set_numeric_field(row, "ebit", series, ["EBIT"])
+            self._set_numeric_field(row, "interestExpense", series, ["Interest Expense", "Interest Expense Non Operating"])
+            self._set_numeric_field(row, "taxProvision", series, ["Tax Provision"])
+            self._set_numeric_field(row, "totalExpenses", series, ["Total Expenses"])
+            self._set_numeric_field(row, "sellingGeneralAdministrative", series, ["Selling General And Administration"])
+            self._set_numeric_field(row, "depreciationAmortization", series, ["Reconciled Depreciation", "Depreciation And Amortization In Income Statement"])
+            self._set_numeric_field(row, "epsDiluted", series, ["Diluted EPS"])
+            self._set_numeric_field(row, "pretaxIncome", series, ["Pretax Income"])
             rows.append(row)
         return rows
 
@@ -138,14 +378,24 @@ class YFinanceClient:
                 "calendarYear": year,
                 "period": "FY" if period == "annual" else "Q",
             }
+            # Core fields (existing)
             self._set_numeric_field(row, "operatingCashFlow", series, ["Operating Cash Flow"])
             self._set_numeric_field(row, "capitalExpenditure", series, ["Capital Expenditure"])
             operating_cf = row.get("operatingCashFlow")
             capex = row.get("capitalExpenditure")
-            if isinstance(operating_cf, int | float) and isinstance(capex, int | float):
+            if isinstance(operating_cf, (int, float)) and isinstance(capex, (int, float)):
                 row["freeCashFlow"] = float(operating_cf) - float(capex)
             else:
                 row["freeCashFlow"] = None
+            # Extended fields (new)
+            self._set_numeric_field(row, "dividendsPaid", series, ["Cash Dividends Paid"])
+            self._set_numeric_field(row, "shareRepurchase", series, ["Repurchase Of Capital Stock", "Common Stock Payments"])
+            self._set_numeric_field(row, "issuanceOfDebt", series, ["Issuance Of Debt"])
+            self._set_numeric_field(row, "repaymentOfDebt", series, ["Repayment Of Debt"])
+            self._set_numeric_field(row, "changeInWorkingCapital", series, ["Change In Working Capital"])
+            self._set_numeric_field(row, "depreciationAmortization", series, ["Depreciation And Amortization"])
+            self._set_numeric_field(row, "investingCashFlow", series, ["Investing Cash Flow"])
+            self._set_numeric_field(row, "financingCashFlow", series, ["Financing Cash Flow"])
             rows.append(row)
         return rows
 
@@ -156,7 +406,7 @@ class YFinanceClient:
                 value = source.get(source_key)  # type: ignore[call-arg]
             except Exception:
                 value = None
-            if isinstance(value, (int, float)):
+            if isinstance(value, (int, float)) and math.isfinite(value):
                 target[target_key] = float(value)
                 return
         target[target_key] = None
