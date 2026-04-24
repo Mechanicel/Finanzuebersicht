@@ -265,6 +265,7 @@ class EtfData(BaseModel):
     asset_classes: dict[str, float] = Field(default_factory=dict)
     equity_holdings: dict[str, Any] = Field(default_factory=dict)
     bond_holdings: dict[str, Any] = Field(default_factory=dict)
+    funds_data_source: str | None = None
 
 
 class EtfDataCacheDocument(BaseModel):

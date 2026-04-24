@@ -455,6 +455,11 @@ class GatewayService:
             params={"period": period},
         )
 
+    async def get_marketdata_etf_data(self, symbol: str) -> dict:
+        return await self._request_marketdata_service(
+            "GET", f"/api/v1/marketdata/instruments/{symbol}/etf-data"
+        )
+
     async def get_marketdata_risk(self, symbol: str, benchmark: str | None = None) -> dict:
         return await self._request_marketdata_service(
             "GET",

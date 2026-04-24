@@ -595,6 +595,14 @@ async def marketdata_fundamentals(
     return ApiResponse(data=await service.get_marketdata_fundamentals(symbol))
 
 
+@router.get("/app/marketdata/instruments/{symbol}/etf-data", response_model=ApiResponse[dict])
+async def marketdata_etf_data(
+    symbol: str,
+    service: Annotated[GatewayService, Depends(get_gateway_service)],
+) -> ApiResponse[dict]:
+    return ApiResponse(data=await service.get_marketdata_etf_data(symbol))
+
+
 @router.get("/app/marketdata/instruments/{symbol}/metrics", response_model=ApiResponse[dict])
 async def marketdata_metrics(
     symbol: str,

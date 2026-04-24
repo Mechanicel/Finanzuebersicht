@@ -7,6 +7,12 @@ from typing import Any
 from app.models import UpstreamServiceError
 
 
+ETF_FUNDS_DATA_FALLBACK: dict[str, str] = {
+    "VGWL.DE": "VT",
+    "EUNK.DE": "XMME.L",
+}
+
+
 class YFinanceClient:
     @staticmethod
     def _get_yf_module():
@@ -44,6 +50,14 @@ class YFinanceClient:
         def _str(key: str) -> str | None:
             v = raw.get(key)
             return str(v).strip() if isinstance(v, str) and v.strip() else None
+
+        def _float_pct_to_dec(key: str) -> float | None:
+            # yfinance returns some fields (e.g. ytdReturn) as percent (−11.3 = −11.3 %)
+            # rather than decimal (−0.113). Divide by 100 so all rates use the same convention.
+            v = raw.get(key)
+            if isinstance(v, (int, float)) and math.isfinite(v):
+                return float(v) / 100.0
+            return None
 
         return {
             "quote_type": _str("quoteType"),
@@ -89,7 +103,7 @@ class YFinanceClient:
             "fund_inception_date": _str("fundInceptionDate"),
             "legal_type": _str("legalType"),
             "yield": _float("yield"),
-            "ytd_return": _float("ytdReturn"),
+            "ytd_return": _float_pct_to_dec("ytdReturn"),
             "three_year_average_return": _float("threeYearAverageReturn"),
             "five_year_average_return": _float("fiveYearAverageReturn"),
         }
@@ -103,6 +117,60 @@ class YFinanceClient:
         except Exception as exc:
             raise UpstreamServiceError("Market data provider temporarily unavailable") from exc
 
+        # Try funds_data from original symbol; fall back to US equivalent if available.
+        funds = self._fetch_funds_data(ticker, symbol)
+        funds_data_source: str | None = None
+        if funds["has_data"]:
+            funds_data_source = symbol
+        else:
+            fallback_symbol = ETF_FUNDS_DATA_FALLBACK.get(symbol)
+            if fallback_symbol:
+                try:
+                    fallback_ticker = yf.Ticker(fallback_symbol)
+                    fallback_funds = self._fetch_funds_data(fallback_ticker, fallback_symbol)
+                    if fallback_funds["has_data"]:
+                        funds = fallback_funds
+                        funds_data_source = fallback_symbol
+                except Exception:
+                    pass
+
+        def _float(key: str) -> float | None:
+            v = info.get(key)
+            if isinstance(v, (int, float)) and math.isfinite(v):
+                return float(v)
+            return None
+
+        def _str(key: str) -> str | None:
+            v = info.get(key)
+            return str(v).strip() if isinstance(v, str) and v.strip() else None
+
+        def _pct_to_dec(key: str) -> float | None:
+            v = info.get(key)
+            if isinstance(v, (int, float)) and math.isfinite(v):
+                return float(v) / 100.0
+            return None
+
+        return {
+            "aum": _float("totalAssets"),
+            "fund_family": _str("fundFamily"),
+            "inception_date": _str("fundInceptionDate"),
+            "legal_type": _str("legalType"),
+            "expense_ratio": _float("annualReportExpenseRatio"),
+            "yield": _float("yield"),
+            "ytd_return": _pct_to_dec("ytdReturn"),
+            "three_year_return": _float("threeYearAverageReturn"),
+            "five_year_return": _float("fiveYearAverageReturn"),
+            "top_holdings": funds["top_holdings"],
+            "sector_weights": funds["sector_weights"],
+            "asset_classes": funds["asset_classes"],
+            "equity_holdings": funds["equity_holdings"],
+            "bond_holdings": funds["bond_holdings"],
+            "funds_data_source": funds_data_source,
+        }
+
+    @staticmethod
+    def _fetch_funds_data(ticker: Any, symbol: str) -> dict[str, Any]:
+        """Extract holdings/sector data from ticker.funds_data. Returns empty collections on failure."""
         top_holdings: list[dict[str, Any]] = []
         sector_weights: dict[str, float] = {}
         asset_classes: dict[str, float] = {}
@@ -111,7 +179,7 @@ class YFinanceClient:
 
         try:
             fd = ticker.funds_data
-            # Top holdings
+
             if fd is not None and hasattr(fd, "top_holdings") and fd.top_holdings is not None:
                 df = fd.top_holdings
                 for symbol_key, row in df.iterrows():
@@ -127,19 +195,16 @@ class YFinanceClient:
                     except Exception:
                         continue
 
-            # Sector weights
             if fd is not None and hasattr(fd, "sector_weightings") and fd.sector_weightings:
                 for key, value in fd.sector_weightings.items():
                     if isinstance(value, (int, float)) and math.isfinite(value):
                         sector_weights[str(key)] = float(value)
 
-            # Asset classes
             if fd is not None and hasattr(fd, "asset_classes") and fd.asset_classes:
                 for key, value in fd.asset_classes.items():
                     if isinstance(value, (int, float)) and math.isfinite(value):
                         asset_classes[str(key)] = float(value)
 
-            # Equity holdings (P/E, P/B etc.)
             if fd is not None and hasattr(fd, "equity_holdings") and fd.equity_holdings is not None:
                 df_eq = fd.equity_holdings
                 for metric_name, row in df_eq.iterrows():
@@ -155,7 +220,6 @@ class YFinanceClient:
                     except Exception:
                         continue
 
-            # Bond holdings
             if fd is not None and hasattr(fd, "bond_holdings") and fd.bond_holdings is not None:
                 df_bond = fd.bond_holdings
                 for metric_name, row in df_bond.iterrows():
@@ -171,28 +235,10 @@ class YFinanceClient:
                     except Exception:
                         continue
         except Exception:
-            pass  # funds_data is optional; degrade gracefully
-
-        def _float(key: str) -> float | None:
-            v = info.get(key)
-            if isinstance(v, (int, float)) and math.isfinite(v):
-                return float(v)
-            return None
-
-        def _str(key: str) -> str | None:
-            v = info.get(key)
-            return str(v).strip() if isinstance(v, str) and v.strip() else None
+            pass
 
         return {
-            "aum": _float("totalAssets"),
-            "fund_family": _str("fundFamily"),
-            "inception_date": _str("fundInceptionDate"),
-            "legal_type": _str("legalType"),
-            "expense_ratio": _float("annualReportExpenseRatio"),
-            "yield": _float("yield"),
-            "ytd_return": _float("ytdReturn"),
-            "three_year_return": _float("threeYearAverageReturn"),
-            "five_year_return": _float("fiveYearAverageReturn"),
+            "has_data": bool(top_holdings or sector_weights or asset_classes),
             "top_holdings": top_holdings,
             "sector_weights": sector_weights,
             "asset_classes": asset_classes,

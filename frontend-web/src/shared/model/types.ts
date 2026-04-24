@@ -447,6 +447,7 @@ export interface EtfHolding {
 export interface EtfData {
   symbol: string
   instrument_type: InstrumentType
+  funds_data_source?: string | null
   aum?: number | null
   fund_family?: string | null
   inception_date?: string | null

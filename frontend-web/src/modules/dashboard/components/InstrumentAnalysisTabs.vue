@@ -195,6 +195,11 @@
           <h5>ETF-Details</h5>
 
           <template v-if="etfData">
+            <!-- Fallback source notice -->
+            <div v-if="etfData.funds_data_source && etfData.funds_data_source !== selectedSymbol" class="etf-fallback-notice">
+              ℹ Fondsdaten (Top-Holdings, Sektoren) basierend auf dem Äquivalent <strong>{{ etfData.funds_data_source }}</strong> (gleicher Index, andere Börse).
+            </div>
+
             <!-- Kennzahlen -->
             <section class="fund-section">
               <h6>Kennzahlen</h6>
@@ -270,6 +275,30 @@
               </dl>
             </section>
           </template>
+
+          <!-- Fallback: show available info from fundamentals when ETF API failed -->
+          <template v-else-if="etfFallbackMode && (fundamentals?.total_assets_aum || fundamentals?.fund_family)">
+            <div class="etf-fallback-notice">
+              ℹ Detaillierte Fondsdaten (Top-Holdings, Sektorgewichtung) sind für diesen ETF nicht verfügbar. Basisinformationen aus dem Fondsprofil:
+            </div>
+            <section class="fund-section">
+              <h6>ETF-Basisinformationen</h6>
+              <dl class="kv-grid">
+                <dt :title="GLOSSARY.aum">Fondsvolumen (AUM) ℹ</dt>
+                <dd>{{ fmtLarge(fundamentals?.total_assets_aum) }}</dd>
+                <dt :title="GLOSSARY.fundFamily">Fondsgesellschaft ℹ</dt>
+                <dd>{{ fundamentals?.fund_family ?? '—' }}</dd>
+                <dt :title="GLOSSARY.inceptionDate">Auflagedatum ℹ</dt>
+                <dd>{{ fundamentals?.fund_inception_date ?? '—' }}</dd>
+                <dt :title="GLOSSARY.fundYield">Ausschüttungsrendite ℹ</dt>
+                <dd>{{ fmtPercent(fundamentals?.fund_yield) }}</dd>
+                <dt :title="GLOSSARY.ytdReturn">YTD-Rendite ℹ</dt>
+                <dd>{{ fmtPercent(fundamentals?.ytd_return) }}</dd>
+              </dl>
+              <p v-if="fundamentals?.description" class="description-text">{{ fundamentals.description }}</p>
+            </section>
+          </template>
+
           <EmptyState v-else>Keine ETF-Daten verfügbar.</EmptyState>
         </article>
 
@@ -553,6 +582,7 @@ const risk = ref<DepotInstrumentRisk | null>(null)
 const fundamentals = ref<DepotInstrumentFundamentals | null>(null)
 const financials = ref<DepotInstrumentFinancials | null>(null)
 const etfData = ref<EtfData | null>(null)
+const etfFallbackMode = ref(false)
 const benchmarkCatalog = ref<DepotInstrumentBenchmarkCatalog>({ items: [] })
 const benchmarkSearch = ref<DepotInstrumentBenchmarkSearchResult>({ query: '', items: [], total: 0 })
 
@@ -699,6 +729,7 @@ function resetTabData() {
   fundamentals.value = null
   financials.value = null
   etfData.value = null
+  etfFallbackMode.value = false
   benchmarkCatalog.value = { items: [] }
   benchmarkSearch.value = { query: '', items: [], total: 0 }
   selectedSeries.value = timeseriesSeries[0]
@@ -754,11 +785,26 @@ async function loadActiveTabData() {
     return
   }
   if (activeTab.value === 'etf') {
-    await withLoading(async () => {
+    loading.value = true
+    try {
       if (!etfData.value || (etfData.value as EtfData & { symbol?: string }).symbol !== symbol) {
         etfData.value = await fetchInstrumentEtfData(symbol)
       }
-    })
+      etfFallbackMode.value = false
+    } catch {
+      // ETF API failed – show fundamentals data as fallback without triggering global warning.
+      etfFallbackMode.value = true
+      if (!fundamentals.value || fundamentals.value.symbol !== symbol) {
+        try {
+          fundamentals.value = await fetchInstrumentFundamentals(symbol)
+        } catch {
+          // Both failed: nothing useful to show.
+          nonFinancialWarnings.value = ['Einige Instrumentdaten konnten nicht geladen werden.']
+        }
+      }
+    } finally {
+      loading.value = false
+    }
     return
   }
   if (activeTab.value === 'financials') {
@@ -1030,6 +1076,15 @@ function formatAssetClassName(key: string): string {
   border-radius: 10px;
   padding: 0.75rem 1rem;
   color: #1e40af;
+}
+.etf-fallback-notice {
+  border: 1px solid #fed7aa;
+  background: #fff7ed;
+  border-radius: 8px;
+  padding: 0.5rem 0.75rem;
+  color: #92400e;
+  font-size: 0.85rem;
+  margin-bottom: 0.8rem;
 }
 .etf-notice p { margin: 0 0 0.3rem; }
 .etf-notice p:last-child { margin: 0; }
