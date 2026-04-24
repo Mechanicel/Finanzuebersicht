@@ -76,10 +76,29 @@ class InstrumentProfileCacheRepository:
         )
         return fetched_at
 
+    def is_delisted(self, symbol: str) -> bool:
+        doc = self._collection.find_one({"symbol": symbol}, {"delisted": 1})
+        return bool(doc and doc.get("delisted", False))
+
+    def increment_failure_count(self, symbol: str, threshold: int = 3) -> tuple[int, bool]:
+        self._collection.update_one({"symbol": symbol}, {"$inc": {"consecutive_failures": 1}}, upsert=True)
+        doc = self._collection.find_one({"symbol": symbol}, {"consecutive_failures": 1, "delisted": 1})
+        new_count = int(doc.get("consecutive_failures", 1)) if doc else 1
+        already_delisted = bool(doc and doc.get("delisted", False))
+        if not already_delisted and new_count >= threshold:
+            self._collection.update_one({"symbol": symbol}, {"$set": {"delisted": True}})
+            return new_count, True
+        return new_count, already_delisted
+
+    def reset_failure_count(self, symbol: str) -> None:
+        self._collection.update_one({"symbol": symbol}, {"$set": {"consecutive_failures": 0, "delisted": False}})
+
 
 class InMemoryInstrumentProfileCacheRepository:
     def __init__(self) -> None:
         self._data: dict[str, CachedInstrumentProfile] = {}
+        self._failure_counts: dict[str, int] = {}
+        self._delisted: set[str] = set()
 
     def get(self, symbol: str) -> CachedInstrumentProfile | None:
         return self._data.get(symbol)
@@ -101,6 +120,20 @@ class InMemoryInstrumentProfileCacheRepository:
             fetched_at=fetched_at,
         )
         return fetched_at
+
+    def is_delisted(self, symbol: str) -> bool:
+        return symbol in self._delisted
+
+    def increment_failure_count(self, symbol: str, threshold: int = 3) -> tuple[int, bool]:
+        self._failure_counts[symbol] = self._failure_counts.get(symbol, 0) + 1
+        new_count = self._failure_counts[symbol]
+        if new_count >= threshold:
+            self._delisted.add(symbol)
+        return new_count, symbol in self._delisted
+
+    def reset_failure_count(self, symbol: str) -> None:
+        self._failure_counts.pop(symbol, None)
+        self._delisted.discard(symbol)
 
 
 class CurrentPriceCacheRepository:

@@ -808,8 +808,17 @@ class AnalyticsService:
     def _build_portfolio_holdings_snapshot(self, person_id: UUID) -> tuple[list[dict], list[PortfolioHoldingSnapshot], list[str]]:
         warnings: list[str] = []
         with httpx.Client(timeout=self._timeout) as client:
-            self._person_exists(person_id, client=client)
-            portfolios, holdings = self._load_person_holdings(person_id, client=client)
+            if self._known_persons.get(person_id):
+                # Fast path: person already validated, no extra service hop needed
+                portfolios, holdings = self._load_person_holdings(person_id, client=client)
+            else:
+                # Cold path: person-service and portfolio-service are independent —
+                # run them in parallel to cut two sequential ~2s hops down to one
+                with ThreadPoolExecutor(max_workers=2) as startup_exec:
+                    _person_fut = startup_exec.submit(self._person_exists, person_id, client)
+                    _holdings_fut = startup_exec.submit(self._load_person_holdings, person_id, client)
+                _person_fut.result()  # re-raises KeyError if person not found
+                portfolios, holdings = _holdings_fut.result()
 
             symbol_sequence = [
                 str(holding.get("symbol", "")).upper().strip()

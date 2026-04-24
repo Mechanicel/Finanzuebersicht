@@ -35,7 +35,7 @@
     <template v-else>
       <div class="dashboard-top-zone" data-testid="dashboard-top-zone">
       <PortfolioSummaryBar v-if="summary" :summary="summary" />
-      <div v-else-if="isSectionLoading.summary" class="section-state">Summary wird geladen…</div>
+      <SkeletonLoader v-else-if="isSectionLoading.summary" variant="skeleton-card" />
       <div v-else-if="sectionErrors.summary" class="section-state section-state--error">
         <span>{{ sectionErrors.summary }}</span>
         <button class="btn flow-btn btn-small" type="button" @click="void reloadDashboard()">Erneut laden</button>
@@ -53,7 +53,7 @@
         v-if="attribution"
         :attribution="attribution"
       />
-      <div v-else-if="isSectionLoading.attribution" class="section-state">Attribution wird geladenâ€¦</div>
+      <SkeletonLoader v-else-if="isSectionLoading.attribution" variant="skeleton-chart" />
       <div v-else-if="sectionErrors.attribution" class="section-state section-state--error">
         <span>{{ sectionErrors.attribution }}</span>
         <button class="btn flow-btn btn-small" type="button" @click="void reloadDashboard()">Erneut laden</button>
@@ -73,7 +73,7 @@
           data-testid="dashboard-area-performance"
         >
           <PortfolioPerformancePanel v-if="performance" :performance="performance" :currency="summary?.currency" />
-          <div v-else-if="isSectionLoading.performance" class="section-state">Performance wird geladen…</div>
+          <SkeletonLoader v-else-if="isSectionLoading.performance" variant="skeleton-chart" />
           <div v-else-if="sectionErrors.performance" class="section-state section-state--error">
             <span>{{ sectionErrors.performance }}</span>
             <button class="btn flow-btn btn-small" type="button" @click="void reloadDashboard()">Erneut laden</button>
@@ -92,7 +92,7 @@
             :as-of="holdings.as_of"
             @select-holding="onSelectHolding"
           />
-          <div v-else-if="isSectionLoading.holdings" class="section-state">Holdings werden geladen…</div>
+          <SkeletonLoader v-else-if="isSectionLoading.holdings" variant="skeleton-table" :rows="5" />
           <div v-else-if="sectionErrors.holdings" class="section-state section-state--error">
             <span>{{ sectionErrors.holdings }}</span>
             <button class="btn flow-btn btn-small" type="button" @click="void reloadDashboard()">Erneut laden</button>
@@ -105,7 +105,7 @@
           data-testid="dashboard-area-exposures"
         >
           <PortfolioExposuresPanel v-if="exposures" :exposures="exposures" :currency="summary?.currency" />
-          <div v-else-if="isSectionLoading.exposures" class="section-state">Exposures werden geladen…</div>
+          <SkeletonLoader v-else-if="isSectionLoading.exposures" variant="skeleton-card" />
           <div v-else-if="sectionErrors.exposures" class="section-state section-state--error">
             <span>{{ sectionErrors.exposures }}</span>
             <button class="btn flow-btn btn-small" type="button" @click="void reloadDashboard()">Erneut laden</button>
@@ -126,7 +126,7 @@
                 :person-id="props.personId"
                 @benchmark-changed="void portfolioDashboard.loadRisk()"
               />
-              <div v-else-if="isSectionLoading.risk" class="section-state">Risiko wird geladen…</div>
+              <SkeletonLoader v-else-if="isSectionLoading.risk" variant="skeleton-card" />
               <div v-else-if="sectionErrors.risk" class="section-state section-state--error">
                 <span>{{ sectionErrors.risk }}</span>
                 <button class="btn flow-btn btn-small" type="button" @click="void reloadDashboard()">Erneut laden</button>
@@ -185,7 +185,7 @@
             </div>
             <p v-else class="contributors-empty">Keine Beitragsdaten verfügbar.</p>
           </section>
-          <div v-else-if="isSectionLoading.contributors" class="section-state">Performance-Beiträge werden geladen…</div>
+          <SkeletonLoader v-else-if="isSectionLoading.contributors" variant="skeleton-table" :rows="3" />
           <div v-else-if="sectionErrors.contributors" class="section-state section-state--error">
             <span>{{ sectionErrors.contributors }}</span>
             <button class="btn flow-btn btn-small" type="button" @click="void reloadDashboard()">Erneut laden</button>
@@ -199,7 +199,7 @@
           data-testid="dashboard-area-coverage"
         >
           <PortfolioCoverageBanner v-if="coverage" :coverage="coverage" />
-          <div v-else-if="isSectionLoading.coverage" class="section-state">Datenabdeckung wird geladen…</div>
+          <SkeletonLoader v-else-if="isSectionLoading.coverage" variant="skeleton-card" />
           <div v-else-if="sectionErrors.coverage" class="section-state section-state--error">
             <span>{{ sectionErrors.coverage }}</span>
             <button class="btn flow-btn btn-small" type="button" @click="void reloadDashboard()">Erneut laden</button>
@@ -219,6 +219,7 @@ import { computed, watch, toRef, ref } from 'vue'
 import EmptyState from '@/shared/ui/EmptyState.vue'
 import ErrorState from '@/shared/ui/ErrorState.vue'
 import LoadingState from '@/shared/ui/LoadingState.vue'
+import SkeletonLoader from '@/shared/ui/SkeletonLoader.vue'
 import PortfolioSummaryBar from '@/modules/dashboard/components/PortfolioSummaryBar.vue'
 import PortfolioPerformancePanel from '@/modules/dashboard/components/PortfolioPerformancePanel.vue'
 import PortfolioRiskPanel from '@/modules/dashboard/components/PortfolioRiskPanel.vue'

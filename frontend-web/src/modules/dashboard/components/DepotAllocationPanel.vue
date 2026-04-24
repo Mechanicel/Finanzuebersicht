@@ -52,8 +52,15 @@
             :class="{ active: selectedSymbol === holding.symbol }"
             @click="$emit('select-symbol', holding.symbol)"
           >
-            <td>{{ holding.symbol }}</td>
-            <td>{{ holding.marketdata?.company_name ?? holding.display_name ?? '–' }}</td>
+            <td>
+              {{ holding.symbol }}
+              <span
+                v-if="holding.marketdata?.possibly_delisted"
+                class="delisted-badge"
+                title="Keine aktuellen Kursdaten – möglicherweise delisted"
+              >?</span>
+            </td>
+            <td>{{ holding.marketdata?.name ?? holding.marketdata?.company_name ?? holding.display_name ?? '–' }}</td>
             <td>{{ holding.marketdata?.sector ?? 'n/a' }}</td>
             <td>{{ holding.marketdata?.country ?? 'n/a' }}</td>
             <td>{{ holding.marketdata?.currency ?? holding.currency }}</td>
@@ -140,4 +147,5 @@ function pickRow(row: { key: string }) {
 .holdings-table th, .holdings-table td { border-bottom: 1px solid #e2e8f0; padding: 0.45rem; text-align: left; }
 .holdings-table tbody tr { cursor: pointer; }
 .holdings-table tbody tr.active { background: #eff6ff; }
+.delisted-badge { display: inline-block; margin-left: 0.25rem; background: #fef3c7; border: 1px solid #f59e0b; color: #92400e; border-radius: 4px; padding: 0 0.25rem; font-size: 0.75rem; cursor: help; }
 </style>

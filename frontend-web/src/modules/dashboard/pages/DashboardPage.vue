@@ -255,11 +255,7 @@ watch(
 watch(
   () => route.query.personId,
   () => {
-    if (isLegacyOpen.value) {
-      loadAllSections()
-      return
-    }
-
+    isLegacyOpen.value = false
     resetSections()
   }
 )

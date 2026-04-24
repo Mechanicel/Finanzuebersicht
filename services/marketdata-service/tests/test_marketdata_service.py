@@ -1020,3 +1020,61 @@ def test_risk_includes_correlation_tracking_error_and_max_drawdown() -> None:
     assert risk["beta"] is not None
     assert risk["tracking_error"] is not None
     assert round(risk["max_drawdown"], 6) == -0.1
+
+
+def test_delisted_blacklist_repository_marks_after_threshold() -> None:
+    """Increment failure count 3 times → is_delisted returns True."""
+    _, _, profile_repository, _, _, _ = build_service()
+
+    assert not profile_repository.is_delisted("DX2J.DE")
+    count1, delisted1 = profile_repository.increment_failure_count("DX2J.DE")
+    count2, delisted2 = profile_repository.increment_failure_count("DX2J.DE")
+    count3, delisted3 = profile_repository.increment_failure_count("DX2J.DE")
+
+    assert count1 == 1 and not delisted1
+    assert count2 == 2 and not delisted2
+    assert count3 == 3 and delisted3
+    assert profile_repository.is_delisted("DX2J.DE")
+
+
+def test_delisted_blacklist_skips_yfinance_for_pre_delisted_symbol() -> None:
+    """Price refresh must not reach yfinance when symbol is already delisted."""
+    fake_yf = FakeYFinance()
+    fake_client = FakeYFinanceClient(fake_yf)
+    service, _, profile_repository, _, _, _ = build_service(yfinance_client=fake_client)
+
+    # Pre-seed delisted state via repository (simulates 3 prior failures across loads)
+    for _ in range(3):
+        profile_repository.increment_failure_count("DX2J.DE")
+
+    assert profile_repository.is_delisted("DX2J.DE")
+
+    calls_before = list(fake_yf.calls)
+    service._get_price_with_swr("DX2J.DE")
+    # No new yfinance calls should have been made
+    assert fake_yf.calls == calls_before
+
+
+def test_delisted_blacklist_exposed_in_holdings_summary() -> None:
+    """HoldingsSummaryItem.possibly_delisted is True for symbols marked delisted."""
+    _, _, profile_repository, _, _, _ = build_service()
+    service, _, profile_repository, _, _, _ = build_service()
+
+    for _ in range(3):
+        profile_repository.increment_failure_count("DX2J.DE")
+
+    result = service.get_holdings_summary("DX2J.DE")
+    assert result.total == 1
+    assert result.items[0].possibly_delisted is True
+
+
+def test_delisted_blacklist_reset_clears_flag() -> None:
+    """reset_failure_count clears the delisted flag and allows future price fetches."""
+    _, _, profile_repository, _, _, _ = build_service()
+
+    for _ in range(3):
+        profile_repository.increment_failure_count("DX2J.DE")
+    assert profile_repository.is_delisted("DX2J.DE")
+
+    profile_repository.reset_failure_count("DX2J.DE")
+    assert not profile_repository.is_delisted("DX2J.DE")

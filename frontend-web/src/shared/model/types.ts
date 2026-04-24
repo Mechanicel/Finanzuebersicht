@@ -325,25 +325,22 @@ export interface MarketdataProfile {
 export interface DepotHoldingWithSummary extends HoldingReadModel {
   portfolio_id: string
   portfolio_name: string
-  marketdata?: {
-    symbol: string
-    company_name?: string | null
-    sector?: string | null
-    country?: string | null
-    currency?: string | null
-    last_price?: number | null
-    market_cap?: number | null
-  } | null
+  marketdata?: DepotMarketdataHoldingSummaryItem | null
 }
 
 export interface DepotMarketdataHoldingSummaryItem {
   symbol: string
+  name?: string | null
   company_name?: string | null
   sector?: string | null
   country?: string | null
   currency?: string | null
+  current_price?: number | null
   last_price?: number | null
   market_cap?: number | null
+  possibly_delisted?: boolean | null
+  cache_status?: string | null
+  as_of?: string | null
 }
 
 export interface DepotMarketdataHoldingsSummary {

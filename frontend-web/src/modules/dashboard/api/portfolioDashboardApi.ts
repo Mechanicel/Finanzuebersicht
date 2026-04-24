@@ -46,13 +46,19 @@ export async function fetchPortfolioHoldings(personId: string) {
   ).data.data
 }
 
-export async function fetchPortfolioRisk(personId: string) {
-  return (await http.get<ApiEnvelope<PortfolioRiskReadModel>>(`/app/persons/${personId}/portfolio-risk`)).data.data
+export async function fetchPortfolioRisk(personId: string, range: PortfolioDashboardRange | string = '3m') {
+  return (
+    await http.get<ApiEnvelope<PortfolioRiskReadModel>>(`/app/persons/${personId}/portfolio-risk`, {
+      params: { range }
+    })
+  ).data.data
 }
 
-export async function fetchPortfolioContributors(personId: string) {
+export async function fetchPortfolioContributors(personId: string, range: PortfolioDashboardRange | string = '3m') {
   return (
-    await http.get<ApiEnvelope<PortfolioContributorsReadModel>>(`/app/persons/${personId}/portfolio-contributors`)
+    await http.get<ApiEnvelope<PortfolioContributorsReadModel>>(`/app/persons/${personId}/portfolio-contributors`, {
+      params: { range }
+    })
   ).data.data
 }
 

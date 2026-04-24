@@ -162,6 +162,7 @@ class HoldingsSummaryItem(BaseModel):
     as_of: str | None = None
     coverage: str
     cache_status: CacheStatus = "cache_miss_pending"
+    possibly_delisted: bool = False
 
 
 class HoldingsSummaryResponse(BaseModel):

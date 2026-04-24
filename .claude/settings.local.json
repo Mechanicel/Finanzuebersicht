@@ -26,7 +26,18 @@
       "Bash(PYTHONPATH=\"services/marketdata-service\" uv run pytest services/marketdata-service/tests/test_marketdata_service.py::test_financials_both_providers_fail_uses_stale_cache -v --tb=long)",
       "Bash(PYTHONPATH=\"services/marketdata-service\" uv run pytest services/marketdata-service/tests/test_marketdata_service.py -q)",
       "Bash(git stash *)",
-      "Bash(PYTHONPATH=\"services/marketdata-service\" uv run pytest services/marketdata-service/tests/test_marketdata_service.py -q -k \"history_cache_miss or risk_uses or timeseries_drawdown or holdings_summary or history_seed_negative\")"
+      "Bash(PYTHONPATH=\"services/marketdata-service\" uv run pytest services/marketdata-service/tests/test_marketdata_service.py -q -k \"history_cache_miss or risk_uses or timeseries_drawdown or holdings_summary or history_seed_negative\")",
+      "Bash(make test *)",
+      "Bash(PYTHONPATH=\"services/marketdata-service\" uv run pytest services/marketdata-service/tests/test_marketdata_service.py -q --tb=short)",
+      "Bash(PYTHONPATH=\"services/marketdata-service\" uv run pytest services/marketdata-service/tests/test_marketdata_service.py::test_holdings_summary_returns_partial_warnings -q)",
+      "Bash(PYTHONPATH=\"services/marketdata-service\" uv run pytest services/marketdata-service/tests/test_marketdata_service.py -k \"delisted\" -v)",
+      "Bash(PYTHONPATH=\"services/marketdata-service\" uv run pytest services/marketdata-service/tests/test_marketdata_service.py -q --tb=line)",
+      "Bash(PYTHONPATH=\"services/marketdata-service\" uv run pytest services/marketdata-service/tests/test_marketdata_service.py -q --tb=no)",
+      "Bash(PowerShell *)",
+      "Bash(PYTHONPATH=services/marketdata-service uv run python -m pytest services/marketdata-service/tests/test_marketdata_service.py -x -q)",
+      "Bash(PYTHONPATH=services/marketdata-service uv run python -m pytest services/marketdata-service/tests/test_marketdata_service.py::test_get_instrument_history_cache_miss_seeds_synchronously -x -q)",
+      "Bash(PYTHONPATH=services/marketdata-service uv run python -m pytest services/marketdata-service/tests/test_marketdata_service.py -q --ignore-glob=\"*test_fmp*\")",
+      "Bash(PYTHONPATH=services/marketdata-service uv run python -m pytest services/marketdata-service/tests/test_marketdata_service.py -q)"
     ]
   }
 }

@@ -2,7 +2,6 @@ import { computed, ref, unref, type Ref } from 'vue'
 import { extractApiErrorMessage } from '@/shared/api/extractApiErrorMessage'
 import {
   fetchPortfolioAttribution,
-  fetchPortfolioDashboard,
   fetchPortfolioContributors,
   fetchPortfolioDataCoverage,
   fetchPortfolioExposures,
@@ -15,7 +14,6 @@ import { resolvePortfolioAttribution } from '@/modules/dashboard/model/portfolio
 import type {
   PortfolioAttributionReadModel,
   PortfolioContributorsReadModel,
-  PortfolioDashboardReadModel,
   PortfolioDashboardRange,
   PortfolioDataCoverageReadModel,
   PortfolioExposuresReadModel,
@@ -179,11 +177,11 @@ export function usePortfolioDashboard(personId: MaybeRef<string>) {
     }
   }
 
-  async function loadRisk(version = loadVersion.value) {
+  async function loadRisk(range: PortfolioDashboardRange | string = '3m', version = loadVersion.value) {
     loadingStates.value.risk = true
     errors.value.risk = ''
     try {
-      const payload = await fetchPortfolioRisk(currentPersonId())
+      const payload = await fetchPortfolioRisk(currentPersonId(), range)
       if (isCurrentLoad(version)) {
         risk.value = payload
       }
@@ -201,11 +199,11 @@ export function usePortfolioDashboard(personId: MaybeRef<string>) {
     }
   }
 
-  async function loadContributors(version = loadVersion.value) {
+  async function loadContributors(range: PortfolioDashboardRange | string = '3m', version = loadVersion.value) {
     loadingStates.value.contributors = true
     errors.value.contributors = ''
     try {
-      const payload = await fetchPortfolioContributors(currentPersonId())
+      const payload = await fetchPortfolioContributors(currentPersonId(), range)
       if (isCurrentLoad(version)) {
         contributors.value = payload
         updateAttribution()
@@ -268,33 +266,6 @@ export function usePortfolioDashboard(personId: MaybeRef<string>) {
     }
   }
 
-  async function runSectionLoad<T>(loader: () => Promise<T>) {
-    try {
-      const value = await loader()
-      return { status: 'fulfilled', value } as const
-    } catch (reason) {
-      return { status: 'rejected', reason } as const
-    }
-  }
-
-  async function loadInOrder(version: number) {
-    const results = [] as Array<
-      | { status: 'fulfilled'; value: unknown }
-      | { status: 'rejected'; reason: unknown }
-    >
-
-    results.push(await runSectionLoad(() => loadSummary(version)))
-    results.push(await runSectionLoad(() => loadPerformance(version)))
-    results.push(await runSectionLoad(() => loadHoldings(version)))
-    results.push(await runSectionLoad(() => loadRisk(version)))
-    results.push(await runSectionLoad(() => loadContributors(version)))
-    results.push(await runSectionLoad(() => loadAttribution('3m', version)))
-    results.push(await runSectionLoad(() => loadCoverage(version)))
-    results.push(await runSectionLoad(() => loadExposures(version)))
-
-    return results
-  }
-
   async function loadInitial(range: PortfolioDashboardRange | string = '3m') {
     return loadBootstrap(range)
   }
@@ -303,52 +274,35 @@ export function usePortfolioDashboard(personId: MaybeRef<string>) {
     return Promise.allSettled([])
   }
 
-  async function loadBootstrap(range: PortfolioDashboardRange | string = '3m'): Promise<PortfolioDashboardReadModel> {
+  async function loadBootstrap(range: PortfolioDashboardRange | string = '3m'): Promise<void> {
     loading.value = true
     clearErrors()
     const version = ++loadVersion.value
-    const keys: SectionKey[] = ['summary', 'performance', 'exposures', 'holdings', 'risk', 'attribution', 'contributors', 'coverage']
-    keys.forEach((key) => {
+
+    const allKeys: SectionKey[] = ['summary', 'performance', 'exposures', 'holdings', 'risk', 'attribution', 'contributors', 'coverage']
+    allKeys.forEach((key) => {
       loadingStates.value[key] = true
       errors.value[key] = ''
     })
 
-    try {
-      const payload = await fetchPortfolioDashboard(currentPersonId(), range)
-      if (isCurrentLoad(version)) {
-        summary.value = payload.summary
-        performance.value = payload.performance
-        exposures.value = payload.exposures
-        holdings.value = payload.holdings
-        risk.value = payload.risk
-        contributors.value = payload.contributors
-        attribution.value = resolvePortfolioAttribution({
-          attribution: payload.attribution,
-          contributors: payload.contributors,
-          performance: payload.performance,
-          risk: payload.risk,
-          personId: payload.person_id
-        })
-        coverage.value = payload.coverage
-      }
-      return payload
-    } catch (rawError) {
-      const message = normalizeError(rawError, 'Portfolio-Dashboard-Daten konnten nicht geladen werden.')
-      if (isCurrentLoad(version)) {
-        error.value = message
-        keys.forEach((key) => {
-          errors.value[key] = message
-        })
-      }
-      throw rawError
-    } finally {
-      if (isCurrentLoad(version)) {
-        keys.forEach((key) => {
-          loadingStates.value[key] = false
-        })
-        loading.value = false
-      }
-    }
+    // Phase 1: fast — DB reads + cached prices; renders UI as soon as these settle
+    await Promise.allSettled([
+      loadSummary(version),
+      loadHoldings(version),
+      loadExposures(version)
+    ])
+
+    if (!isCurrentLoad(version)) return
+    loading.value = false
+
+    // Phase 2: slow — time-series calculations; non-blocking, errors are section-level
+    void Promise.allSettled([
+      loadPerformance(version),
+      loadRisk(range, version),
+      loadAttribution(range, version),
+      loadContributors(range, version),
+      loadCoverage(version)
+    ])
   }
 
   async function loadAll(range: PortfolioDashboardRange | string = '3m') {

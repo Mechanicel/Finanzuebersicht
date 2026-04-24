@@ -130,6 +130,9 @@ class MarketDataService:
         self._inflight_guard = threading.Lock()
         self._per_symbol_locks: dict[tuple[str, str], threading.Lock] = {}
         self._locks_guard = threading.Lock()
+        # In-memory delisted set: populated from MongoDB on first is_delisted() hit, persists for the session.
+        # Avoids repeated MongoDB round-trips for symbols already known to be delisted.
+        self._delisted_symbols_inmem: set[str] = set()
 
     def search_instruments(self, query: str, limit: int) -> InstrumentSearchResponse:
         method_started_at = time.perf_counter()
@@ -279,6 +282,7 @@ class MarketDataService:
                     as_of=price_payload.get("as_of"),
                     coverage="profile+price",
                     cache_status=cache_status,
+                    possibly_delisted=self._profile_repository.is_delisted(symbol),
                 )
                 return item, None
             except Exception as exc:
@@ -998,10 +1002,10 @@ class MarketDataService:
         if cached is not None:
             self._trigger_background_refresh("profile", normalized, self._refresh_profile_now)
             return {"name": cached.visible_profile.company_name, "sector": cached.visible_profile.sector, "country": cached.visible_profile.country, "currency": cached.visible_profile.currency, "provider": cached.source, "cache_status": "stale_cache"}
-        refreshed = self._refresh_profile_now(normalized)
-        if refreshed is None:
-            return {"name": None, "sector": None, "country": None, "currency": None, "provider": None, "cache_status": "cache_miss_pending"}
-        return refreshed | {"cache_status": "cache_miss_seeded"}
+        # No profile in cache at all — trigger background fetch and return immediately.
+        # Phase-1 rendering (holdings table) doesn't need name/sector/country/currency.
+        self._trigger_background_refresh("profile", normalized, self._refresh_profile_now)
+        return {"name": None, "sector": None, "country": None, "currency": None, "provider": None, "cache_status": "cache_miss_pending"}
 
     def _get_price_with_swr(self, symbol: str) -> dict[str, Any]:
         normalized = self._normalize_symbol(symbol)
@@ -1301,6 +1305,10 @@ class MarketDataService:
     def _refresh_price_now(self, symbol: str) -> dict[str, Any] | None:
         if self._is_negative_cached("price", symbol):
             return None
+        if symbol in self._delisted_symbols_inmem or self._profile_repository.is_delisted(symbol):
+            self._delisted_symbols_inmem.add(symbol)
+            LOGGER.debug("skipping price refresh for possibly delisted symbol %s", symbol)
+            return None
         lock = self._lock_for("price", symbol)
         with lock:
             if self._is_negative_cached("price", symbol):
@@ -1309,14 +1317,24 @@ class MarketDataService:
                 current_price = self._yfinance_client.fetch_current_price(symbol)
                 trade_date = date.today().isoformat()
                 stored = self._current_price_repository.upsert(symbol, trade_date, current_price, source="yfinance_1d_1m")
+                self._profile_repository.reset_failure_count(symbol)
+                self._delisted_symbols_inmem.discard(symbol)
                 return {"current_price": current_price, "as_of": trade_date, "provider": "yfinance", "price_source": "yfinance_1d_1m", "fetched_at": stored.fetched_at}
             except Exception:
+                count, now_delisted = self._profile_repository.increment_failure_count(symbol)
+                if now_delisted:
+                    self._delisted_symbols_inmem.add(symbol)
+                    LOGGER.warning("symbol %s marked as possibly delisted after %d consecutive yfinance price failures", symbol, count)
                 self._set_negative_cache("price", symbol)
                 LOGGER.warning("price refresh failed for %s", symbol, exc_info=True)
                 return None
 
     def _refresh_history_seed_now(self, symbol: str) -> bool:
         if self._is_negative_cached("history_seed", symbol):
+            return False
+        if symbol in self._delisted_symbols_inmem or self._profile_repository.is_delisted(symbol):
+            self._delisted_symbols_inmem.add(symbol)
+            LOGGER.debug("skipping history seed for possibly delisted symbol %s", symbol)
             return False
         lock = self._lock_for("history", symbol)
         with lock:
